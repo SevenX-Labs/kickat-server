@@ -145,10 +145,8 @@ describe('AuthService', () => {
       const mockRes: any = { cookie: jest.fn() };
       const dto = { code: 'bad_code', redirectUri: 'http://localhost/callback' };
 
-      // Mock OAuth2Client prototype to fail instantly without network calls
       jest.spyOn(OAuth2Client.prototype, 'getToken').mockRejectedValue(new Error('Invalid code'));
 
-      // Make 10 requests (fail at OAuth level, pass rate limit)
       for (let i = 0; i < 10; i++) {
         try {
           await service.googleAuth(dto, mockReq, mockRes);
@@ -157,7 +155,6 @@ describe('AuthService', () => {
         }
       }
 
-      // The 11th request from the same IP must throw 429 Too Many Requests
       await expect(service.googleAuth(dto, mockReq, mockRes)).rejects.toThrow(
         new HttpException(
           'Rate limit exceeded — max 10 Google auth requests per hour per IP',
@@ -219,7 +216,11 @@ describe('AuthService', () => {
       });
 
       prismaMock.refreshToken.create.mockImplementation(async ({ data }: any) => {
-        const newRecord = { id: `token-${dbTokensStore.length + 1}-id`, ...data };
+        const newRecord = {
+          id: `token-${dbTokensStore.length + 1}-id`,
+          isRevoked: false,
+          ...data,
+        };
         dbTokensStore.push(newRecord);
         return newRecord;
       });
