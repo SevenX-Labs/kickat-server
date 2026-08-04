@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
@@ -27,6 +28,43 @@ export class ProfileController {
   @Get()
   async getProfile(@CurrentUser('id') userId: string) {
     return this.profileService.getProfile(userId);
+  }
+
+  @Auth()
+  @Post('basic')
+  @HttpCode(HttpStatus.OK)
+  async updateBasicProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateUserProfileDto,
+  ) {
+    return this.profileService.updateBasicProfile(userId, dto);
+  }
+
+  @Auth()
+  @Post('address')
+  @HttpCode(HttpStatus.CREATED)
+  async addAddressStep(
+    @CurrentUser('id') userId: string,
+    @Body() dto: CreateAddressDto,
+  ) {
+    return this.profileService.addAddress(userId, dto);
+  }
+
+  @Auth()
+  @Post('pet')
+  @HttpCode(HttpStatus.CREATED)
+  async addPetStep(
+    @CurrentUser('id') userId: string,
+    @Body() dto: CreatePetDto,
+  ) {
+    return this.profileService.addPet(userId, dto);
+  }
+
+  @Auth()
+  @Post('complete')
+  @HttpCode(HttpStatus.OK)
+  async completeOnboarding(@CurrentUser('id') userId: string) {
+    return this.profileService.completeProfile(userId);
   }
 
   @Auth()
@@ -46,7 +84,7 @@ export class ProfileController {
     @CurrentUser('id') userId: string,
     @Body() dto: UpdateProfileDto,
   ) {
-    return this.profileService.updateProfile(userId, dto);
+    return this.profileService.updateBasicProfile(userId, dto as any);
   }
 
   @Auth()
@@ -56,7 +94,7 @@ export class ProfileController {
     @CurrentUser('id') userId: string,
     @Body() dto: UpdateProfileDto,
   ) {
-    return this.profileService.updateProfile(userId, dto);
+    return this.profileService.updateBasicProfile(userId, dto as any);
   }
 
   @Auth()

@@ -38,6 +38,10 @@ export class CreateAddressDto {
   @IsString({ message: 'state must be a string' })
   state: string;
 
+  @IsOptional()
+  @IsString({ message: 'country must be a string' })
+  country?: string = 'India';
+
   @IsNotEmpty({ message: 'pincode is required' })
   @IsString({ message: 'pincode must be a string' })
   @Matches(/^\d{5,6}$/, { message: 'pincode must be a valid 5 or 6 digit postal code' })

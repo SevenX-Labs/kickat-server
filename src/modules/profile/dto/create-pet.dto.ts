@@ -1,5 +1,7 @@
 import {
+  IsArray,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -28,6 +30,16 @@ export enum DietaryPreferenceDto {
   BOTH = 'BOTH',
 }
 
+export enum AgeUnitDto {
+  MONTHS = 'MONTHS',
+  YEARS = 'YEARS',
+}
+
+export enum WeightUnitDto {
+  KG = 'KG',
+  LBS = 'LBS',
+}
+
 export class CreatePetDto {
   @IsNotEmpty({ message: 'species is required' })
   @IsEnum(PetSpeciesDto, { message: 'species must be DOG, CAT, BIRD, FISH, RABBIT, or OTHER' })
@@ -42,8 +54,17 @@ export class CreatePetDto {
   breed?: string;
 
   @IsOptional()
-  @IsString({ message: 'dobOrAge must be a string' })
-  dobOrAge?: string;
+  @IsString({ message: 'dateOfBirth must be a string (YYYY-MM-DD)' })
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsInt({ message: 'age must be an integer' })
+  @Min(0, { message: 'age cannot be negative' })
+  age?: number;
+
+  @IsOptional()
+  @IsEnum(AgeUnitDto, { message: 'ageUnit must be MONTHS or YEARS' })
+  ageUnit?: AgeUnitDto;
 
   @IsOptional()
   @IsEnum(GenderDto, { message: 'gender must be MALE, FEMALE, or PREFER_NOT_TO_SAY' })
@@ -55,10 +76,19 @@ export class CreatePetDto {
   weight?: number;
 
   @IsOptional()
+  @IsEnum(WeightUnitDto, { message: 'weightUnit must be KG or LBS' })
+  weightUnit?: WeightUnitDto = WeightUnitDto.KG;
+
+  @IsOptional()
   @IsEnum(DietaryPreferenceDto, { message: 'dietaryPreference must be VEG, NON_VEG, or BOTH' })
   dietaryPreference?: DietaryPreferenceDto;
 
   @IsOptional()
-  @IsString({ message: 'allergiesHealthNotes must be a string' })
-  allergiesHealthNotes?: string;
+  @IsArray({ message: 'allergies must be an array of strings' })
+  @IsString({ each: true, message: 'each allergy must be a string' })
+  allergies?: string[];
+
+  @IsOptional()
+  @IsString({ message: 'healthNotes must be a string' })
+  healthNotes?: string;
 }

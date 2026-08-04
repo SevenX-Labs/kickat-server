@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
@@ -16,7 +17,7 @@ export class ProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * GET /profile (Get user profile with addresses and pets)
+   * GET /profile (Get complete user profile with addresses and pets)
    */
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -40,7 +41,9 @@ export class ProfileService {
         phone: user.phone,
         gender: user.gender,
         dob: user.dob,
+        profileImage: user.profileImage,
         isProfileComplete: user.isProfileComplete,
+        profileCompleted: user.isProfileComplete,
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         addresses: user.addresses,
@@ -50,9 +53,9 @@ export class ProfileService {
   }
 
   /**
-   * POST /profile (Create or complete full unified user profile)
+   * POST /profile/basic (Step 1 — Create/Update User Basic Profile)
    */
-  async createOrUpdateProfile(userId: string, dto: CreateProfileDto) {
+  async updateBasicProfile(userId: string, dto: UpdateUserProfileDto) {
     const existingUser = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -61,6 +64,12 @@ export class ProfileService {
       throw new NotFoundException('User not found');
     }
 
+    // Google verified emails are read-only
+    if (existingUser.isEmailVerified && dto.email && dto.email !== existingUser.email) {
+      throw new BadRequestException('Email is verified via Google login and cannot be modified');
+    }
+
+    // Check email uniqueness if email is changing
     if (dto.email && dto.email !== existingUser.email) {
       const emailTaken = await this.prisma.user.findFirst({
         where: { email: dto.email, NOT: { id: userId } },
@@ -76,79 +85,10 @@ export class ProfileService {
       where: { id: userId },
       data: {
         name: dto.name,
-        email: dto.email ?? existingUser.email,
-        gender: dto.gender as any,
-        dob: dobValue,
-        isProfileComplete: true,
-      },
-    });
-
-    if (dto.addresses && dto.addresses.length > 0) {
-      await this.prisma.address.createMany({
-        data: dto.addresses.map((addr) => ({
-          userId,
-          type: addr.type as any,
-          houseFlat: addr.houseFlat,
-          buildingStreet: addr.buildingStreet,
-          landmark: addr.landmark,
-          city: addr.city,
-          state: addr.state,
-          pincode: addr.pincode,
-          isDefault: addr.isDefault ?? false,
-          deliveryInstructions: addr.deliveryInstructions,
-        })),
-      });
-    }
-
-    if (dto.pets && dto.pets.length > 0) {
-      await this.prisma.pet.createMany({
-        data: dto.pets.map((pet) => ({
-          userId,
-          species: pet.species as any,
-          name: pet.name,
-          breed: pet.breed,
-          dobOrAge: pet.dobOrAge,
-          gender: pet.gender as any,
-          weight: pet.weight,
-          dietaryPreference: pet.dietaryPreference as any,
-          allergiesHealthNotes: pet.allergiesHealthNotes,
-        })),
-      });
-    }
-
-    return this.getProfile(userId);
-  }
-
-  /**
-   * PUT / PATCH /profile (Update user basic details)
-   */
-  async updateProfile(userId: string, dto: UpdateProfileDto) {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!existingUser) {
-      throw new NotFoundException('User not found');
-    }
-
-    if (dto.email && dto.email !== existingUser.email) {
-      const emailTaken = await this.prisma.user.findFirst({
-        where: { email: dto.email, NOT: { id: userId } },
-      });
-      if (emailTaken) {
-        throw new BadRequestException('Email address is already in use');
-      }
-    }
-
-    const dobValue = dto.dob ? new Date(dto.dob) : undefined;
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(dto.name && { name: dto.name }),
         ...(dto.email && { email: dto.email }),
         ...(dto.gender && { gender: dto.gender as any }),
         ...(dobValue && { dob: dobValue }),
+        ...(dto.profileImage !== undefined && { profileImage: dto.profileImage }),
       },
     });
 
@@ -156,7 +96,57 @@ export class ProfileService {
   }
 
   /**
-   * POST /profile/addresses (Add a delivery address)
+   * POST /profile (Create or update full unified profile in one call)
+   */
+  async createOrUpdateProfile(userId: string, dto: CreateProfileDto) {
+    await this.updateBasicProfile(userId, {
+      name: dto.name,
+      email: dto.email,
+      gender: dto.gender,
+      dob: dto.dob,
+    });
+
+    if (dto.addresses && dto.addresses.length > 0) {
+      for (const addr of dto.addresses) {
+        await this.addAddress(userId, addr);
+      }
+    }
+
+    if (dto.pets && dto.pets.length > 0) {
+      for (const pet of dto.pets) {
+        await this.addPet(userId, pet);
+      }
+    }
+
+    return this.completeProfile(userId);
+  }
+
+  /**
+   * POST /profile/complete (Step 4 — Finalize Onboarding)
+   */
+  async completeProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.name) {
+      throw new BadRequestException('Full name is required to complete profile onboarding');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isProfileComplete: true },
+    });
+
+    return this.getProfile(updatedUser.id);
+  }
+
+  /**
+   * POST /profile/addresses (Step 2 — Add Delivery Address)
    */
   async addAddress(userId: string, dto: CreateAddressDto) {
     if (dto.isDefault) {
@@ -175,6 +165,7 @@ export class ProfileService {
         landmark: dto.landmark,
         city: dto.city,
         state: dto.state,
+        country: dto.country || 'India',
         pincode: dto.pincode,
         isDefault: dto.isDefault ?? false,
         deliveryInstructions: dto.deliveryInstructions,
@@ -189,7 +180,7 @@ export class ProfileService {
   }
 
   /**
-   * PUT /profile/addresses/:id (Update a delivery address)
+   * PUT /profile/addresses/:id (Update Address)
    */
   async updateAddress(userId: string, addressId: string, dto: UpdateAddressDto) {
     const existing = await this.prisma.address.findFirst({
@@ -216,6 +207,7 @@ export class ProfileService {
         ...(dto.landmark !== undefined && { landmark: dto.landmark }),
         ...(dto.city && { city: dto.city }),
         ...(dto.state && { state: dto.state }),
+        ...(dto.country && { country: dto.country }),
         ...(dto.pincode && { pincode: dto.pincode }),
         ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
         ...(dto.deliveryInstructions !== undefined && {
@@ -232,7 +224,7 @@ export class ProfileService {
   }
 
   /**
-   * DELETE /profile/addresses/:id (Delete a delivery address)
+   * DELETE /profile/addresses/:id
    */
   async deleteAddress(userId: string, addressId: string) {
     const existing = await this.prisma.address.findFirst({
@@ -254,20 +246,26 @@ export class ProfileService {
   }
 
   /**
-   * POST /profile/pets (Add a pet profile)
+   * POST /profile/pets (Step 3 — Add Pet Profile)
    */
   async addPet(userId: string, dto: CreatePetDto) {
+    const dobValue = dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined;
+
     const pet = await this.prisma.pet.create({
       data: {
         userId,
         species: dto.species as any,
         name: dto.name,
         breed: dto.breed,
-        dobOrAge: dto.dobOrAge,
+        dateOfBirth: dobValue,
+        age: dto.age,
+        ageUnit: dto.ageUnit as any,
         gender: dto.gender as any,
         weight: dto.weight,
+        weightUnit: (dto.weightUnit || 'KG') as any,
         dietaryPreference: dto.dietaryPreference as any,
-        allergiesHealthNotes: dto.allergiesHealthNotes,
+        allergies: dto.allergies || [],
+        healthNotes: dto.healthNotes,
       },
     });
 
@@ -279,7 +277,7 @@ export class ProfileService {
   }
 
   /**
-   * PUT /profile/pets/:id (Update a pet profile)
+   * PUT /profile/pets/:id (Update Pet Profile)
    */
   async updatePet(userId: string, petId: string, dto: UpdatePetDto) {
     const existing = await this.prisma.pet.findFirst({
@@ -290,21 +288,25 @@ export class ProfileService {
       throw new NotFoundException('Pet profile not found');
     }
 
+    const dobValue = dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined;
+
     const pet = await this.prisma.pet.update({
       where: { id: petId },
       data: {
         ...(dto.species && { species: dto.species as any }),
         ...(dto.name && { name: dto.name }),
         ...(dto.breed !== undefined && { breed: dto.breed }),
-        ...(dto.dobOrAge !== undefined && { dobOrAge: dto.dobOrAge }),
+        ...(dobValue && { dateOfBirth: dobValue }),
+        ...(dto.age !== undefined && { age: dto.age }),
+        ...(dto.ageUnit && { ageUnit: dto.ageUnit as any }),
         ...(dto.gender && { gender: dto.gender as any }),
         ...(dto.weight !== undefined && { weight: dto.weight }),
+        ...(dto.weightUnit && { weightUnit: dto.weightUnit as any }),
         ...(dto.dietaryPreference && {
           dietaryPreference: dto.dietaryPreference as any,
         }),
-        ...(dto.allergiesHealthNotes !== undefined && {
-          allergiesHealthNotes: dto.allergiesHealthNotes,
-        }),
+        ...(dto.allergies && { allergies: dto.allergies }),
+        ...(dto.healthNotes !== undefined && { healthNotes: dto.healthNotes }),
       },
     });
 
@@ -316,7 +318,7 @@ export class ProfileService {
   }
 
   /**
-   * DELETE /profile/pets/:id (Delete a pet profile)
+   * DELETE /profile/pets/:id
    */
   async deletePet(userId: string, petId: string) {
     const existing = await this.prisma.pet.findFirst({
