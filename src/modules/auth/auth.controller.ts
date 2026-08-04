@@ -39,9 +39,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async googleAuth(
     @Body() dto: GoogleAuthDto,
+    @Req() req: any,
     @Res({ passthrough: true }) res: any,
   ) {
-    return this.authService.googleAuth(dto, res);
+    return this.authService.googleAuth(dto, req, res);
   }
 
   @Post('refresh')

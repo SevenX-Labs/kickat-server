@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { OtpChannelType } from './dto/send-otp.dto';
 import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import * as crypto from 'crypto';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -136,38 +137,115 @@ describe('AuthService', () => {
     });
   });
 
-  describe('refreshToken reuse detection', () => {
-    it('should detect reuse of replayed token A, return 401, clear cookie, and revoke entire familyId (invalidating token B)', async () => {
-      const mockRes: any = { cookie: jest.fn(), clearCookie: jest.fn() };
-      const familyId = 'family-12345';
-      const userId = 'user-12345';
-      const tokenA = 'token-A-jwt';
+  describe('googleAuth rate limiting', () => {
+    it('should allow up to 10 requests per hour per IP and throw 429 on the 11th request', async () => {
+      const mockReq: any = { ip: '192.168.1.100' };
+      const mockRes: any = { cookie: jest.fn() };
+      const dto = { code: 'bad_code', redirectUri: 'http://localhost/callback' };
 
-      // 1. Mock JWT payload verification for token A
+      // Make 10 requests (they fail at OAuth exchange with 401 or BadRequest, but pass rate limit)
+      for (let i = 0; i < 10; i++) {
+        try {
+          await service.googleAuth(dto, mockReq, mockRes);
+        } catch (err) {
+          // Expected to fail at Google API level (400 or 401)
+          expect(err).toBeDefined();
+          expect(err.status).not.toBe(429);
+        }
+      }
+
+      // The 11th request from the same IP must throw 429 Too Many Requests
+      await expect(service.googleAuth(dto, mockReq, mockRes)).rejects.toThrow(
+        new HttpException(
+          'Rate limit exceeded — max 10 Google auth requests per hour per IP',
+          HttpStatus.TOO_MANY_REQUESTS,
+        ),
+      );
+    });
+  });
+
+  describe('refreshToken reuse detection (stateful token rotation & family revocation test)', () => {
+    it('should rotate Token A to Token B, then upon replaying Token A return 401 AND explicitly revoke Token B in the database', async () => {
+      const mockRes: any = { cookie: jest.fn(), clearCookie: jest.fn() };
+      const familyId = 'family-uuid-12345';
+      const userId = 'user-uuid-12345';
+
+      const tokenAString = 'token-A-jwt-string';
+      const tokenBString = 'mock-jwt-token'; // returned by jwtMock.sign
+
+      const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
+      const hashA = hashToken(tokenAString);
+      const hashB = hashToken(tokenBString);
+
+      // Stateful in-memory token store simulating Prisma DB
+      const dbTokensStore: Array<{
+        id: string;
+        tokenHash: string;
+        userId: string;
+        familyId: string;
+        isRevoked: boolean;
+        expiresAt: Date;
+      }> = [
+        {
+          id: 'token-A-id',
+          tokenHash: hashA,
+          userId,
+          familyId,
+          isRevoked: false,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      ];
+
+      // Wire Prisma mock to real stateful store
+      prismaMock.refreshToken.findUnique.mockImplementation(async ({ where }: any) => {
+        return dbTokensStore.find((t) => t.tokenHash === where.tokenHash) || null;
+      });
+
+      prismaMock.refreshToken.update.mockImplementation(async ({ where, data }: any) => {
+        const found = dbTokensStore.find((t) => t.id === where.id);
+        if (found) Object.assign(found, data);
+        return found;
+      });
+
+      prismaMock.refreshToken.updateMany.mockImplementation(async ({ where, data }: any) => {
+        let updatedCount = 0;
+        for (const t of dbTokensStore) {
+          if (t.familyId === where.familyId) {
+            Object.assign(t, data);
+            updatedCount++;
+          }
+        }
+        return { count: updatedCount };
+      });
+
+      prismaMock.refreshToken.create.mockImplementation(async ({ data }: any) => {
+        const newRecord = { id: `token-${dbTokensStore.length + 1}-id`, ...data };
+        dbTokensStore.push(newRecord);
+        return newRecord;
+      });
+
+      prismaMock.user.findUnique.mockResolvedValue({ id: userId, email: 'test@example.com' });
       jwtMock.verify.mockReturnValue({ sub: userId, familyId });
 
-      // 2. Mock database lookup: Token A is already marked isRevoked: true (rotated)
-      prismaMock.refreshToken.findUnique.mockResolvedValue({
-        id: 'token-A-id',
-        tokenHash: 'hashed-token-A',
-        userId,
-        familyId,
-        isRevoked: true,
-        expiresAt: new Date(Date.now() + 100000),
-      });
+      // STEP 1: First invocation of refreshToken with Token A -> Token rotation happens
+      const refreshResult1 = await service.refreshToken(tokenAString, mockRes);
+      expect(refreshResult1.success).toBe(true);
 
-      prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+      // Verify Token A is now revoked and Token B was created in DB store
+      const tokenARecord = dbTokensStore.find((t) => t.tokenHash === hashA);
+      const tokenBRecord = dbTokensStore.find((t) => t.tokenHash === hashB);
 
-      // 3. Replay Token A -> expectation: throws 401 Unauthorized
-      await expect(service.refreshToken(tokenA, mockRes)).rejects.toThrow(UnauthorizedException);
+      expect(tokenARecord?.isRevoked).toBe(true);
+      expect(tokenBRecord).toBeDefined();
+      expect(tokenBRecord?.isRevoked).toBe(false);
 
-      // 4. Verify that entire token family (familyId) was revoked in DB
-      expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith({
-        where: { familyId },
-        data: { isRevoked: true },
-      });
+      // STEP 2: Replay Token A (token reuse attempt!)
+      await expect(service.refreshToken(tokenAString, mockRes)).rejects.toThrow(
+        UnauthorizedException,
+      );
 
-      // 5. Verify cookie was cleared
+      // STEP 3: EXPLICIT ASSERTION: Token B (the second-generation token) MUST ALSO BE REVOKED!
+      expect(tokenBRecord?.isRevoked).toBe(true);
       expect(mockRes.clearCookie).toHaveBeenCalledWith('refreshToken');
     });
   });
@@ -176,7 +254,11 @@ describe('AuthService', () => {
     it('should purge expired or used OTP log entries', async () => {
       prismaMock.otpLog.deleteMany.mockResolvedValue({ count: 4 });
       const result = await service.cleanupExpiredOtpLogs();
-      expect(prismaMock.otpLog.deleteMany).toHaveBeenCalled();
+      expect(prismaMock.otpLog.deleteMany).toHaveBeenCalledWith({
+        where: {
+          OR: [{ expiresAt: { lt: expect.any(Date) } }, { isUsed: true }],
+        },
+      });
       expect(result.count).toBe(4);
     });
   });

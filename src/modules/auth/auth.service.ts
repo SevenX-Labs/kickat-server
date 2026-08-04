@@ -148,10 +148,34 @@ export class AuthService {
     return this.generateTokensAndRespond(user, res);
   }
 
+  private readonly googleAuthIpMap = new Map<string, { count: number; resetAt: number }>();
+
   /**
    * POST /auth/google (Gmail Login)
    */
-  async googleAuth(dto: GoogleAuthDto, res: Response) {
+  async googleAuth(dto: GoogleAuthDto, req: any, res: Response) {
+    const clientIp =
+      req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || 'unknown-ip';
+    const now = Date.now();
+    const windowMs = 60 * 60 * 1000; // 1 hour
+
+    const rateRecord = this.googleAuthIpMap.get(clientIp);
+    if (rateRecord) {
+      if (now < rateRecord.resetAt) {
+        if (rateRecord.count >= 10) {
+          throw new HttpException(
+            'Rate limit exceeded — max 10 Google auth requests per hour per IP',
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+        rateRecord.count++;
+      } else {
+        this.googleAuthIpMap.set(clientIp, { count: 1, resetAt: now + windowMs });
+      }
+    } else {
+      this.googleAuthIpMap.set(clientIp, { count: 1, resetAt: now + windowMs });
+    }
+
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     const clientSecret = this.configService.get<string>('GOOGLE_CLIENT_SECRET');
 
