@@ -14,6 +14,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { CompareModule } from './modules/compare/compare.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { CartModule } from './modules/cart/cart.module';
+import { CheckoutModule } from './modules/checkout/checkout.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { CartModule } from './modules/cart/cart.module';
     CompareModule,
     WishlistModule,
     CartModule,
+    CheckoutModule,
   ],
   controllers: [AppController],
   providers: [AppService],
