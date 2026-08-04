@@ -70,6 +70,8 @@ model User {
   addresses         Address[]
   pets              Pet[]
   recentSearches    RecentSearch[]
+  wishlistItems     WishlistItem[]
+  cartItems         CartItem[]
 
   @@map("users")
 }
@@ -203,6 +205,8 @@ model Product {
   variants          ProductVariant[]
   media             ProductMedia[]
   reviews           ProductReview[]
+  wishlistItems     WishlistItem[]
+  cartItems         CartItem[]
 
   @@index([categoryId])
   @@index([petSpecies])
@@ -210,17 +214,19 @@ model Product {
 }
 
 model ProductVariant {
-  id        String   @id @default(uuid())
-  productId String
-  name      String
-  sku       String?
-  price     Float
-  stock     Int      @default(50)
-  attributes Json?
-  imageUrl  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id            String         @id @default(uuid())
+  productId     String
+  name          String
+  sku           String?
+  price         Float
+  stock         Int            @default(50)
+  attributes    Json?
+  imageUrl      String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  wishlistItems WishlistItem[]
+  cartItems     CartItem[]
 
   @@index([productId])
   @@map("product_variants")
@@ -287,4 +293,36 @@ model RecentSearch {
 
   @@index([userId, createdAt])
   @@map("recent_searches")
+}
+
+model WishlistItem {
+  id        String          @id @default(uuid())
+  userId    String
+  productId String
+  variantId String?
+  createdAt DateTime        @default(now())
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlist_items")
+}
+
+model CartItem {
+  id        String          @id @default(uuid())
+  userId    String
+  productId String
+  variantId String?
+  quantity  Int             @default(1)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, productId, variantId])
+  @@index([userId])
+  @@map("cart_items")
 }

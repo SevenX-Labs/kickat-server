@@ -5,10 +5,17 @@ import { WishlistService } from './wishlist.service';
 describe('WishlistController', () => {
   let controller: WishlistController;
 
+  const mockWishlistService = {
+    getWishlist: jest.fn(),
+    addToWishlist: jest.fn(),
+    removeFromWishlist: jest.fn(),
+    moveToCart: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WishlistController],
-      providers: [WishlistService],
+      providers: [{ provide: WishlistService, useValue: mockWishlistService }],
     }).compile();
 
     controller = module.get<WishlistController>(WishlistController);
