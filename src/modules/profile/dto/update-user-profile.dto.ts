@@ -4,7 +4,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
   Matches,
 } from 'class-validator';
 import { IsAtLeastAge } from '../../../common';
@@ -27,8 +26,4 @@ export class UpdateUserProfileDto {
   @IsOptional()
   @IsAtLeastAge(13, { message: 'Date of birth must indicate age of 13 years or older' })
   dob?: string;
-
-  @IsOptional()
-  @IsString({ message: 'profileImage must be a string or URL' })
-  profileImage?: string;
 }

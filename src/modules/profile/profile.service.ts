@@ -41,7 +41,6 @@ export class ProfileService {
         phone: user.phone,
         gender: user.gender,
         dob: user.dob,
-        profileImage: user.profileImage,
         isProfileComplete: user.isProfileComplete,
         profileCompleted: user.isProfileComplete,
         isEmailVerified: user.isEmailVerified,
@@ -88,7 +87,6 @@ export class ProfileService {
         ...(dto.email && { email: dto.email }),
         ...(dto.gender && { gender: dto.gender as any }),
         ...(dobValue && { dob: dobValue }),
-        ...(dto.profileImage !== undefined && { profileImage: dto.profileImage }),
       },
     });
 

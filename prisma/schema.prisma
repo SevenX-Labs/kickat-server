@@ -55,7 +55,6 @@ model User {
   name              String?
   gender            Gender?
   dob               DateTime?
-  profileImage      String?
   isProfileComplete Boolean        @default(false)
   googleId          String?        @unique
   isEmailVerified   Boolean        @default(false)

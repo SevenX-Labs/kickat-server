@@ -10,12 +10,12 @@ All profile endpoints are served under the base path `/api/v1/profile` and requi
 1. **Mobile OTP Login**:
    - Mobile number is verified upon OTP verification (`isPhoneVerified: true`).
    - Email is optional, editable, and unverified by default (`isEmailVerified: false`).
-   - Onboarding requires setting: `name`, `email` (optional), `gender`, `dob` (13+ years old), `profileImage` (optional).
+   - Onboarding requires setting: `name`, `email` (optional), `gender`, `dob` (13+ years old).
 2. **Google Login**:
    - Google email is pre-filled and marked verified (`isEmailVerified: true`).
    - Google email is **read-only** and cannot be modified.
    - Requires linking and verifying a **Mobile Number** via OTP (`isPhoneVerified: true`).
-   - Onboarding collects: `gender`, `dob` (13+ years old), `profileImage` (optional).
+   - Onboarding collects: `gender`, `dob` (13+ years old).
 
 ---
 
@@ -24,7 +24,7 @@ All profile endpoints are served under the base path `/api/v1/profile` and requi
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/profile` | Yes | Get user profile details, saved addresses, and pet profiles |
-| `POST` | `/api/v1/profile/basic` | Yes | **Step 1**: Save User Basic Profile (Name, Email, Gender, DOB, Profile Image) |
+| `POST` | `/api/v1/profile/basic` | Yes | **Step 1**: Save User Basic Profile (Name, Email, Gender, DOB) |
 | `POST` | `/api/v1/profile/address` | Yes | **Step 2**: Add Delivery Address (Type, House/Flat, Street, City, State, Country, Pincode) |
 | `POST` | `/api/v1/profile/pet` | Yes | **Step 3**: Add Pet Profile (Species, Breed, Date of Birth / Age + Unit, Weight + Unit, Allergies[], Health Notes) |
 | `POST` | `/api/v1/profile/complete` | Yes | **Step 4**: Complete Onboarding & set `isProfileComplete: true` / `profileCompleted: true` |
