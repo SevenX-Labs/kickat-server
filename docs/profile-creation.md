@@ -6,7 +6,7 @@ All profile endpoints are served under the base path `/api/v1/profile` and requi
 
 ## 1. Onboarding & Authentication Architecture
 
-### Authentication Flow Rules:
+### Authentication & Verification Rules:
 1. **Mobile OTP Login**:
    - Mobile number is verified upon OTP verification (`isPhoneVerified: true`).
    - Email is optional, editable, and unverified by default (`isEmailVerified: false`).
@@ -37,28 +37,57 @@ All profile endpoints are served under the base path `/api/v1/profile` and requi
 
 ---
 
-## 3. Validation & Rules Reference
+## 3. Automatic Backend Profile Completion Rules
 
-| Field | Type | Validation Rules |
-| :--- | :--- | :--- |
-| **name** | String | Required for profile completion. Min 2 characters, alphabets and spaces only (`/^[a-zA-Z\s]+$/`) |
-| **email** | String | Optional for OTP login. Editable if OTP user, **read-only** if Google user |
-| **gender** | Enum | `MALE`, `FEMALE`, `PREFER_NOT_TO_SAY` |
-| **dob** | Date | ISO Date string (`YYYY-MM-DD`). **Age restriction: Must be 13+ years old** (validated via `@IsAtLeastAge(13)`) |
-| **profileImage** | String | Optional URL string |
-| **country** | String | Optional. Defaults to `"India"` |
-| **pincode** | String | 5 or 6 digit postal code (`/^\d{5,6}$/`) |
-| **dateOfBirth** | Date | Pet DOB ISO string (`YYYY-MM-DD`) |
-| **age** | Int | Pet age integer |
-| **ageUnit** | Enum | `MONTHS`, `YEARS` |
-| **weightUnit** | Enum | `KG`, `LBS` (defaults to `"KG"`) |
-| **allergies** | Array | List of allergy strings (`allergies: ["Grain", "Dust"]`) |
+**The backend is the single source of truth for onboarding completion.** There is no manual "complete profile" endpoint.
+
+After every create/update/delete operation, the backend automatically evaluates:
+- **`profileCompleted = true` ONLY IF ALL 3 CONDITIONS ARE MET**:
+  1. Basic profile details exist (`name`, `gender`, `dob`).
+  2. At least 1 delivery address exists in `addresses`.
+  3. At least 1 pet profile exists in `pets`.
+- **If any condition is missing**, `profileCompleted` remains `false`.
 
 ---
 
-## 4. Step-by-Step Onboarding APIs
+## 4. Detailed Endpoints & cURL Testing Guide
 
-### Step 1 — Basic Details
+### Step 0: Check Current User State
+
+#### `GET /api/v1/users/me`
+
+- **Headers**: `Authorization: Bearer <accessToken>`
+- **cURL**:
+```bash
+curl -X GET http://localhost:3000/api/v1/users/me \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+##### Response Example (`profileCompleted: false`)
+```json
+{
+  "success": true,
+  "user": {
+    "id": "f8d22384-912a-4c2e-b153-9a3c109d7e5f",
+    "name": null,
+    "email": "user@example.com",
+    "phone": "+919876543210",
+    "gender": null,
+    "dob": null,
+    "isNewUser": true,
+    "profileCompleted": false,
+    "isProfileComplete": false,
+    "isEmailVerified": false,
+    "isPhoneVerified": true,
+    "addresses": [],
+    "petProfiles": []
+  }
+}
+```
+
+---
+
+### Step 1: Submit Basic Details
 
 #### `POST /api/v1/profile/basic`
 
@@ -69,8 +98,7 @@ All profile endpoints are served under the base path `/api/v1/profile` and requi
   "name": "Sahil Hode",
   "email": "sahil@example.com",
   "gender": "MALE",
-  "dob": "2000-05-15",
-  "profileImage": "https://example.com/avatar.jpg"
+  "dob": "2000-05-15"
 }
 ```
 
@@ -89,7 +117,7 @@ curl -X POST http://localhost:3000/api/v1/profile/basic \
 
 ---
 
-### Step 2 — Delivery Address
+### Step 2: Add Delivery Address
 
 #### `POST /api/v1/profile/address`
 
@@ -110,11 +138,31 @@ curl -X POST http://localhost:3000/api/v1/profile/basic \
 }
 ```
 
+- **cURL**:
+```bash
+curl -X POST http://localhost:3000/api/v1/profile/address \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "HOME",
+    "houseFlat": "Flat 402, Sunshine Heights",
+    "buildingStreet": "MG Road",
+    "landmark": "Near City Mall",
+    "city": "Mumbai",
+    "state": "Maharashtra",
+    "country": "India",
+    "pincode": "400001",
+    "isDefault": true
+  }'
+```
+
 ---
 
-### Step 3 — Pet Profile
+### Step 3: Add Pet Profile
 
 #### `POST /api/v1/profile/pet`
+
+Submitting Step 3 completes all mandatory onboarding requirements. The backend automatically marks `profileCompleted: true`.
 
 - **Headers**: `Authorization: Bearer <accessToken>`, `Content-Type: application/json`
 - **Request Body**:
@@ -135,30 +183,48 @@ curl -X POST http://localhost:3000/api/v1/profile/basic \
 }
 ```
 
+- **cURL**:
+```bash
+curl -X POST http://localhost:3000/api/v1/profile/pet \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "species": "DOG",
+    "name": "Bruno",
+    "breed": "Labrador Retriever",
+    "age": 2,
+    "ageUnit": "YEARS",
+    "gender": "MALE",
+    "weight": 24.5,
+    "weightUnit": "KG",
+    "dietaryPreference": "BOTH",
+    "allergies": ["Grain"]
+  }'
+```
+
 ---
 
-### Step 4 — Complete Profile Onboarding
+### Step 4: Verify Final State (`GET /api/v1/users/me`)
 
-#### `POST /api/v1/profile/complete`
+```bash
+curl -X GET http://localhost:3000/api/v1/users/me \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
 
-Marks `isProfileComplete: true` and `profileCompleted: true`.
-
-- **Headers**: `Authorization: Bearer <accessToken>`
-
-##### Success Response (`200 OK`)
+##### Response Example (`profileCompleted: true`)
 ```json
 {
   "success": true,
-  "profile": {
+  "user": {
     "id": "f8d22384-912a-4c2e-b153-9a3c109d7e5f",
     "name": "Sahil Hode",
     "email": "sahil@example.com",
     "phone": "+919876543210",
     "gender": "MALE",
     "dob": "2000-05-15T00:00:00.000Z",
-    "profileImage": "https://example.com/avatar.jpg",
-    "isProfileComplete": true,
+    "isNewUser": false,
     "profileCompleted": true,
+    "isProfileComplete": true,
     "isEmailVerified": false,
     "isPhoneVerified": true,
     "addresses": [
@@ -167,30 +233,24 @@ Marks `isProfileComplete: true` and `profileCompleted: true`.
         "type": "HOME",
         "houseFlat": "Flat 402, Sunshine Heights",
         "buildingStreet": "MG Road",
-        "landmark": "Near City Mall",
         "city": "Mumbai",
         "state": "Maharashtra",
         "country": "India",
-        "pincode": "400001",
-        "isDefault": true,
-        "deliveryInstructions": "Ring bell twice"
+        "pincode": "400001"
       }
     ],
-    "pets": [
+    "petProfiles": [
       {
         "id": "pet_654321",
         "species": "DOG",
         "name": "Bruno",
         "breed": "Labrador Retriever",
-        "dateOfBirth": "2022-03-10T00:00:00.000Z",
         "age": 2,
         "ageUnit": "YEARS",
         "gender": "MALE",
         "weight": 24.5,
         "weightUnit": "KG",
-        "dietaryPreference": "BOTH",
-        "allergies": ["Grain", "Chicken"],
-        "healthNotes": "Sensitive stomach"
+        "allergies": ["Grain"]
       }
     ]
   }
