@@ -47,6 +47,11 @@ enum WeightUnit {
   LBS
 }
 
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
 model User {
   id                String         @id @default(uuid())
   email             String?        @unique
@@ -195,10 +200,65 @@ model Product {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   category          Category           @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  variants          ProductVariant[]
+  media             ProductMedia[]
+  reviews           ProductReview[]
 
   @@index([categoryId])
   @@index([petSpecies])
   @@map("products")
+}
+
+model ProductVariant {
+  id        String   @id @default(uuid())
+  productId String
+  name      String
+  sku       String?
+  price     Float
+  stock     Int      @default(50)
+  attributes Json?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model ProductMedia {
+  id           String    @id @default(uuid())
+  productId    String
+  type         MediaType @default(IMAGE)
+  url          String
+  thumbnailUrl String?
+  order        Int       @default(0)
+  createdAt    DateTime  @default(now())
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_media")
+}
+
+model ProductReview {
+  id                 String   @id @default(uuid())
+  productId          String
+  userId             String?
+  userName           String
+  userAvatar         String?
+  rating             Int
+  title              String?
+  comment            String
+  photos             String[] @default([])
+  isVerifiedPurchase Boolean  @default(true)
+  helpfulCount       Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([rating])
+  @@map("product_reviews")
 }
 
 model BlogPost {

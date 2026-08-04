@@ -12,6 +12,7 @@ import { HomeModule } from './modules/home/home.module';
 import { SearchModule } from './modules/search/search.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CompareModule } from './modules/compare/compare.module';
+import { WishlistModule } from './modules/wishlist/wishlist.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CompareModule } from './modules/compare/compare.module';
     SearchModule,
     ProductsModule,
     CompareModule,
+    WishlistModule,
   ],
   controllers: [AppController],
   providers: [AppService],
