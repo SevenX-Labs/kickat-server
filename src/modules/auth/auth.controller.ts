@@ -76,15 +76,4 @@ export class AuthController {
   ) {
     return this.authService.logoutAll(user, dto, res);
   }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('logout-allx')
-  @HttpCode(HttpStatus.OK)
-  async logoutAllAlias(
-    @CurrentUser() user: any,
-    @Body() dto: LogoutAllDto,
-    @Res({ passthrough: true }) res: any,
-  ) {
-    return this.authService.logoutAll(user, dto, res);
-  }
 }

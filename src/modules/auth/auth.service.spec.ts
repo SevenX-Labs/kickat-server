@@ -20,6 +20,7 @@ describe('AuthService', () => {
         aggregate: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
+        deleteMany: jest.fn(),
       },
       user: {
         upsert: jest.fn(),
@@ -132,6 +133,51 @@ describe('AuthService', () => {
           mockRes,
         ),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('refreshToken reuse detection', () => {
+    it('should detect reuse of replayed token A, return 401, clear cookie, and revoke entire familyId (invalidating token B)', async () => {
+      const mockRes: any = { cookie: jest.fn(), clearCookie: jest.fn() };
+      const familyId = 'family-12345';
+      const userId = 'user-12345';
+      const tokenA = 'token-A-jwt';
+
+      // 1. Mock JWT payload verification for token A
+      jwtMock.verify.mockReturnValue({ sub: userId, familyId });
+
+      // 2. Mock database lookup: Token A is already marked isRevoked: true (rotated)
+      prismaMock.refreshToken.findUnique.mockResolvedValue({
+        id: 'token-A-id',
+        tokenHash: 'hashed-token-A',
+        userId,
+        familyId,
+        isRevoked: true,
+        expiresAt: new Date(Date.now() + 100000),
+      });
+
+      prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+
+      // 3. Replay Token A -> expectation: throws 401 Unauthorized
+      await expect(service.refreshToken(tokenA, mockRes)).rejects.toThrow(UnauthorizedException);
+
+      // 4. Verify that entire token family (familyId) was revoked in DB
+      expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { familyId },
+        data: { isRevoked: true },
+      });
+
+      // 5. Verify cookie was cleared
+      expect(mockRes.clearCookie).toHaveBeenCalledWith('refreshToken');
+    });
+  });
+
+  describe('cleanupExpiredOtpLogs', () => {
+    it('should purge expired or used OTP log entries', async () => {
+      prismaMock.otpLog.deleteMany.mockResolvedValue({ count: 4 });
+      const result = await service.cleanupExpiredOtpLogs();
+      expect(prismaMock.otpLog.deleteMany).toHaveBeenCalled();
+      expect(result.count).toBe(4);
     });
   });
 });

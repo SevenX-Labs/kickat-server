@@ -14,7 +14,6 @@ All authentication endpoints are served under the base path `/api/v1/auth`.
 | `POST` | `/api/v1/auth/refresh` | No (Uses Cookie) | Rotate Refresh Token cookie and issue new Access Token |
 | `POST` | `/api/v1/auth/logout` | Yes (Bearer Token) | Revoke current session & clear refresh cookie |
 | `POST` | `/api/v1/auth/logout-all` | Yes (Bearer Token) | Revoke all active sessions across devices |
-| `POST` | `/api/v1/auth/logout-allx` | Yes (Bearer Token) | Alias for `/api/v1/auth/logout-all` |
 
 ---
 
@@ -279,7 +278,7 @@ curl -X POST http://localhost:3000/api/v1/auth/logout \
 
 ## 6. Logout All Devices
 
-### `POST /api/v1/auth/logout-all` (or `/api/v1/auth/logout-allx`)
+### `POST /api/v1/auth/logout-all`
 
 - **Headers**: `Authorization: Bearer <accessToken>`
 - **Request Body**:

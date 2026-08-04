@@ -16,6 +16,7 @@ import { LogoutAllDto } from './dto/logout-all.dto';
 import { OtpType, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { OAuth2Client } from 'google-auth-library';
 import { Response } from 'express';
 
@@ -361,7 +362,7 @@ export class AuthService {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
       maxAge: thirtyDaysMs,
     });
 
@@ -377,5 +378,23 @@ export class AuthService {
         isPhoneVerified: user.isPhoneVerified,
       },
     };
+  }
+
+  /**
+   * Scheduled job to purge expired or already used OTP logs every hour
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupExpiredOtpLogs() {
+    try {
+      const result = await this.prisma.otpLog.deleteMany({
+        where: {
+          OR: [{ expiresAt: { lt: new Date() } }, { isUsed: true }],
+        },
+      });
+      this.logger.log(`[OTP CLEANUP] Purged ${result.count} expired/used OTP records.`);
+      return result;
+    } catch (error) {
+      this.logger.error(`[OTP CLEANUP ERROR] Failed to purge OTP records: ${error?.message || error}`);
+    }
   }
 }
