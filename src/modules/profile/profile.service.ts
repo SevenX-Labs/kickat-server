@@ -78,6 +78,7 @@ export class ProfileService {
         phone: user.phone,
         gender: user.gender,
         dob: user.dob,
+        isNewUser: !user.isProfileComplete,
         profileCompleted: user.isProfileComplete,
         isProfileComplete: user.isProfileComplete,
         isEmailVerified: user.isEmailVerified,
