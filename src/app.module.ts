@@ -11,6 +11,7 @@ import { ProfileModule } from './modules/profile/profile.module';
 import { HomeModule } from './modules/home/home.module';
 import { SearchModule } from './modules/search/search.module';
 import { ProductsModule } from './modules/products/products.module';
+import { CompareModule } from './modules/compare/compare.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ProductsModule } from './modules/products/products.module';
     HomeModule,
     SearchModule,
     ProductsModule,
+    CompareModule,
   ],
   controllers: [AppController],
   providers: [AppService],
