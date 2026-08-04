@@ -141,3 +141,78 @@ model Pet {
   @@index([userId])
   @@map("pets")
 }
+
+model Banner {
+  id        String   @id @default(uuid())
+  title     String
+  imageUrl  String
+  linkUrl   String?
+  type      String   @default("HERO")
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("banners")
+}
+
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  imageUrl  String?
+  parentId  String?
+  isActive  Boolean    @default(true)
+  order     Int        @default(0)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  parent    Category?  @relation("CategoryToCategory", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryToCategory")
+  products  Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id                String             @id @default(uuid())
+  name              String
+  slug              String             @unique
+  description       String?
+  price             Float
+  discountPrice     Float?
+  stock             Int                @default(100)
+  rating            Float              @default(4.5)
+  reviewsCount      Int                @default(0)
+  brand             String?
+  petSpecies        PetSpecies?
+  dietaryPreference DietaryPreference?
+  categoryId        String
+  isTrending        Boolean            @default(false)
+  isBestSeller      Boolean            @default(false)
+  imageUrl          String
+  images            String[]           @default([])
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  category          Category           @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@index([petSpecies])
+  @@map("products")
+}
+
+model BlogPost {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String   @unique
+  content     String
+  summary     String?
+  coverImage  String?
+  category    String?
+  tags        String[] @default([])
+  isPublished Boolean  @default(true)
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("blog_posts")
+}
