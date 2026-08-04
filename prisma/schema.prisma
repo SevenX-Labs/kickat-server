@@ -64,6 +64,7 @@ model User {
   refreshTokens     RefreshToken[]
   addresses         Address[]
   pets              Pet[]
+  orders            Order[]
 
   @@map("users")
 }
@@ -140,4 +141,112 @@ model Pet {
 
   @@index([userId])
   @@map("pets")
+}
+
+model Banner {
+  id        String   @id @default(uuid())
+  title     String
+  subtitle  String?
+  imageUrl  String
+  linkUrl   String?
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("banners")
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  name        String
+  slug        String     @unique
+  imageUrl    String?
+  description String?
+  parentId    String?
+  parent      Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryParent")
+  products    Product[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@map("categories")
+}
+
+model Product {
+  id                String            @id @default(uuid())
+  title             String
+  slug              String            @unique
+  description       String?
+  price             Float
+  discountPrice     Float?
+  stock             Int               @default(0)
+  inStock           Boolean           @default(true)
+  rating            Float             @default(0)
+  reviewCount       Int               @default(0)
+  brand             String?
+  petSpecies        PetSpecies?
+  diet              DietaryPreference?
+  imageUrl          String?
+  images            String[]          @default([])
+  isTrending        Boolean           @default(false)
+  isBestSeller      Boolean           @default(false)
+  categoryId        String?
+  category          Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  orderItems        OrderItem[]
+
+  @@index([categoryId])
+  @@index([petSpecies])
+  @@index([diet])
+  @@index([isTrending])
+  @@index([isBestSeller])
+  @@map("products")
+}
+
+model Blog {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String   @unique
+  category    String
+  content     String
+  summary     String?
+  imageUrl    String?
+  author      String   @default("Admin")
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+  @@index([category])
+  @@map("blogs")
+}
+
+model Order {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     OrderItem[]
+  total     Float
+  status    String      @default("COMPLETED")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([userId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int      @default(1)
+  price     Float
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
 }

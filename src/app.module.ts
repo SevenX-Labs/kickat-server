@@ -8,6 +8,7 @@ import { UsersModule } from './modules/users/users.module';
 
 import { ScheduleModule } from '@nestjs/schedule';
 import { ProfileModule } from './modules/profile/profile.module';
+import { HomeModule } from './modules/home/home.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ProfileModule } from './modules/profile/profile.module';
     AuthModule,
     UsersModule,
     ProfileModule,
+    HomeModule,
   ],
   controllers: [AppController],
   providers: [AppService],
