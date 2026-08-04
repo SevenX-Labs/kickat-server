@@ -10,6 +10,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ProfileModule } from './modules/profile/profile.module';
 import { HomeModule } from './modules/home/home.module';
 import { SearchModule } from './modules/search/search.module';
+import { ProductsModule } from './modules/products/products.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { SearchModule } from './modules/search/search.module';
     ProfileModule,
     HomeModule,
     SearchModule,
+    ProductsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
