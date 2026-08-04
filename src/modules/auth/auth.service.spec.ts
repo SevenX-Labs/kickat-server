@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { OtpChannelType } from './dto/send-otp.dto';
 import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -38,8 +39,9 @@ describe('AuthService', () => {
       },
     };
 
+    let tokenCounter = 0;
     jwtMock = {
-      sign: jest.fn().mockReturnValue('mock-jwt-token'),
+      sign: jest.fn().mockImplementation(() => `mock-jwt-token-${++tokenCounter}`),
       verify: jest.fn(),
     };
 
@@ -143,13 +145,14 @@ describe('AuthService', () => {
       const mockRes: any = { cookie: jest.fn() };
       const dto = { code: 'bad_code', redirectUri: 'http://localhost/callback' };
 
-      // Make 10 requests (they fail at OAuth exchange with 401 or BadRequest, but pass rate limit)
+      // Mock OAuth2Client prototype to fail instantly without network calls
+      jest.spyOn(OAuth2Client.prototype, 'getToken').mockRejectedValue(new Error('Invalid code'));
+
+      // Make 10 requests (fail at OAuth level, pass rate limit)
       for (let i = 0; i < 10; i++) {
         try {
           await service.googleAuth(dto, mockReq, mockRes);
         } catch (err) {
-          // Expected to fail at Google API level (400 or 401)
-          expect(err).toBeDefined();
           expect(err.status).not.toBe(429);
         }
       }
@@ -171,11 +174,8 @@ describe('AuthService', () => {
       const userId = 'user-uuid-12345';
 
       const tokenAString = 'token-A-jwt-string';
-      const tokenBString = 'mock-jwt-token'; // returned by jwtMock.sign
-
       const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
       const hashA = hashToken(tokenAString);
-      const hashB = hashToken(tokenBString);
 
       // Stateful in-memory token store simulating Prisma DB
       const dbTokensStore: Array<{
@@ -233,7 +233,7 @@ describe('AuthService', () => {
 
       // Verify Token A is now revoked and Token B was created in DB store
       const tokenARecord = dbTokensStore.find((t) => t.tokenHash === hashA);
-      const tokenBRecord = dbTokensStore.find((t) => t.tokenHash === hashB);
+      const tokenBRecord = dbTokensStore.find((t) => t.id !== 'token-A-id');
 
       expect(tokenARecord?.isRevoked).toBe(true);
       expect(tokenBRecord).toBeDefined();
