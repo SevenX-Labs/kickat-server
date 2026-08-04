@@ -9,6 +9,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ProfileModule } from './modules/profile/profile.module';
 import { HomeModule } from './modules/home/home.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { HomeModule } from './modules/home/home.module';
     UsersModule,
     ProfileModule,
     HomeModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
