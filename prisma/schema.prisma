@@ -207,6 +207,7 @@ model Product {
   reviews           ProductReview[]
   wishlistItems     WishlistItem[]
   cartItems         CartItem[]
+  guestCartItems    GuestCartItem[]
 
   @@index([categoryId])
   @@index([petSpecies])
@@ -214,19 +215,20 @@ model Product {
 }
 
 model ProductVariant {
-  id            String         @id @default(uuid())
+  id            String          @id @default(uuid())
   productId     String
   name          String
   sku           String?
   price         Float
-  stock         Int            @default(50)
+  stock         Int             @default(50)
   attributes    Json?
   imageUrl      String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  product       Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   wishlistItems WishlistItem[]
   cartItems     CartItem[]
+  guestCartItems GuestCartItem[]
 
   @@index([productId])
   @@map("product_variants")
@@ -325,4 +327,20 @@ model CartItem {
   @@unique([userId, productId, variantId])
   @@index([userId])
   @@map("cart_items")
+}
+
+model GuestCartItem {
+  id        String          @id @default(uuid())
+  sessionId String
+  productId String
+  variantId String?
+  quantity  Int             @default(1)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, productId, variantId])
+  @@index([sessionId])
+  @@map("guest_cart_items")
 }
