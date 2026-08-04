@@ -52,26 +52,50 @@ enum MediaType {
   VIDEO
 }
 
+enum PaymentMethodEnum {
+  UPI
+  CARD
+  WALLET
+  NETBANKING
+  COD
+}
+
+enum PaymentStatusEnum {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum OrderStatusEnum {
+  PLACED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
 model User {
-  id                String         @id @default(uuid())
-  email             String?        @unique
-  phone             String?        @unique
+  id                String             @id @default(uuid())
+  email             String?            @unique
+  phone             String?            @unique
   password          String?
   name              String?
   gender            Gender?
   dob               DateTime?
-  isProfileComplete Boolean        @default(false)
-  googleId          String?        @unique
-  isEmailVerified   Boolean        @default(false)
-  isPhoneVerified   Boolean        @default(false)
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  isProfileComplete Boolean            @default(false)
+  googleId          String?            @unique
+  isEmailVerified   Boolean            @default(false)
+  isPhoneVerified   Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   refreshTokens     RefreshToken[]
   addresses         Address[]
   pets              Pet[]
   recentSearches    RecentSearch[]
   wishlistItems     WishlistItem[]
   cartItems         CartItem[]
+  stockReservations StockReservation[]
+  orders            Order[]
 
   @@map("users")
 }
@@ -120,6 +144,7 @@ model Address {
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
   user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders               Order[]
 
   @@index([userId])
   @@map("addresses")
@@ -343,4 +368,58 @@ model GuestCartItem {
   @@unique([sessionId, productId, variantId])
   @@index([sessionId])
   @@map("guest_cart_items")
+}
+
+model StockReservation {
+  id          String   @id @default(uuid())
+  userId      String
+  expiresAt   DateTime
+  isFulfilled Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("stock_reservations")
+}
+
+model Order {
+  id                   String            @id @default(uuid())
+  orderNumber          String            @unique
+  userId               String
+  addressId            String
+  paymentMethod        PaymentMethodEnum
+  paymentStatus        PaymentStatusEnum @default(PENDING)
+  orderStatus          OrderStatusEnum   @default(PLACED)
+  subtotal             Float
+  deliveryFee          Float             @default(0)
+  grandTotal           Float
+  idempotencyKey       String?           @unique
+  deliveryDate         DateTime?
+  deliverySlot         String?
+  deliveryInstructions String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address              Address           @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  items                OrderItem[]
+
+  @@index([userId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(uuid())
+  orderId     String
+  productId   String
+  variantId   String?
+  quantity    Int
+  price       Float
+  totalPrice  Float
+  productName String
+  variantName String?
+  createdAt   DateTime @default(now())
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
 }

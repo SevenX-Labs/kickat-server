@@ -5,10 +5,18 @@ import { CheckoutService } from './checkout.service';
 describe('CheckoutController', () => {
   let controller: CheckoutController;
 
+  const mockCheckoutService = {
+    getCheckout: jest.fn(),
+    validateAddress: jest.fn(),
+    getDeliverySlots: jest.fn(),
+    getPaymentMethods: jest.fn(),
+    placeOrder: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CheckoutController],
-      providers: [CheckoutService],
+      providers: [{ provide: CheckoutService, useValue: mockCheckoutService }],
     }).compile();
 
     controller = module.get<CheckoutController>(CheckoutController);
