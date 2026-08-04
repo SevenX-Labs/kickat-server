@@ -66,7 +66,7 @@ export class AuthService {
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
+    const expiresAt = new Date(Date.now() + 1 * 60 * 1000); // 1 minute expiry
 
     await this.prisma.otpLog.create({
       data: {
