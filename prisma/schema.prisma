@@ -64,6 +64,7 @@ model User {
   refreshTokens     RefreshToken[]
   addresses         Address[]
   pets              Pet[]
+  recentSearches    RecentSearch[]
 
   @@map("users")
 }
@@ -215,4 +216,15 @@ model BlogPost {
   updatedAt   DateTime @updatedAt
 
   @@map("blog_posts")
+}
+
+model RecentSearch {
+  id        String   @id @default(uuid())
+  userId    String
+  query     String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("recent_searches")
 }

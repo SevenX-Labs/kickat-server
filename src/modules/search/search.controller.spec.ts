@@ -5,10 +5,19 @@ import { SearchService } from './search.service';
 describe('SearchController', () => {
   let controller: SearchController;
 
+  const mockSearchService = {
+    search: jest.fn(),
+    getSuggestions: jest.fn(),
+    getRecentSearches: jest.fn(),
+    deleteRecentSearch: jest.fn(),
+    getTrendingSearches: jest.fn(),
+    getFilters: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SearchController],
-      providers: [SearchService],
+      providers: [{ provide: SearchService, useValue: mockSearchService }],
     }).compile();
 
     controller = module.get<SearchController>(SearchController);
