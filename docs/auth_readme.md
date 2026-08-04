@@ -41,6 +41,10 @@ npm run test:cov
 | `POST` | `/api/v1/auth/refresh` | No (Uses Cookie) | Rotate 30-day Refresh Token cookie and issue new Access Token |
 | `POST` | `/api/v1/auth/logout` | Yes (Bearer Token) | Revoke current session & clear refresh cookie |
 | `POST` | `/api/v1/auth/logout-all` | Yes (Bearer Token) | Revoke all active sessions across devices |
+| `GET` | `/api/v1/profile` | Yes (Bearer Token) | Get user profile, addresses, and pet profiles |
+| `POST` | `/api/v1/profile` | Yes (Bearer Token) | Complete / update unified profile (Basic info, 13+ age validation, Addresses, Pets) |
+| `POST` | `/api/v1/profile/addresses` | Yes (Bearer Token) | Add a new delivery address |
+| `POST` | `/api/v1/profile/pets` | Yes (Bearer Token) | Add a new pet profile |
 
 ---
 
