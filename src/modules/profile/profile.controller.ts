@@ -61,13 +61,6 @@ export class ProfileController {
   }
 
   @Auth()
-  @Post('complete')
-  @HttpCode(HttpStatus.OK)
-  async completeOnboarding(@CurrentUser('id') userId: string) {
-    return this.profileService.completeProfile(userId);
-  }
-
-  @Auth()
   @Post()
   @HttpCode(HttpStatus.OK)
   async createOrUpdateProfile(

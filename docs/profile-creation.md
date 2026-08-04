@@ -23,11 +23,11 @@ All profile endpoints are served under the base path `/api/v1/profile` and requi
 
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/users/me` | Yes | Get latest user profile, completion status, addresses, and pet profiles |
 | `GET` | `/api/v1/profile` | Yes | Get user profile details, saved addresses, and pet profiles |
 | `POST` | `/api/v1/profile/basic` | Yes | **Step 1**: Save User Basic Profile (Name, Email, Gender, DOB) |
 | `POST` | `/api/v1/profile/address` | Yes | **Step 2**: Add Delivery Address (Type, House/Flat, Street, City, State, Country, Pincode) |
 | `POST` | `/api/v1/profile/pet` | Yes | **Step 3**: Add Pet Profile (Species, Breed, Date of Birth / Age + Unit, Weight + Unit, Allergies[], Health Notes) |
-| `POST` | `/api/v1/profile/complete` | Yes | **Step 4**: Complete Onboarding & set `isProfileComplete: true` / `profileCompleted: true` |
 | `POST` | `/api/v1/profile` | Yes | Save unified single-call profile (Basic Details, Addresses, Pets) |
 | `PUT` / `PATCH` | `/api/v1/profile` | Yes | Update user basic details |
 | `PUT` | `/api/v1/profile/addresses/:id` | Yes | Update delivery address by ID |

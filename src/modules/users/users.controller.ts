@@ -1,7 +1,14 @@
-import { Controller } from '@nestjs/common';
-import { UsersService } from './users.service';
+import { Controller, Get } from '@nestjs/common';
+import { Auth, CurrentUser } from '../../common';
+import { ProfileService } from '../profile/profile.service';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly profileService: ProfileService) {}
+
+  @Auth()
+  @Get('me')
+  async getMe(@CurrentUser('id') userId: string) {
+    return this.profileService.getProfile(userId);
+  }
 }

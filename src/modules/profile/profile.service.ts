@@ -17,9 +17,46 @@ export class ProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * GET /profile (Get complete user profile with addresses and pets)
+   * Helper function to automatically compute and set profileCompleted
+   * Required conditions for profileCompleted = true:
+   * 1. Basic user details are set (name, gender, dob)
+   * 2. At least one delivery address exists
+   * 3. At least one pet profile exists
+   */
+  async checkAndUpdateProfileCompletion(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        addresses: true,
+        pets: true,
+      },
+    });
+
+    if (!user) return false;
+
+    const hasBasicDetails = Boolean(user.name && user.gender && user.dob);
+    const hasAddress = user.addresses.length > 0;
+    const hasPet = user.pets.length > 0;
+
+    const isComplete = hasBasicDetails && hasAddress && hasPet;
+
+    if (user.isProfileComplete !== isComplete) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { isProfileComplete: isComplete },
+      });
+    }
+
+    return isComplete;
+  }
+
+  /**
+   * GET /profile or GET /users/me (Get user profile with addresses and petProfiles)
    */
   async getProfile(userId: string) {
+    // Automatically re-evaluate profile completion status
+    await this.checkAndUpdateProfileCompletion(userId);
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -34,19 +71,27 @@ export class ProfileService {
 
     return {
       success: true,
-      profile: {
+      user: {
         id: user.id,
         name: user.name,
         email: user.email,
         phone: user.phone,
         gender: user.gender,
         dob: user.dob,
-        isProfileComplete: user.isProfileComplete,
         profileCompleted: user.isProfileComplete,
+        isProfileComplete: user.isProfileComplete,
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
+        profile: {
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          gender: user.gender,
+          dob: user.dob,
+        },
         addresses: user.addresses,
         pets: user.pets,
+        petProfiles: user.pets,
       },
     };
   }
@@ -116,31 +161,7 @@ export class ProfileService {
       }
     }
 
-    return this.completeProfile(userId);
-  }
-
-  /**
-   * POST /profile/complete (Step 4 — Finalize Onboarding)
-   */
-  async completeProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    if (!user.name) {
-      throw new BadRequestException('Full name is required to complete profile onboarding');
-    }
-
-    const updatedUser = await this.prisma.user.update({
-      where: { id: userId },
-      data: { isProfileComplete: true },
-    });
-
-    return this.getProfile(updatedUser.id);
+    return this.getProfile(userId);
   }
 
   /**
@@ -169,6 +190,8 @@ export class ProfileService {
         deliveryInstructions: dto.deliveryInstructions,
       },
     });
+
+    await this.checkAndUpdateProfileCompletion(userId);
 
     return {
       success: true,
@@ -214,6 +237,8 @@ export class ProfileService {
       },
     });
 
+    await this.checkAndUpdateProfileCompletion(userId);
+
     return {
       success: true,
       message: 'Address updated successfully',
@@ -236,6 +261,8 @@ export class ProfileService {
     await this.prisma.address.delete({
       where: { id: addressId },
     });
+
+    await this.checkAndUpdateProfileCompletion(userId);
 
     return {
       success: true,
@@ -266,6 +293,8 @@ export class ProfileService {
         healthNotes: dto.healthNotes,
       },
     });
+
+    await this.checkAndUpdateProfileCompletion(userId);
 
     return {
       success: true,
@@ -308,6 +337,8 @@ export class ProfileService {
       },
     });
 
+    await this.checkAndUpdateProfileCompletion(userId);
+
     return {
       success: true,
       message: 'Pet profile updated successfully',
@@ -330,6 +361,8 @@ export class ProfileService {
     await this.prisma.pet.delete({
       where: { id: petId },
     });
+
+    await this.checkAndUpdateProfileCompletion(userId);
 
     return {
       success: true,
