@@ -13,6 +13,7 @@ import { SearchModule } from './modules/search/search.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CompareModule } from './modules/compare/compare.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
+import { CartModule } from './modules/cart/cart.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { WishlistModule } from './modules/wishlist/wishlist.module';
     ProductsModule,
     CompareModule,
     WishlistModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [AppService],
