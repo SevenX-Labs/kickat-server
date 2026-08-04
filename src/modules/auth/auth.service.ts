@@ -90,12 +90,17 @@ export class AuthService {
    * POST /auth/otp/verify (Mobile SMS OTP Verification)
    */
   async verifyOtp(dto: VerifyOtpDto, res: Response) {
+    const targetIdentifier = dto.phone || dto.identifier;
+    if (!targetIdentifier) {
+      throw new BadRequestException('phone or identifier is required');
+    }
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
     // Rate limit verification attempts per hour per phone
     const attemptsCount = await this.prisma.otpLog.aggregate({
       where: {
-        identifier: dto.identifier,
+        identifier: targetIdentifier,
         createdAt: { gte: oneHourAgo },
       },
       _sum: { attempts: true },
@@ -111,7 +116,7 @@ export class AuthService {
 
     const latestOtp = await this.prisma.otpLog.findFirst({
       where: {
-        identifier: dto.identifier,
+        identifier: targetIdentifier,
         type: OtpType.SMS,
         isUsed: false,
       },
@@ -140,15 +145,24 @@ export class AuthService {
 
     // Upsert User by phone
     const user = await this.prisma.user.upsert({
-      where: { phone: dto.identifier },
+      where: { phone: targetIdentifier },
       update: { isPhoneVerified: true },
-      create: { phone: dto.identifier, isPhoneVerified: true },
+      create: { phone: targetIdentifier, isPhoneVerified: true },
     });
 
     return this.generateTokensAndRespond(user, res);
   }
 
   private readonly googleAuthIpMap = new Map<string, { count: number; resetAt: number }>();
+
+  getGoogleLoginUrl(): string {
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    const redirectUri =
+      this.configService.get<string>('GOOGLE_CALLBACK_URL') ||
+      'http://localhost:3000/api/v1/auth/callback/google';
+    const scope = encodeURIComponent('openid email profile');
+    return `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&access_type=offline&prompt=consent`;
+  }
 
   /**
    * POST /auth/google (Gmail Login)
@@ -184,15 +198,22 @@ export class AuthService {
     }
 
     try {
-      const client = new OAuth2Client(clientId, clientSecret, dto.redirectUri);
-      const { tokens } = await client.getToken(dto.code);
-
-      if (!tokens.id_token) {
-        throw new UnauthorizedException('Google verification failed, invalid code or id_token');
+      const redirectUri =
+        dto.redirectUri ||
+        this.configService.get<string>('GOOGLE_CALLBACK_URL') ||
+        'http://localhost:3000/api/v1/auth/callback/google';
+      const client = new OAuth2Client(clientId, clientSecret, redirectUri);
+      let idToken = dto.code;
+      if (dto.code.startsWith('4/') || !dto.code.includes('.')) {
+        const { tokens } = await client.getToken(dto.code);
+        if (!tokens.id_token) {
+          throw new UnauthorizedException('Google verification failed, invalid code or id_token');
+        }
+        idToken = tokens.id_token;
       }
 
       const ticket = await client.verifyIdToken({
-        idToken: tokens.id_token,
+        idToken,
         audience: clientId,
       });
 

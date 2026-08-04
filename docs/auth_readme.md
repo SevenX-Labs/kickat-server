@@ -17,6 +17,9 @@ npx nodemon
 npm run start:dev
 ```
 
+### Testing Google Sign-In via HTML Page
+Open [google-auth-test.html](file:///home/sahil-hode/Workspace/sevenx%20labs/kickat-ecommerce/kickat-server/google-auth-test.html) directly in your browser to test Google OAuth popup login & token exchange.
+
 ### Running Automated Tests
 ```bash
 # Run unit tests
@@ -107,7 +110,7 @@ Verify 6-digit SMS OTP code to authenticate user and receive Access Token & Http
 - **Request Body**:
 ```json
 {
-  "identifier": "+919876543210",
+  "phone": "+919876543210",
   "otp": "123456"
 }
 ```
@@ -118,7 +121,7 @@ curl -X POST http://localhost:3000/api/v1/auth/otp/verify \
   -i \
   -H "Content-Type: application/json" \
   -d '{
-    "identifier": "+919876543210",
+    "phone": "+919876543210",
     "otp": "123456"
   }'
 ```

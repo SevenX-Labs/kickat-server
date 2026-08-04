@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Sign-In Test</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', sans-serif;
+    }
+
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 40px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+
+    .btn-container {
+      margin-top: 10px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .response-card {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 16px;
+      display: none;
+    }
+
+    .response-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-success {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .badge-error {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    pre {
+      font-family: monospace;
+      font-size: 12px;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="btn-container" id="g_id_onload_container"></div>
+
+    <div id="responseCard" class="response-card">
+      <div class="response-header">
+        <span id="responseStatus" class="badge">STATUS</span>
+        <span id="responseCode" style="font-size: 13px; font-family: monospace;">200 OK</span>
+      </div>
+      <pre id="jsonOutput"></pre>
+    </div>
+  </div>
+
+  <script>
+    const GOOGLE_CLIENT_ID = "157378917671-s6q6s5n6t00s38i7a9s3142ddamph3dn.apps.googleusercontent.com";
+    const API_URL = "http://localhost:3000/api/v1/auth/google";
+
+    window.onload = function () {
+      if (typeof google !== 'undefined' && google.accounts) {
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleCredentialResponse,
+        });
+
+        google.accounts.id.renderButton(
+          document.getElementById("g_id_onload_container"),
+          { theme: "filled_blue", size: "large", type: "standard", shape: "pill" }
+        );
+      }
+    };
+
+    async function handleCredentialResponse(response) {
+      showResponse(0, 'Authenticating with backend...', { token: 'Received Google Credential' });
+
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            code: response.credential,
+            redirectUri: 'postmessage',
+          }),
+        });
+
+        const data = await res.json();
+        showResponse(res.status, res.statusText, data);
+      } catch (err) {
+        showResponse(500, 'Network / Server Error', { error: err.message });
+      }
+    }
+
+    function showResponse(status, statusText, data) {
+      const card = document.getElementById('responseCard');
+      const badge = document.getElementById('responseStatus');
+      const codeSpan = document.getElementById('responseCode');
+      const pre = document.getElementById('jsonOutput');
+
+      card.style.display = 'block';
+      codeSpan.textContent = status ? `${status} ${statusText}` : statusText;
+
+      if (status >= 200 && status < 300) {
+        badge.className = 'badge badge-success';
+        badge.textContent = 'SUCCESS';
+      } else {
+        badge.className = 'badge badge-error';
+        badge.textContent = status === 0 ? 'INFO' : 'ERROR';
+      }
+
+      pre.textContent = JSON.stringify(data, null, 2);
+    }
+  </script>
+</body>
+</html>
