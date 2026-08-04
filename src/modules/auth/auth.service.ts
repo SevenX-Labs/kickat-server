@@ -143,14 +143,26 @@ export class AuthService {
       data: { isUsed: true },
     });
 
-    // Upsert User by phone
-    const user = await this.prisma.user.upsert({
+    // Check if user already exists
+    let user = await this.prisma.user.findFirst({
       where: { phone: targetIdentifier },
-      update: { isPhoneVerified: true },
-      create: { phone: targetIdentifier, isPhoneVerified: true },
     });
 
-    return this.generateTokensAndRespond(user, res);
+    let isNewUser = false;
+
+    if (user) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { isPhoneVerified: true },
+      });
+    } else {
+      isNewUser = true;
+      user = await this.prisma.user.create({
+        data: { phone: targetIdentifier, isPhoneVerified: true },
+      });
+    }
+
+    return this.generateTokensAndRespond(user, res, undefined, isNewUser);
   }
 
   private readonly googleAuthIpMap = new Map<string, { count: number; resetAt: number }>();
@@ -228,6 +240,8 @@ export class AuthService {
         },
       });
 
+      let isNewUser = false;
+
       if (user) {
         user = await this.prisma.user.update({
           where: { id: user.id },
@@ -238,6 +252,7 @@ export class AuthService {
           },
         });
       } else {
+        isNewUser = true;
         user = await this.prisma.user.create({
           data: {
             email: payload.email,
@@ -248,7 +263,7 @@ export class AuthService {
         });
       }
 
-      return this.generateTokensAndRespond(user, res);
+      return this.generateTokensAndRespond(user, res, undefined, isNewUser);
     } catch (error) {
       this.logger.error(`Google Auth Error: ${error?.message || error}`);
       if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
@@ -360,6 +375,7 @@ export class AuthService {
     user: User,
     res: Response,
     familyIdInput?: string,
+    isNewUser: boolean = false,
   ) {
     const payload = {
       sub: user.id,
@@ -414,6 +430,7 @@ export class AuthService {
     return {
       success: true,
       accessToken,
+      isNewUser,
       user: {
         id: user.id,
         email: user.email,

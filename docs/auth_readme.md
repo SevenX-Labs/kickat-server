@@ -135,6 +135,7 @@ curl -X POST http://localhost:3000/api/v1/auth/otp/verify \
 {
   "success": true,
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmOGQy...",
+  "isNewUser": true,
   "user": {
     "id": "f8d22384-912a-4c2e-b153-9a3c109d7e5f",
     "email": null,
@@ -199,6 +200,7 @@ curl -X POST http://localhost:3000/api/v1/auth/google \
 {
   "success": true,
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "isNewUser": false,
   "user": {
     "id": "c1a23b45-6789-40de-f123-456789abcdef",
     "email": "user@gmail.com",
