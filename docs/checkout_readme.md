@@ -10,7 +10,6 @@ All Checkout endpoints are served under the base path `/api/v1/checkout` and req
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/checkout` | Yes | Get checkout summary, saved user addresses, delivery charges, and trigger a 10-minute stock reservation |
 | `POST` | `/api/v1/checkout/validate-address` | Yes | Validate delivery address serviceability and pincode |
-| `GET` | `/api/v1/checkout/delivery-slots` | Yes | Get available delivery slots (MORNING, EVENING, STANDARD) for a 6-digit pincode |
 | `GET` | `/api/v1/checkout/payment-methods` | Yes | Get available payment methods (UPI, CARD, WALLET, NETBANKING, COD) for order amount & pincode |
 | `POST` | `/api/v1/checkout/place-order` | Yes | **Idempotent** order placement with `Idempotency-Key` header |
 
@@ -24,7 +23,6 @@ All Checkout endpoints are served under the base path `/api/v1/checkout` and req
 | **addressId** | UUID | Valid UUID v4 string |
 | **pincode** | String | Exactly 6 digits (`/^\d{6}$/`) |
 | **orderAmount** | Number | Positive decimal > 0 |
-| **deliverySlot** | Object | `date` (ISO date string), `slot` (`MORNING`, `EVENING`, `STANDARD`) |
 | **paymentMethod** | Enum | `UPI`, `CARD`, `WALLET`, `NETBANKING`, `COD` |
 | **upiId** | String | Required if `paymentMethod = UPI` |
 | **savedCardId** | UUID | Required if `paymentMethod = CARD` |
@@ -75,15 +73,6 @@ curl -X GET "http://localhost:3000/api/v1/checkout" \
 }
 ```
 
-##### Conflict Response (`409 Conflict`)
-```json
-{
-  "statusCode": 409,
-  "message": "Cart is empty",
-  "error": "Conflict"
-}
-```
-
 ---
 
 ### B. Validate Address Serviceability
@@ -112,43 +101,7 @@ curl -X GET "http://localhost:3000/api/v1/checkout" \
 
 ---
 
-### C. Available Delivery Slots
-
-#### `GET /api/v1/checkout/delivery-slots`
-
-- **Headers**: `Authorization: Bearer <accessToken>`
-- **Query Params**: `pincode=400001`
-- **cURL**:
-```bash
-curl -X GET "http://localhost:3000/api/v1/checkout/delivery-slots?pincode=400001" \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
-```
-
-##### Success Response (`200 OK`)
-```json
-{
-  "success": true,
-  "pincode": "400001",
-  "slots": [
-    {
-      "date": "2026-08-05",
-      "slot": "MORNING",
-      "label": "9:00 AM - 1:00 PM",
-      "available": true
-    },
-    {
-      "date": "2026-08-05",
-      "slot": "EVENING",
-      "label": "4:00 PM - 8:00 PM",
-      "available": true
-    }
-  ]
-}
-```
-
----
-
-### D. Available Payment Methods
+### C. Available Payment Methods
 
 #### `GET /api/v1/checkout/payment-methods`
 
@@ -162,7 +115,7 @@ curl -X GET "http://localhost:3000/api/v1/checkout/payment-methods?orderAmount=2
 
 ---
 
-### E. Place Order (Idempotent)
+### D. Place Order (Idempotent)
 
 #### `POST /api/v1/checkout/place-order`
 
@@ -174,10 +127,6 @@ curl -X GET "http://localhost:3000/api/v1/checkout/payment-methods?orderAmount=2
 ```json
 {
   "addressId": "addr_01",
-  "deliverySlot": {
-    "date": "2026-08-05T00:00:00.000Z",
-    "slot": "MORNING"
-  },
   "paymentMethod": "UPI",
   "upiId": "user@okaxis",
   "deliveryInstructions": "Leave package with security"
@@ -195,7 +144,3 @@ curl -X GET "http://localhost:3000/api/v1/checkout/payment-methods?orderAmount=2
   "grandTotal": 2598.0
 }
 ```
-
-##### Conflict Response (`409 Conflict`)
-- `stock_reservation_expired`: 10-minute stock reservation window lapsed before order placement.
-- `Insufficient stock for Royal Canin Adult Dog Food`: Stock depleted.

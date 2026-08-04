@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { CheckoutService } from './checkout.service';
 import { ValidateAddressDto } from './dto/validate-address.dto';
-import { DeliverySlotsQueryDto } from './dto/delivery-slots-query.dto';
 import { PaymentMethodsQueryDto } from './dto/payment-methods-query.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { Auth, CurrentUser } from '../../common';
@@ -38,14 +37,6 @@ export class CheckoutController {
     @Body() dto: ValidateAddressDto,
   ) {
     return this.checkoutService.validateAddress(userId, dto);
-  }
-
-  /**
-   * GET /checkout/delivery-slots
-   */
-  @Get('delivery-slots')
-  async getDeliverySlots(@Query() query: DeliverySlotsQueryDto) {
-    return this.checkoutService.getDeliverySlots(query.pincode, query.date);
   }
 
   /**

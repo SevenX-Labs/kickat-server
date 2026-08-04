@@ -15,6 +15,7 @@ import { CompareModule } from './modules/compare/compare.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CheckoutModule } from './modules/checkout/checkout.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { CheckoutModule } from './modules/checkout/checkout.module';
     WishlistModule,
     CartModule,
     CheckoutModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

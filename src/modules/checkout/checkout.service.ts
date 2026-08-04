@@ -110,47 +110,6 @@ export class CheckoutService {
   }
 
   /**
-   * GET /checkout/delivery-slots
-   */
-  async getDeliverySlots(pincode: string, date?: string) {
-    if (!pincode || !/^\d{6}$/.test(pincode)) {
-      throw new BadRequestException('Invalid pincode format');
-    }
-
-    const baseDate = date ? new Date(date) : new Date();
-    if (isNaN(baseDate.getTime())) {
-      throw new BadRequestException('Invalid ISO date string');
-    }
-
-    const slots = [
-      {
-        date: baseDate.toISOString().split('T')[0],
-        slot: 'MORNING',
-        label: '9:00 AM - 1:00 PM',
-        available: true,
-      },
-      {
-        date: baseDate.toISOString().split('T')[0],
-        slot: 'EVENING',
-        label: '4:00 PM - 8:00 PM',
-        available: true,
-      },
-      {
-        date: baseDate.toISOString().split('T')[0],
-        slot: 'STANDARD',
-        label: 'Standard Day Delivery (9 AM - 9 PM)',
-        available: true,
-      },
-    ];
-
-    return {
-      success: true,
-      pincode,
-      slots,
-    };
-  }
-
-  /**
    * GET /checkout/payment-methods
    */
   async getPaymentMethods(orderAmount: number, pincode: string) {
@@ -331,8 +290,6 @@ export class CheckoutService {
           deliveryFee,
           grandTotal,
           idempotencyKey,
-          deliveryDate: new Date(dto.deliverySlot.date),
-          deliverySlot: dto.deliverySlot.slot,
           deliveryInstructions: dto.deliveryInstructions,
           items: {
             create: orderItemDataList,

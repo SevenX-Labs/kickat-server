@@ -8,7 +8,6 @@ describe('CheckoutController', () => {
   const mockCheckoutService = {
     getCheckout: jest.fn(),
     validateAddress: jest.fn(),
-    getDeliverySlots: jest.fn(),
     getPaymentMethods: jest.fn(),
     placeOrder: jest.fn(),
   };
