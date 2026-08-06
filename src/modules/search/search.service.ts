@@ -246,4 +246,24 @@ export class SearchService {
       },
     };
   }
+
+  /**
+   * GET /search/popular
+   */
+  async getPopularSearches() {
+    const popular = await this.prisma.recentSearch.groupBy({
+      by: ['query'],
+      _count: { query: true },
+      orderBy: { _count: { query: 'desc' } },
+      take: 10,
+    });
+
+    return {
+      success: true,
+      popularSearches: popular.map((p) => ({
+        query: p.query,
+        searchCount: p._count.query,
+      })),
+    };
+  }
 }

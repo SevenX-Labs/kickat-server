@@ -22,6 +22,8 @@ export class ProductsService {
     const skip = (page - 1) * limit;
 
     const whereCondition: any = {
+      deletedAt: null,
+      status: 'ACTIVE',
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.priceMin !== undefined || query.priceMax !== undefined
         ? {
@@ -75,11 +77,22 @@ export class ProductsService {
   }
 
   /**
-   * GET /products/:id
+   * GET /products/:idOrSlug
    */
-  async getProductById(id: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
+  async getProductById(idOrSlug: string) {
+    return this.getProductByIdOrSlug(idOrSlug);
+  }
+
+  async getProductByIdOrSlug(idOrSlug: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
+
+    const product = await this.prisma.product.findFirst({
+      where: isUuid
+        ? { id: idOrSlug, deletedAt: null }
+        : { slug: idOrSlug, deletedAt: null },
       include: {
         category: true,
         variants: true,

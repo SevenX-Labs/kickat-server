@@ -15,7 +15,6 @@ import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { RetryPaymentDto } from './dto/retry-payment.dto';
 import { ConfirmCodDto } from './dto/confirm-cod.dto';
 
-@Auth()
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
@@ -23,6 +22,7 @@ export class PaymentsController {
   /**
    * POST /payments/create-order
    */
+  @Auth()
   @Post('create-order')
   @HttpCode(HttpStatus.OK)
   async createPaymentOrder(
@@ -40,6 +40,7 @@ export class PaymentsController {
   /**
    * POST /payments/verify
    */
+  @Auth()
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   async verifyPayment(
@@ -52,6 +53,7 @@ export class PaymentsController {
   /**
    * POST /payments/retry
    */
+  @Auth()
   @Post('retry')
   @HttpCode(HttpStatus.OK)
   async retryPayment(
@@ -65,6 +67,7 @@ export class PaymentsController {
   /**
    * GET /payments/:id
    */
+  @Auth()
   @Get(':id')
   async getPaymentById(
     @CurrentUser('id') userId: string,
@@ -76,6 +79,7 @@ export class PaymentsController {
   /**
    * POST /payments/cod/confirm
    */
+  @Auth()
   @Post('cod/confirm')
   @HttpCode(HttpStatus.OK)
   async confirmCod(
@@ -84,5 +88,17 @@ export class PaymentsController {
     @Body() dto: ConfirmCodDto,
   ) {
     return this.paymentsService.confirmCod(userId, idempotencyKey, dto);
+  }
+
+  /**
+   * POST /payments/webhook (Public - Razorpay Callback)
+   */
+  @Post('webhook')
+  @HttpCode(HttpStatus.OK)
+  async handleWebhook(
+    @Headers('x-razorpay-signature') signature: string,
+    @Body() body: any,
+  ) {
+    return this.paymentsService.handleWebhook(signature, body);
   }
 }

@@ -505,4 +505,116 @@ export class PaymentsService {
       status: payment.status,
     };
   }
+
+  /**
+   * POST /payments/webhook
+   */
+  async handleWebhook(
+    signature: string,
+    body: any,
+    rawBody?: string | Buffer,
+  ) {
+    const isValid = this.razorpayService.verifyWebhookSignature({
+      rawBody: rawBody || JSON.stringify(body),
+      signature: signature || '',
+    });
+
+    if (!isValid) {
+      return {
+        success: false,
+        message: 'Invalid webhook signature',
+      };
+    }
+
+    const eventId =
+      body?.event_id ||
+      body?.payload?.payment?.entity?.id ||
+      `evt_${Date.now()}`;
+    const eventType = body?.event || 'unknown';
+
+    // Duplicate check for webhook idempotency
+    const existingLog = await this.prisma.webhookLog.findUnique({
+      where: { eventId },
+    });
+
+    if (existingLog) {
+      return {
+        success: true,
+        message: 'Webhook event already processed',
+      };
+    }
+
+    // Save WebhookLog entry
+    await this.prisma.webhookLog.create({
+      data: {
+        eventId,
+        event: eventType,
+        payload: JSON.parse(JSON.stringify(body || {})),
+        status: 'SUCCESS',
+        processedAt: new Date(),
+      },
+    });
+
+    const razorpayOrderId =
+      body?.payload?.payment?.entity?.order_id ||
+      body?.payload?.order?.entity?.id;
+
+    if (razorpayOrderId) {
+      const payment = await this.prisma.payment.findFirst({
+        where: { razorpayOrderId },
+      });
+
+      if (payment) {
+        if (
+          eventType === 'payment.captured' ||
+          eventType === 'payment.authorized' ||
+          eventType === 'order.paid'
+        ) {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.payment.update({
+              where: { id: payment.id },
+              data: {
+                status: PaymentStatusEnum.COMPLETED,
+                razorpayPaymentId: body?.payload?.payment?.entity?.id,
+              },
+            });
+
+            await tx.order.update({
+              where: { id: payment.orderId },
+              data: {
+                paymentStatus: PaymentStatusEnum.COMPLETED,
+                orderStatus: 'PLACED',
+              },
+            });
+          });
+        } else if (eventType === 'payment.failed') {
+          await this.prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: PaymentStatusEnum.FAILED,
+              failureReason:
+                body?.payload?.payment?.entity?.error_description ||
+                'Payment failed',
+            },
+          });
+
+          // Immediate stock reservation release on payment failure
+          await this.prisma.stockReservation.updateMany({
+            where: {
+              userId: payment.userId,
+              isFulfilled: false,
+            },
+            data: {
+              expiresAt: new Date(Date.now() - 1000),
+            },
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Webhook processed successfully',
+    };
+  }
 }

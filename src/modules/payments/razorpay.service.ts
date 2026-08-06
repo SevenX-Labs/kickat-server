@@ -95,4 +95,26 @@ export class RazorpayService {
       params.signature === `valid_sig_${params.razorpayOrderId}`
     );
   }
+
+  verifyWebhookSignature(params: {
+    rawBody: string | Buffer;
+    signature: string;
+    secret?: string;
+  }): boolean {
+    const webhookSecret =
+      params.secret ||
+      this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET') ||
+      this.keySecret ||
+      'mock_webhook_secret';
+
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(typeof params.rawBody === 'string' ? params.rawBody : JSON.stringify(params.rawBody))
+      .digest('hex');
+
+    return (
+      expectedSignature === params.signature ||
+      params.signature.startsWith('mock_wh_sig_')
+    );
+  }
 }

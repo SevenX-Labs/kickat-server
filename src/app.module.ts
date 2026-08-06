@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
@@ -18,6 +18,9 @@ import { CheckoutModule } from './modules/checkout/checkout.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { AuditService } from './common/services/audit.service';
 
 @Module({
   imports: [
@@ -37,8 +40,14 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
     PaymentsModule,
     OrdersModule,
     ReviewsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, AuditService],
+  exports: [AuditService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestIdMiddleware).forRoutes('*');
+  }
+}

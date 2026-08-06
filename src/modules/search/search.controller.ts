@@ -68,6 +68,14 @@ export class SearchController {
   }
 
   /**
+   * GET /search/popular
+   */
+  @Get('popular')
+  async getPopularSearches() {
+    return this.searchService.getPopularSearches();
+  }
+
+  /**
    * GET /search/filters
    */
   @Get('filters')

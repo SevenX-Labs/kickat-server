@@ -66,6 +66,12 @@ enum PaymentStatusEnum {
   FAILED
 }
 
+enum ProductStatusEnum {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
 enum OrderStatusEnum {
   PENDING
   PLACED
@@ -103,6 +109,9 @@ model User {
   orders            Order[]
   payments          Payment[]
   helpfulVotes      ReviewHelpful[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  recentlyViewed    RecentlyViewed[]
 
   @@map("users")
 }
@@ -204,6 +213,7 @@ model Category {
   parentId  String?
   isActive  Boolean    @default(true)
   order     Int        @default(0)
+  deletedAt DateTime?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   parent    Category?  @relation("CategoryToCategory", fields: [parentId], references: [id], onDelete: SetNull)
@@ -231,6 +241,8 @@ model Product {
   isBestSeller      Boolean            @default(false)
   imageUrl          String
   images            String[]           @default([])
+  status            ProductStatusEnum  @default(ACTIVE)
+  deletedAt         DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   category          Category           @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -240,6 +252,7 @@ model Product {
   wishlistItems     WishlistItem[]
   cartItems         CartItem[]
   guestCartItems    GuestCartItem[]
+  recentlyViewed    RecentlyViewed[]
 
   @@index([categoryId])
   @@index([petSpecies])
@@ -293,6 +306,7 @@ model ProductReview {
   photos             String[]        @default([])
   isVerifiedPurchase Boolean         @default(true)
   helpfulCount       Int             @default(0)
+  deletedAt          DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   product            Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -327,6 +341,7 @@ model BlogPost {
   tags        String[] @default([])
   isPublished Boolean  @default(true)
   publishedAt DateTime @default(now())
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -513,4 +528,89 @@ model OrderReturnItem {
   @@index([returnId])
   @@index([orderItemId])
   @@map("order_return_items")
+}
+
+model WebhookLog {
+  id          String    @id @default(uuid())
+  eventId     String    @unique
+  event       String
+  payload     Json
+  status      String    @default("SUCCESS")
+  error       String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("webhook_logs")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ip        String?
+  userAgent String?
+  requestId String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model NotificationLog {
+  id                String   @id @default(uuid())
+  channel           String
+  recipient         String
+  templateCode      String?
+  status            String
+  error             String?
+  providerMessageId String?
+  retryCount        Int      @default(0)
+  sentAt            DateTime @default(now())
+
+  @@map("notification_logs")
+}
+
+model NotificationTemplate {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  title     String
+  body      String
+  subject   String?
+  channel   String   @default("EMAIL")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("notification_templates")
+}
+
+model RecentlyViewed {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("recently_viewed")
 }
