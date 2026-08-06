@@ -287,4 +287,53 @@ describe('PaymentsService', () => {
       ).rejects.toThrow(ConflictException);
     });
   });
+
+  describe('handleWebhook', () => {
+    beforeEach(() => {
+      prisma.webhookLog = {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+      };
+      razorpayService.verifyWebhookSignature = jest.fn().mockReturnValue(true);
+    });
+
+    it('should return failure if webhook signature is invalid', async () => {
+      razorpayService.verifyWebhookSignature.mockReturnValue(false);
+      const res = await service.handleWebhook('invalid_sig', { event: 'payment.captured' });
+      expect(res.success).toBe(false);
+      expect(res.message).toBe('Invalid webhook signature');
+    });
+
+    it('should log unknown webhook event and return HTTP 200 success', async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      prisma.webhookLog.create.mockResolvedValue({ id: 'w1' });
+
+      const res = await service.handleWebhook('mock_wh_sig_123', {
+        event_id: 'evt_unknown_123',
+        event: 'unsupported.event.type',
+      });
+
+      expect(prisma.webhookLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          eventId: 'evt_unknown_123',
+          event: 'unsupported.event.type',
+          status: 'SUCCESS',
+        }),
+      });
+      expect(res.success).toBe(true);
+      expect(res.message).toBe('Webhook processed successfully');
+    });
+
+    it('should handle duplicate webhook idempotently', async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue({ id: 'w1', eventId: 'evt_dup_123' });
+
+      const res = await service.handleWebhook('mock_wh_sig_123', {
+        event_id: 'evt_dup_123',
+        event: 'payment.captured',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.message).toBe('Webhook event already processed');
+    });
+  });
 });

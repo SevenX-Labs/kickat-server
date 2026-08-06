@@ -23,7 +23,7 @@ export class NotificationsService {
     const title = `Order Status Update - ${params.orderNumber}`;
     const message = `Your order ${params.orderNumber} is now ${params.status.toLowerCase()}.`;
 
-    // Dispatch asynchronously
+    // Process asynchronously outside HTTP request lifecycle
     setImmediate(async () => {
       await this.inAppService.createNotification(params.userId, title, message, 'ORDER_UPDATE');
       if (params.email) {
@@ -52,5 +52,9 @@ export class NotificationsService {
 
   async markAsRead(userId: string, notificationId: string) {
     return this.inAppService.markAsRead(userId, notificationId);
+  }
+
+  async markAllAsRead(userId: string) {
+    return this.inAppService.markAllAsRead(userId);
   }
 }

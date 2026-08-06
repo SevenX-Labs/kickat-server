@@ -45,4 +45,11 @@ export class InAppService {
       data: { isRead: true },
     });
   }
+
+  async markAllAsRead(userId: string) {
+    return this.prisma.notification.updateMany({
+      where: { userId, isRead: false },
+      data: { isRead: true },
+    });
+  }
 }
