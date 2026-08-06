@@ -96,6 +96,7 @@ model User {
   cartItems         CartItem[]
   stockReservations StockReservation[]
   orders            Order[]
+  payments          Payment[]
 
   @@map("users")
 }
@@ -402,6 +403,7 @@ model Order {
   user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   address              Address           @relation(fields: [addressId], references: [id], onDelete: Restrict)
   items                OrderItem[]
+  payments             Payment[]
 
   @@index([userId])
   @@map("orders")
@@ -422,4 +424,33 @@ model OrderItem {
 
   @@index([orderId])
   @@map("order_items")
+}
+
+model Payment {
+  id                String            @id @default(uuid())
+  orderId           String
+  userId            String
+  amount            Float
+  currency          String            @default("INR")
+  paymentMethod     PaymentMethodEnum
+  status            PaymentStatusEnum @default(PENDING)
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  idempotencyKey    String?           @unique
+  upiId             String?
+  savedCardId       String?
+  walletProvider    String?
+  bankCode          String?
+  saveCard          Boolean?          @default(false)
+  failureReason     String?
+  attempts          Int               @default(1)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  order             Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([userId])
+  @@map("payments")
 }
