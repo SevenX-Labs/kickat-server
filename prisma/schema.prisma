@@ -102,6 +102,7 @@ model User {
   stockReservations StockReservation[]
   orders            Order[]
   payments          Payment[]
+  helpfulVotes      ReviewHelpful[]
 
   @@map("users")
 }
@@ -280,24 +281,39 @@ model ProductMedia {
 }
 
 model ProductReview {
-  id                 String   @id @default(uuid())
+  id                 String          @id @default(uuid())
   productId          String
   userId             String?
+  orderId            String?
   userName           String
   userAvatar         String?
   rating             Int
   title              String?
   comment            String
-  photos             String[] @default([])
-  isVerifiedPurchase Boolean  @default(true)
-  helpfulCount       Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  photos             String[]        @default([])
+  isVerifiedPurchase Boolean         @default(true)
+  helpfulCount       Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  product            Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  helpfulVotes       ReviewHelpful[]
 
+  @@index([orderId, productId])
   @@index([productId])
-  @@index([rating])
   @@map("product_reviews")
+}
+
+model ReviewHelpful {
+  id        String        @id @default(uuid())
+  reviewId  String
+  userId    String
+  createdAt DateTime      @default(now())
+  review    ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@index([reviewId])
+  @@map("review_helpful_votes")
 }
 
 model BlogPost {
