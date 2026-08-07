@@ -37,6 +37,8 @@ npm run test:cov
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/auth/otp/send` | No | Request 6-digit Mobile OTP via SMS (1 min validity) |
 | `POST` | `/api/v1/auth/otp/verify` | No | Verify 6-digit Mobile OTP and receive tokens |
+| `POST` | `/api/v1/auth/email-otp/send` | No | Request 6-digit Email OTP via Nodemailer SMTP (10 min validity) |
+| `POST` | `/api/v1/auth/email-otp/verify` | Optional | Verify 6-digit Email OTP to verify email address / receive tokens |
 | `POST` | `/api/v1/auth/google` | No | Authenticate with Gmail / Google OAuth ID Token or Authorization Code |
 | `GET` | `/api/v1/auth/login/google` | No | Browser redirect to Google OAuth login page |
 | `GET` | `/api/v1/auth/callback/google` | No | Google OAuth callback redirect handler |

@@ -11,6 +11,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { SendEmailOtpDto } from './dto/send-email-otp.dto';
+import { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { LogoutAllDto } from './dto/logout-all.dto';
 import { OtpType, User } from '@prisma/client';
@@ -19,6 +21,7 @@ import * as crypto from 'crypto';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OAuth2Client } from 'google-auth-library';
 import { Response } from 'express';
+import { EmailService } from '../../common/services/email.service';
 
 @Injectable()
 export class AuthService {
@@ -28,6 +31,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -165,6 +169,151 @@ export class AuthService {
     return this.generateTokensAndRespond(user, res, undefined, isNewUser);
   }
 
+  /**
+   * POST /auth/email-otp/send (Send 6-digit OTP to Email)
+   */
+  async sendEmailOtp(dto: SendEmailOtpDto) {
+    const email = dto.email.trim().toLowerCase();
+
+    // Rate limit: max 5 OTP requests per hour per email
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recentOtpCount = await this.prisma.otpLog.count({
+      where: {
+        identifier: email,
+        type: OtpType.EMAIL,
+        createdAt: { gte: oneHourAgo },
+      },
+    });
+
+    if (recentOtpCount >= 5) {
+      throw new HttpException(
+        'Rate limit exceeded — max 5 OTP requests per hour per email',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otp, 10);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minute expiry
+
+    await this.prisma.otpLog.create({
+      data: {
+        identifier: email,
+        otpHash,
+        type: OtpType.EMAIL,
+        expiresAt,
+      },
+    });
+
+    // Send email using EmailService
+    await this.emailService.sendOtpEmail(email, otp);
+
+    return {
+      success: true,
+      message: `OTP sent successfully to ${email}`,
+    };
+  }
+
+  /**
+   * POST /auth/email-otp/verify (Verify Email OTP)
+   */
+  async verifyEmailOtp(dto: VerifyEmailOtpDto, res: Response, currentUser?: any) {
+    const email = dto.email.trim().toLowerCase();
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    // Rate limit verification attempts per hour per email
+    const attemptsCount = await this.prisma.otpLog.aggregate({
+      where: {
+        identifier: email,
+        type: OtpType.EMAIL,
+        createdAt: { gte: oneHourAgo },
+      },
+      _sum: { attempts: true },
+    });
+
+    const totalAttempts = attemptsCount._sum.attempts || 0;
+    if (totalAttempts >= 5) {
+      throw new HttpException(
+        'Too many attempts — max 5 per hour',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const latestOtp = await this.prisma.otpLog.findFirst({
+      where: {
+        identifier: email,
+        type: OtpType.EMAIL,
+        isUsed: false,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!latestOtp || latestOtp.expiresAt < new Date()) {
+      throw new UnauthorizedException('Wrong or expired OTP');
+    }
+
+    const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
+
+    if (!isMatch) {
+      await this.prisma.otpLog.update({
+        where: { id: latestOtp.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new UnauthorizedException('Wrong or expired OTP');
+    }
+
+    // Mark OTP as used
+    await this.prisma.otpLog.update({
+      where: { id: latestOtp.id },
+      data: { isUsed: true },
+    });
+
+    // Case 1: Logged-in user linking/verifying their email
+    if (currentUser?.id) {
+      const updatedUser = await this.prisma.user.update({
+        where: { id: currentUser.id },
+        data: {
+          email,
+          isEmailVerified: true,
+        },
+      });
+      return {
+        success: true,
+        message: 'Email verified successfully',
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          isEmailVerified: updatedUser.isEmailVerified,
+          isPhoneVerified: updatedUser.isPhoneVerified,
+        },
+      };
+    }
+
+    // Case 2: Direct authentication / sign up via Email OTP
+    let user = await this.prisma.user.findFirst({
+      where: { email },
+    });
+
+    let isNewUser = false;
+    if (!user) {
+      isNewUser = true;
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          isEmailVerified: true,
+        },
+      });
+    } else {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { isEmailVerified: true },
+      });
+    }
+
+    return this.generateTokensAndRespond(user, res, undefined, isNewUser);
+  }
+
   private readonly googleAuthIpMap = new Map<string, { count: number; resetAt: number }>();
 
   getGoogleLoginUrl(): string {
@@ -247,7 +396,6 @@ export class AuthService {
           where: { id: user.id },
           data: {
             googleId: payload.sub,
-            isEmailVerified: true,
             name: user.name || payload.name,
           },
         });
@@ -258,7 +406,7 @@ export class AuthService {
             email: payload.email,
             googleId: payload.sub,
             name: payload.name,
-            isEmailVerified: true,
+            isEmailVerified: false,
           },
         });
       }

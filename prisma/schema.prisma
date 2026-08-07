@@ -8,6 +8,7 @@ datasource db {
 
 enum OtpType {
   SMS
+  EMAIL
 }
 
 enum Gender {

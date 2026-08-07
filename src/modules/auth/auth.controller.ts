@@ -16,6 +16,8 @@ import * as path from 'path';
 import { AuthService } from './auth.service';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { SendEmailOtpDto } from './dto/send-email-otp.dto';
+import { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { LogoutAllDto } from './dto/logout-all.dto';
 import { Auth, CurrentUser } from '../../common';
@@ -69,6 +71,22 @@ export class AuthController {
     @Res({ passthrough: true }) res: any,
   ) {
     return this.authService.verifyOtp(dto, res);
+  }
+
+  @Post('email-otp/send')
+  @HttpCode(HttpStatus.OK)
+  async sendEmailOtp(@Body() dto: SendEmailOtpDto) {
+    return this.authService.sendEmailOtp(dto);
+  }
+
+  @Post('email-otp/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyEmailOtp(
+    @Body() dto: VerifyEmailOtpDto,
+    @Res({ passthrough: true }) res: any,
+    @CurrentUser() currentUser?: any,
+  ) {
+    return this.authService.verifyEmailOtp(dto, res, currentUser);
   }
 
   @Post('google')

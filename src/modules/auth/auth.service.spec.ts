@@ -8,13 +8,20 @@ import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common
 import * as crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 
+import { EmailService } from '../../common/services/email.service';
+
 describe('AuthService', () => {
   let service: AuthService;
   let prismaMock: any;
   let jwtMock: any;
   let configMock: any;
+  let emailMock: any;
 
   beforeEach(async () => {
+    emailMock = {
+      sendOtpEmail: jest.fn().mockResolvedValue(true),
+    };
+
     prismaMock = {
       otpLog: {
         count: jest.fn(),
@@ -61,6 +68,7 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: jwtMock },
         { provide: ConfigService, useValue: configMock },
+        { provide: EmailService, useValue: emailMock },
       ],
     }).compile();
 
