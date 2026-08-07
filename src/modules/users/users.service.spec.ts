@@ -1,11 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../../common';
 
 describe('UsersService', () => {
   let service: UsersService;
 
   const mockPrismaService = {
+    user: { findUnique: jest.fn(), update: jest.fn() },
+    otpLog: { count: jest.fn(), create: jest.fn(), aggregate: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     product: { findFirst: jest.fn() },
     recentlyViewed: {
       upsert: jest.fn(),
@@ -14,11 +17,16 @@ describe('UsersService', () => {
     },
   };
 
+  const mockEmailService = {
+    sendOtpEmail: jest.fn().mockResolvedValue(true),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: EmailService, useValue: mockEmailService },
       ],
     }).compile();
 

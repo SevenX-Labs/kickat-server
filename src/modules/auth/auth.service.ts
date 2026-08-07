@@ -21,7 +21,7 @@ import * as crypto from 'crypto';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OAuth2Client } from 'google-auth-library';
 import { Response } from 'express';
-import { EmailService } from '../../common/services/email.service';
+import { EmailService } from '../../common';
 
 @Injectable()
 export class AuthService {

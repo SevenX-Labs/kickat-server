@@ -73,22 +73,6 @@ export class AuthController {
     return this.authService.verifyOtp(dto, res);
   }
 
-  @Post('email-otp/send')
-  @HttpCode(HttpStatus.OK)
-  async sendEmailOtp(@Body() dto: SendEmailOtpDto) {
-    return this.authService.sendEmailOtp(dto);
-  }
-
-  @Post('email-otp/verify')
-  @HttpCode(HttpStatus.OK)
-  async verifyEmailOtp(
-    @Body() dto: VerifyEmailOtpDto,
-    @Res({ passthrough: true }) res: any,
-    @CurrentUser() currentUser?: any,
-  ) {
-    return this.authService.verifyEmailOtp(dto, res, currentUser);
-  }
-
   @Post('google')
   @HttpCode(HttpStatus.OK)
   async googleAuth(

@@ -36,16 +36,18 @@ npm run test:cov
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/auth/otp/send` | No | Request 6-digit Mobile OTP via SMS (1 min validity) |
-| `POST` | `/api/v1/auth/otp/verify` | No | Verify 6-digit Mobile OTP and receive tokens |
-| `POST` | `/api/v1/auth/email-otp/send` | No | Request 6-digit Email OTP via Nodemailer SMTP (10 min validity) |
-| `POST` | `/api/v1/auth/email-otp/verify` | Optional | Verify 6-digit Email OTP to verify email address / receive tokens |
-| `POST` | `/api/v1/auth/google` | No | Authenticate with Gmail / Google OAuth ID Token or Authorization Code |
+| `POST` | `/api/v1/auth/otp/verify` | No | Verify Mobile OTP. Primary login flow; sets `isPhoneVerified: true`, issues tokens |
+| `POST` | `/api/v1/auth/google` | No | Authenticate via Google OAuth. Sets `isEmailVerified: true`, `isPhoneVerified: false`, issues tokens |
 | `GET` | `/api/v1/auth/login/google` | No | Browser redirect to Google OAuth login page |
 | `GET` | `/api/v1/auth/callback/google` | No | Google OAuth callback redirect handler |
 | `POST` | `/api/v1/auth/refresh` | No (Uses Cookie) | Rotate 30-day Refresh Token cookie and issue new Access Token |
 | `POST` | `/api/v1/auth/logout` | Yes (Bearer Token) | Revoke current session & clear refresh cookie |
 | `POST` | `/api/v1/auth/logout-all` | Yes (Bearer Token) | Revoke all active sessions across devices |
-| `GET` | `/api/v1/users/me` | Yes (Bearer Token) | Get latest user details, onboarding status, addresses & pet profiles |
+| `POST` | `/api/v1/users/email/send-verification` | Yes (Bearer Token) | Send Email verification OTP to logged-in user (Nodemailer SMTP) |
+| `POST` | `/api/v1/users/email/verify` | Yes (Bearer Token) | Verify Email OTP for logged-in user. Sets `isEmailVerified: true` (no new JWT) |
+| `POST` | `/api/v1/users/mobile/send-verification` | Yes (Bearer Token) | Send Mobile verification OTP to logged-in user (SMS) |
+| `POST` | `/api/v1/users/mobile/verify` | Yes (Bearer Token) | Verify Mobile OTP for logged-in user. Sets `isPhoneVerified: true` (no new JWT) |
+| `GET` | `/api/v1/users/me` | Yes (Bearer Token) | Get user details, `isPhoneVerified`, `isEmailVerified`, `profileCompleted` status |
 
 ---
 

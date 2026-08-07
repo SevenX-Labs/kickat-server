@@ -8,7 +8,7 @@ import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common
 import * as crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 
-import { EmailService } from '../../common/services/email.service';
+import { EmailService } from '../../common';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -153,7 +153,7 @@ describe('AuthService', () => {
       const mockRes: any = { cookie: jest.fn() };
       const dto = { code: 'bad_code', redirectUri: 'http://localhost/callback' };
 
-      jest.spyOn(OAuth2Client.prototype, 'getToken').mockRejectedValue(new Error('Invalid code'));
+      jest.spyOn(OAuth2Client.prototype, 'getToken').mockRejectedValue(new Error('Invalid code') as never);
 
       for (let i = 0; i < 10; i++) {
         try {
@@ -268,7 +268,7 @@ describe('AuthService', () => {
           OR: [{ expiresAt: { lt: expect.any(Date) } }, { isUsed: true }],
         },
       });
-      expect(result.count).toBe(4);
+      expect(result?.count).toBe(4);
     });
   });
 });
