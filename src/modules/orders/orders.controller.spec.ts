@@ -15,6 +15,7 @@ describe('OrdersController', () => {
   beforeEach(async () => {
     service = {
       getOrders: jest.fn().mockResolvedValue({ success: true, orders: [] }),
+      getOrderAgain: jest.fn().mockResolvedValue({ success: true, items: [] }),
       getOrderById: jest.fn().mockResolvedValue({ success: true, order: { id: mockOrderId } }),
       getOrderTimeline: jest.fn().mockResolvedValue({ success: true, timeline: [] }),
       getOrderTracking: jest.fn().mockResolvedValue({ success: true, trackingNumber: 'TRK-123' }),
@@ -41,6 +42,20 @@ describe('OrdersController', () => {
     const query = { page: 1, limit: 10 };
     const res = await controller.getOrders(mockUserId, query);
     expect(service.getOrders).toHaveBeenCalledWith(mockUserId, query);
+    expect(res.success).toBe(true);
+  });
+
+  it('should call getOrderAgain', async () => {
+    const query = { page: 1, limit: 10 };
+    const res = await controller.getOrderAgain(mockUserId, query);
+    expect(service.getOrderAgain).toHaveBeenCalledWith(mockUserId, query);
+    expect(res.success).toBe(true);
+  });
+
+  it('should call getBuyAgain', async () => {
+    const query = { page: 1, limit: 10 };
+    const res = await controller.getBuyAgain(mockUserId, query);
+    expect(service.getOrderAgain).toHaveBeenCalledWith(mockUserId, query);
     expect(res.success).toBe(true);
   });
 
@@ -90,9 +105,30 @@ describe('OrdersController', () => {
     expect(res.success).toBe(true);
   });
 
-  it('should call reorder', async () => {
+  it('should call reorder by id', async () => {
     const res = await controller.reorder(mockUserId, mockOrderId);
     expect(service.reorder).toHaveBeenCalledWith(mockUserId, mockOrderId);
+    expect(res.success).toBe(true);
+  });
+
+  it('should call reorderPost with dto', async () => {
+    const dto = { orderId: mockOrderId };
+    const res = await controller.reorderPost(mockUserId, dto);
+    expect(service.reorder).toHaveBeenCalledWith(mockUserId, dto);
+    expect(res.success).toBe(true);
+  });
+
+  it('should call reorderOrderAgain with dto', async () => {
+    const dto = { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 };
+    const res = await controller.reorderOrderAgain(mockUserId, dto);
+    expect(service.reorder).toHaveBeenCalledWith(mockUserId, dto);
+    expect(res.success).toBe(true);
+  });
+
+  it('should call orderAgain with dto', async () => {
+    const dto = { items: [{ productId: '44444444-4444-4444-8444-444444444444', quantity: 1 }] };
+    const res = await controller.orderAgain(mockUserId, dto);
+    expect(service.reorder).toHaveBeenCalledWith(mockUserId, dto);
     expect(res.success).toBe(true);
   });
 });

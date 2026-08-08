@@ -1,7 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
+  Post,
   Query,
   Req,
   UseGuards,
@@ -16,6 +20,7 @@ import { ProductsBuyAgainQueryDto } from './dto/products-buy-again-query.dto';
 import { BlogsQueryDto } from './dto/blogs-query.dto';
 import { UuidParamDto } from './dto/uuid-param.dto';
 import { BlogSlugParamDto } from './dto/blog-slug-param.dto';
+import { ReorderDto } from '../orders/dto/reorder.dto';
 import { Auth, CurrentUser } from '../../common';
 
 @Controller()
@@ -110,6 +115,42 @@ export class HomeController {
     @Query() query: ProductsBuyAgainQueryDto,
   ) {
     return this.homeService.getBuyAgainProducts(userId, query.limit);
+  }
+
+  /**
+   * POST /products/buy-again/reorder (Auth Required)
+   */
+  @Auth()
+  @Post('products/buy-again/reorder')
+  @HttpCode(HttpStatus.OK)
+  async reorderBuyAgain(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ReorderDto,
+  ) {
+    return this.homeService.reorderBuyAgainProduct(
+      userId,
+      dto.productId!,
+      dto.variantId,
+      dto.quantity,
+    );
+  }
+
+  /**
+   * POST /products/reorder (Auth Required)
+   */
+  @Auth()
+  @Post('products/reorder')
+  @HttpCode(HttpStatus.OK)
+  async reorderProduct(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ReorderDto,
+  ) {
+    return this.homeService.reorderBuyAgainProduct(
+      userId,
+      dto.productId!,
+      dto.variantId,
+      dto.quantity,
+    );
   }
 
   /**

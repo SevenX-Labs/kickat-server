@@ -10,6 +10,8 @@ import { GetOrdersQueryDto, OrderStatusQueryEnum, OrderTypeQueryEnum } from './d
 import { GetReturnsQueryDto } from './dto/get-returns-query.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { ReturnOrderDto } from './dto/return-order.dto';
+import { ReorderDto, ReorderItemDto } from './dto/reorder.dto';
+import { OrderAgainQueryDto } from './dto/order-again-query.dto';
 import { OrderStatusEnum } from '@prisma/client';
 
 const UUID_V4_REGEX =
@@ -451,9 +453,193 @@ export class OrdersService {
   }
 
   /**
-   * POST /orders/:id/reorder
+   * GET /orders/order-again
    */
-  async reorder(userId: string, id: string) {
+  async getOrderAgain(userId: string, query?: OrderAgainQueryDto) {
+    const page = query?.page && query.page > 0 ? query.page : 1;
+    const limit = query?.limit && query.limit > 0 ? query.limit : 10;
+    const skip = (page - 1) * limit;
+
+    const orderItems = await this.prisma.orderItem.findMany({
+      where: {
+        order: {
+          userId,
+          orderStatus: {
+            notIn: [OrderStatusEnum.CANCELLED],
+          },
+        },
+      },
+      orderBy: {
+        order: {
+          createdAt: 'desc',
+        },
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            orderStatus: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    // Aggregate unique products and variants
+    const itemMap = new Map<
+      string,
+      {
+        productId: string;
+        variantId: string | null;
+        productName: string;
+        variantName: string | null;
+        lastOrderedAt: Date;
+        lastOrderId: string;
+        lastOrderNumber: string;
+        lastQuantity: number;
+        timesOrdered: number;
+        totalQuantityOrdered: number;
+      }
+    >();
+
+    for (const item of orderItems) {
+      const key = `${item.productId}_${item.variantId || 'base'}`;
+      if (!itemMap.has(key)) {
+        itemMap.set(key, {
+          productId: item.productId,
+          variantId: item.variantId || null,
+          productName: item.productName,
+          variantName: item.variantName || null,
+          lastOrderedAt: item.order.createdAt,
+          lastOrderId: item.order.id,
+          lastOrderNumber: item.order.orderNumber,
+          lastQuantity: item.quantity,
+          timesOrdered: 1,
+          totalQuantityOrdered: item.quantity,
+        });
+      } else {
+        const existing = itemMap.get(key)!;
+        existing.timesOrdered += 1;
+        existing.totalQuantityOrdered += item.quantity;
+      }
+    }
+
+    const aggregatedList = Array.from(itemMap.values());
+    const total = aggregatedList.length;
+    const pagedEntries = aggregatedList.slice(skip, skip + limit);
+
+    // Fetch full product and variant information
+    const items = await Promise.all(
+      pagedEntries.map(async (entry) => {
+        const product = await this.prisma.product.findUnique({
+          where: { id: entry.productId },
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+          },
+        });
+
+        let variant: any = null;
+        if (entry.variantId) {
+          variant = await this.prisma.productVariant.findUnique({
+            where: { id: entry.variantId },
+          });
+        }
+
+        const inStock = product
+          ? (variant ? variant.stock > 0 : product.stock > 0) &&
+            product.status === 'ACTIVE'
+          : false;
+        const availableStock = product
+          ? variant
+            ? variant.stock
+            : product.stock
+          : 0;
+
+        return {
+          productId: entry.productId,
+          variantId: entry.variantId || null,
+          productName: product?.name || entry.productName,
+          variantName: variant?.name || entry.variantName || null,
+          lastOrderedAt: entry.lastOrderedAt,
+          lastOrderId: entry.lastOrderId,
+          lastOrderNumber: entry.lastOrderNumber,
+          lastQuantity: entry.lastQuantity,
+          timesOrdered: entry.timesOrdered,
+          totalQuantityOrdered: entry.totalQuantityOrdered,
+          inStock,
+          availableStock,
+          product: product
+            ? {
+                id: product.id,
+                name: product.name,
+                slug: product.slug,
+                price: product.price,
+                discountPrice: product.discountPrice,
+                imageUrl: product.imageUrl,
+                rating: product.rating,
+                reviewsCount: product.reviewsCount,
+                stock: product.stock,
+                category: product.category,
+              }
+            : null,
+          variant: variant
+            ? {
+                id: variant.id,
+                name: variant.name,
+                price: variant.price,
+                stock: variant.stock,
+              }
+            : null,
+        };
+      }),
+    );
+
+    return {
+      success: true,
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * POST /orders/:id/reorder or POST /orders/reorder
+   */
+  async reorder(userId: string, idOrDto: string | ReorderDto) {
+    if (typeof idOrDto === 'string') {
+      return this.reorderFromOrder(userId, idOrDto);
+    }
+
+    const dto = idOrDto;
+
+    if (dto.orderId) {
+      return this.reorderFromOrder(userId, dto.orderId);
+    }
+
+    if (dto.items && dto.items.length > 0) {
+      return this.reorderItemsList(userId, dto.items);
+    }
+
+    if (dto.productId) {
+      return this.reorderSingleProduct(
+        userId,
+        dto.productId,
+        dto.variantId,
+        dto.quantity || 1,
+      );
+    }
+
+    throw new BadRequestException(
+      'orderId, productId, or items array is required to reorder',
+    );
+  }
+
+  private async reorderFromOrder(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
 
     if (!order.items || order.items.length === 0) {
@@ -492,7 +678,7 @@ export class OrdersService {
           userId_productId_variantId: {
             userId,
             productId: item.productId,
-            variantId: item.variantId ?? undefined as any,
+            variantId: item.variantId ?? (undefined as any),
           },
         },
         create: {
@@ -511,6 +697,128 @@ export class OrdersService {
       success: true,
       message: 'Items added to cart successfully',
       reorderedItemsCount: order.items.length,
+      orderId: order.id,
+    };
+  }
+
+  private async reorderItemsList(userId: string, items: ReorderItemDto[]) {
+    // Check stock for all items
+    for (const item of items) {
+      this.validateUuid(item.productId, 'productId');
+      if (item.variantId) {
+        this.validateUuid(item.variantId, 'variantId');
+      }
+
+      const product = await this.prisma.product.findUnique({
+        where: { id: item.productId },
+      });
+
+      const requiredQty = item.quantity || 1;
+      if (!product || product.stock < requiredQty) {
+        throw new ConflictException(
+          `Product '${product?.name || item.productId}' is out of stock or discontinued`,
+        );
+      }
+
+      if (item.variantId) {
+        const variant = await this.prisma.productVariant.findUnique({
+          where: { id: item.variantId },
+        });
+
+        if (!variant || variant.stock < requiredQty) {
+          throw new ConflictException(
+            `Variant '${variant?.name || item.variantId}' is out of stock or discontinued`,
+          );
+        }
+      }
+    }
+
+    // Add each item to cart
+    for (const item of items) {
+      const qty = item.quantity || 1;
+      await this.prisma.cartItem.upsert({
+        where: {
+          userId_productId_variantId: {
+            userId,
+            productId: item.productId,
+            variantId: item.variantId ?? (undefined as any),
+          },
+        },
+        create: {
+          userId,
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: qty,
+        },
+        update: {
+          quantity: { increment: qty },
+        },
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Items added to cart successfully',
+      reorderedItemsCount: items.length,
+    };
+  }
+
+  private async reorderSingleProduct(
+    userId: string,
+    productId: string,
+    variantId?: string,
+    quantity: number = 1,
+  ) {
+    this.validateUuid(productId, 'productId');
+    if (variantId) {
+      this.validateUuid(variantId, 'variantId');
+    }
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product || product.stock < quantity) {
+      throw new ConflictException(
+        `Product '${product?.name || productId}' is out of stock or discontinued`,
+      );
+    }
+
+    if (variantId) {
+      const variant = await this.prisma.productVariant.findUnique({
+        where: { id: variantId },
+      });
+
+      if (!variant || variant.stock < quantity) {
+        throw new ConflictException(
+          `Variant '${variant?.name || variantId}' is out of stock or discontinued`,
+        );
+      }
+    }
+
+    await this.prisma.cartItem.upsert({
+      where: {
+        userId_productId_variantId: {
+          userId,
+          productId,
+          variantId: variantId ?? (undefined as any),
+        },
+      },
+      create: {
+        userId,
+        productId,
+        variantId,
+        quantity,
+      },
+      update: {
+        quantity: { increment: quantity },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Item added to cart successfully',
+      reorderedItemsCount: 1,
     };
   }
 

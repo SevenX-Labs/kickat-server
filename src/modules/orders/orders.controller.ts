@@ -14,6 +14,8 @@ import { Auth, CurrentUser } from '../../common';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { ReturnOrderDto } from './dto/return-order.dto';
+import { ReorderDto } from './dto/reorder.dto';
+import { OrderAgainQueryDto } from './dto/order-again-query.dto';
 
 @Auth()
 @Controller('orders')
@@ -29,6 +31,28 @@ export class OrdersController {
     @Query() query: GetOrdersQueryDto,
   ) {
     return this.ordersService.getOrders(userId, query);
+  }
+
+  /**
+   * GET /orders/order-again (Must be declared before :id)
+   */
+  @Get('order-again')
+  async getOrderAgain(
+    @CurrentUser('id') userId: string,
+    @Query() query: OrderAgainQueryDto,
+  ) {
+    return this.ordersService.getOrderAgain(userId, query);
+  }
+
+  /**
+   * GET /orders/buy-again (Alias for order-again)
+   */
+  @Get('buy-again')
+  async getBuyAgain(
+    @CurrentUser('id') userId: string,
+    @Query() query: OrderAgainQueryDto,
+  ) {
+    return this.ordersService.getOrderAgain(userId, query);
   }
 
   /**
@@ -110,6 +134,42 @@ export class OrdersController {
     @Body() dto: ReturnOrderDto,
   ) {
     return this.ordersService.returnOrder(userId, id, dto);
+  }
+
+  /**
+   * POST /orders/reorder
+   */
+  @Post('reorder')
+  @HttpCode(HttpStatus.OK)
+  async reorderPost(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ReorderDto,
+  ) {
+    return this.ordersService.reorder(userId, dto);
+  }
+
+  /**
+   * POST /orders/order-again/reorder
+   */
+  @Post('order-again/reorder')
+  @HttpCode(HttpStatus.OK)
+  async reorderOrderAgain(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ReorderDto,
+  ) {
+    return this.ordersService.reorder(userId, dto);
+  }
+
+  /**
+   * POST /orders/order-again
+   */
+  @Post('order-again')
+  @HttpCode(HttpStatus.OK)
+  async orderAgain(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ReorderDto,
+  ) {
+    return this.ordersService.reorder(userId, dto);
   }
 
   /**

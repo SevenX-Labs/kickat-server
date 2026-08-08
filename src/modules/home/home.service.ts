@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -13,6 +14,7 @@ import { ProductsTrendingQueryDto } from './dto/products-trending-query.dto';
 import { ProductsBestSellersQueryDto } from './dto/products-best-sellers-query.dto';
 import { ProductsRecommendedQueryDto } from './dto/products-recommended-query.dto';
 import { BlogsQueryDto } from './dto/blogs-query.dto';
+import { OrderStatusEnum } from '@prisma/client';
 
 @Injectable()
 export class HomeService {
@@ -333,14 +335,132 @@ export class HomeService {
    * GET /products/buy-again
    */
   async getBuyAgainProducts(userId: string, limit: number = 10) {
-    const products = await this.prisma.product.findMany({
-      orderBy: { reviewsCount: 'desc' },
-      take: limit,
+    const pastOrderItems = await this.prisma.orderItem.findMany({
+      where: {
+        order: {
+          userId,
+          orderStatus: {
+            notIn: [OrderStatusEnum.CANCELLED],
+          },
+        },
+      },
+      orderBy: {
+        order: {
+          createdAt: 'desc',
+        },
+      },
     });
+
+    // Collect unique product IDs preserving order (most recent first)
+    const seenProductIds = new Set<string>();
+    const orderedProductIds: string[] = [];
+
+    for (const item of pastOrderItems) {
+      if (!seenProductIds.has(item.productId)) {
+        seenProductIds.add(item.productId);
+        orderedProductIds.push(item.productId);
+        if (orderedProductIds.length >= limit) {
+          break;
+        }
+      }
+    }
+
+    // Batch-fetch products by collected IDs
+    const fetchedProducts = await this.prisma.product.findMany({
+      where: { id: { in: orderedProductIds } },
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
+      },
+    });
+
+    // Restore the original order
+    const productMap = new Map(fetchedProducts.map((p) => [p.id, p]));
+    const products: any[] = orderedProductIds
+      .map((id) => productMap.get(id))
+      .filter(Boolean);
+
+    if (products.length < limit) {
+      const remainingLimit = limit - products.length;
+      const supplementalProducts = await this.prisma.product.findMany({
+        where: {
+          id: {
+            notIn: Array.from(seenProductIds),
+          },
+        },
+        orderBy: { reviewsCount: 'desc' },
+        take: remainingLimit,
+        include: {
+          category: { select: { id: true, name: true, slug: true } },
+        },
+      });
+      products.push(...supplementalProducts);
+    }
 
     return {
       success: true,
       products,
+    };
+  }
+
+  /**
+   * POST /products/buy-again/reorder
+   */
+  async reorderBuyAgainProduct(
+    userId: string,
+    productId: string,
+    variantId?: string,
+    quantity: number = 1,
+  ) {
+    if (!productId) {
+      throw new BadRequestException('productId is required');
+    }
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    const qty = quantity || 1;
+    if (!product || product.stock < qty) {
+      throw new ConflictException(
+        `Product '${product?.name || productId}' is out of stock or discontinued`,
+      );
+    }
+
+    if (variantId) {
+      const variant = await this.prisma.productVariant.findUnique({
+        where: { id: variantId },
+      });
+
+      if (!variant || variant.stock < qty) {
+        throw new ConflictException(
+          `Variant '${variant?.name || variantId}' is out of stock or discontinued`,
+        );
+      }
+    }
+
+    await this.prisma.cartItem.upsert({
+      where: {
+        userId_productId_variantId: {
+          userId,
+          productId,
+          variantId: variantId ?? (undefined as any),
+        },
+      },
+      create: {
+        userId,
+        productId,
+        variantId,
+        quantity: qty,
+      },
+      update: {
+        quantity: { increment: qty },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Item added to cart successfully',
+      reorderedItemsCount: 1,
     };
   }
 
