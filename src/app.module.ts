@@ -24,6 +24,7 @@ import { AuditService } from './common/services/audit.service';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { AuthModule } from './admin/auth/auth.module';
 import { AuthModule } from './modules/admin/auth/auth.module';
+import { DashboardModule } from './modules/admin/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { AuthModule } from './modules/admin/auth/auth.module';
     ReviewsModule,
     NotificationsModule,
     CategoriesModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
