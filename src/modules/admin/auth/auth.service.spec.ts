@@ -15,6 +15,11 @@ import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../../../common';
 import * as bcrypt from 'bcrypt';
 
+jest.mock('bcrypt', () => ({
+  hash: jest.fn().mockResolvedValue('$2b$10$hashedpassword'),
+  compare: jest.fn(),
+}));
+
 describe('Admin AuthService', () => {
   let service: AuthService;
 
@@ -67,7 +72,7 @@ describe('Admin AuthService', () => {
   };
 
   const mockEmailService = {
-    sendMail: jest.fn().mockResolvedValue(true),
+    sendOtpEmail: jest.fn().mockResolvedValue(true),
   };
 
   beforeEach(async () => {
@@ -100,7 +105,7 @@ describe('Admin AuthService', () => {
 
     it('should throw UnauthorizedException if password does not match', async () => {
       mockPrismaService.admin.findUnique.mockResolvedValue(mockAdmin);
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => false);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(
         service.login({ adminId: 'admin', password: 'wrongpassword' }, {} as any),
@@ -112,7 +117,7 @@ describe('Admin AuthService', () => {
         ...mockAdmin,
         isBlocked: true,
       });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => true);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(
         service.login({ adminId: 'admin', password: 'kickat@2026' }, {} as any),
@@ -121,7 +126,7 @@ describe('Admin AuthService', () => {
 
     it('should return tokens on valid credentials', async () => {
       mockPrismaService.admin.findUnique.mockResolvedValue(mockAdmin);
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => true);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       mockPrismaService.adminSession.create.mockResolvedValue({});
 
       const result = await service.login(
@@ -162,7 +167,7 @@ describe('Admin AuthService', () => {
       const result = await service.forgotPassword({ adminId: 'admin' });
 
       expect(result.success).toBe(true);
-      expect(mockEmailService.sendMail).toHaveBeenCalled();
+      expect(mockEmailService.sendOtpEmail).toHaveBeenCalled();
     });
   });
 
@@ -186,7 +191,7 @@ describe('Admin AuthService', () => {
         otpHash: 'hashedotp',
         attempts: 0,
       });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => false);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
       mockPrismaService.adminResetToken.update.mockResolvedValue({});
 
       await expect(
@@ -202,7 +207,7 @@ describe('Admin AuthService', () => {
         otpHash: 'hashedotp',
         attempts: 0,
       });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => true);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       mockPrismaService.adminResetToken.update.mockResolvedValue({});
 
       const result = await service.verifyResetOtp({

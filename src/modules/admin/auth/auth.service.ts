@@ -17,7 +17,6 @@ import { EmailService } from '../../../common';
 import { Admin } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
 import { Request } from 'express';
 
 import { AdminLoginDto } from './dto/admin-login.dto';
@@ -161,12 +160,7 @@ export class AuthService {
 
     this.logger.log(`[ADMIN OTP SENT] Admin: ${admin.adminId} (${admin.email}) | OTP: ${otp}`);
 
-    await this.emailService.sendMail({
-      to: admin.email,
-      subject: 'Kickat Admin Password Reset OTP',
-      text: `Your OTP for admin password reset is ${otp}. It will expire in 10 minutes.`,
-      html: `<p>Your OTP for admin password reset is <strong>${otp}</strong>. It will expire in 10 minutes.</p>`,
-    });
+    await this.emailService.sendOtpEmail(admin.email, otp);
 
     return {
       success: true,
@@ -233,7 +227,7 @@ export class AuthService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
-    const resetToken = uuidv4();
+    const resetToken = crypto.randomUUID();
     const tokenExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await this.prisma.adminResetToken.update({
