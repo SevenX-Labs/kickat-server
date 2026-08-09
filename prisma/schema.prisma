@@ -615,3 +615,55 @@ model RecentlyViewed {
   @@index([userId])
   @@map("recently_viewed")
 }
+
+model Admin {
+  id          String            @id @default(uuid())
+  adminId     String            @unique
+  name        String
+  email       String            @unique
+  password    String
+  role        String            @default("ADMIN")
+  permissions String[]          @default(["ALL"])
+  isActive    Boolean           @default(true)
+  isBlocked   Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  sessions    AdminSession[]
+  resetTokens AdminResetToken[]
+
+  @@map("admins")
+}
+
+model AdminSession {
+  id               String   @id @default(uuid())
+  adminId          String
+  refreshTokenHash String   @unique
+  ipAddress        String?
+  userAgent        String?
+  isRevoked        Boolean  @default(false)
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  admin            Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("admin_sessions")
+}
+
+model AdminResetToken {
+  id             String    @id @default(uuid())
+  adminId        String
+  otpHash        String?
+  resetToken     String?   @unique
+  isOtpVerified  Boolean   @default(false)
+  isUsed         Boolean   @default(false)
+  otpExpiresAt   DateTime?
+  tokenExpiresAt DateTime?
+  attempts       Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  admin          Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, createdAt])
+  @@map("admin_reset_tokens")
+}

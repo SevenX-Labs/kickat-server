@@ -25,6 +25,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload) {
+    if (payload.type === 'admin') {
+      const admin = await this.prisma.admin.findUnique({
+        where: { id: payload.sub },
+      });
+
+      if (!admin || !admin.isActive || admin.isBlocked) {
+        throw new UnauthorizedException('Admin account inactive, blocked, or not found');
+      }
+
+      return admin;
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });
