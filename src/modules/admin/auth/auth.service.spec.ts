@@ -25,7 +25,7 @@ describe('Admin AuthService', () => {
 
   const mockAdmin = {
     id: 'admin-uuid-1',
-    adminId: 'admin',
+    adminId: 'kickat2021',
     name: 'Super Admin',
     email: 'kickat2021@gmail.com',
     password: '$2b$10$hashedpassword',
