@@ -32,6 +32,7 @@ import { BlogsModule } from './modules/admin/blogs/blogs.module';
 import { ReviewsModule } from './modules/admin/reviews/reviews.module';
 import { AnalyticsModule } from './modules/admin/analytics/analytics.module';
 import { NotificationsModule } from './modules/admin/notifications/notifications.module';
+import { SettingsModule } from './modules/admin/settings/settings.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { NotificationsModule } from './modules/admin/notifications/notifications
     CustomersModule,
     BlogsModule,
     AnalyticsModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
