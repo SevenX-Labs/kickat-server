@@ -137,7 +137,7 @@ describe('Admin AuthService', () => {
       expect(result.success).toBe(true);
       expect(result.accessToken).toBe('mocked-token');
       expect(result.refreshToken).toBe('mocked-token');
-      expect(result.admin.adminId).toBe('admin');
+      expect(result.admin.adminId).toBe('kickat2021');
     });
   });
 
