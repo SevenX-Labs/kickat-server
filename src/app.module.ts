@@ -30,6 +30,7 @@ import { OrdersModule } from './modules/admin/orders/orders.module';
 import { CustomersModule } from './modules/admin/customers/customers.module';
 import { BlogsModule } from './modules/admin/blogs/blogs.module';
 import { ReviewsModule } from './modules/admin/reviews/reviews.module';
+import { AnalyticsModule } from './modules/admin/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ReviewsModule } from './modules/admin/reviews/reviews.module';
     DashboardModule,
     CustomersModule,
     BlogsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
