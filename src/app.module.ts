@@ -22,6 +22,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditService } from './common/services/audit.service';
 import { CategoriesModule } from './modules/categories/categories.module';
+import { AuthModule } from './admin/auth/auth.module';
+import { AuthModule } from './modules/admin/auth/auth.module';
 
 @Module({
   imports: [
