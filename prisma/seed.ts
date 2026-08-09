@@ -12,7 +12,7 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  const adminId = 'admin';
+  const adminId = 'kickat2021';
   const email = 'kickat2021@gmail.com';
   const rawPassword = 'kickat@2026';
 
