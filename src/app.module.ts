@@ -29,6 +29,7 @@ import { CategoriesModule } from './modules/admin/categories/categories.module';
 import { OrdersModule } from './modules/admin/orders/orders.module';
 import { CustomersModule } from './modules/admin/customers/customers.module';
 import { BlogsModule } from './modules/admin/blogs/blogs.module';
+import { ReviewsModule } from './modules/admin/reviews/reviews.module';
 
 @Module({
   imports: [
