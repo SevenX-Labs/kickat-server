@@ -21,6 +21,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditService } from './common/services/audit.service';
+import { CategoriesModule } from './modules/categories/categories.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { AuditService } from './common/services/audit.service';
     OrdersModule,
     ReviewsModule,
     NotificationsModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
