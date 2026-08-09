@@ -31,6 +31,7 @@ import { CustomersModule } from './modules/admin/customers/customers.module';
 import { BlogsModule } from './modules/admin/blogs/blogs.module';
 import { ReviewsModule } from './modules/admin/reviews/reviews.module';
 import { AnalyticsModule } from './modules/admin/analytics/analytics.module';
+import { NotificationsModule } from './modules/admin/notifications/notifications.module';
 
 @Module({
   imports: [
