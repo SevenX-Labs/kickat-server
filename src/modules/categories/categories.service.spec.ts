@@ -125,12 +125,13 @@ describe('CategoriesService', () => {
         children: [],
       });
 
-      const result = await service.getCategoryById('123e4567-e89b-12d3-a456-426614174000');
+      const validUuid = '123e4567-e89b-42d3-a456-426614174000';
+      const result = await service.getCategoryById(validUuid);
 
       expect(result.success).toBe(true);
       expect(result.category.id).toBe(mockCategory.id);
       expect(mockPrismaService.category.findFirst).toHaveBeenCalledWith({
-        where: { id: '123e4567-e89b-12d3-a456-426614174000', isActive: true, deletedAt: null },
+        where: { id: validUuid, isActive: true, deletedAt: null },
         include: { children: { where: { isActive: true, deletedAt: null } } },
       });
     });

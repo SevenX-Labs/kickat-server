@@ -13,6 +13,7 @@ import {
 import { HomeService } from './home.service';
 import { HomeQueryDto } from './dto/home-query.dto';
 import { ProductsTrendingQueryDto } from './dto/products-trending-query.dto';
+import { ProductsBestSellersQueryDto } from './dto/products-best-sellers-query.dto';
 import { ProductsRecommendedQueryDto } from './dto/products-recommended-query.dto';
 import { ProductsBuyAgainQueryDto } from './dto/products-buy-again-query.dto';
 import { BlogsQueryDto } from './dto/blogs-query.dto';
