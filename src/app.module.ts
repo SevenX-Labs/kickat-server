@@ -33,6 +33,7 @@ import { ReviewsModule } from './modules/admin/reviews/reviews.module';
 import { AnalyticsModule } from './modules/admin/analytics/analytics.module';
 import { NotificationsModule } from './modules/admin/notifications/notifications.module';
 import { SettingsModule } from './modules/admin/settings/settings.module';
+import { ShippingModule } from './modules/admin/shipping/shipping.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { SettingsModule } from './modules/admin/settings/settings.module';
     BlogsModule,
     AnalyticsModule,
     SettingsModule,
+    ShippingModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
