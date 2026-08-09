@@ -12,9 +12,7 @@ import {
 } from '@nestjs/common';
 import { HomeService } from './home.service';
 import { HomeQueryDto } from './dto/home-query.dto';
-import { CategoryProductsQueryDto } from './dto/category-products-query.dto';
 import { ProductsTrendingQueryDto } from './dto/products-trending-query.dto';
-import { ProductsBestSellersQueryDto } from './dto/products-best-sellers-query.dto';
 import { ProductsRecommendedQueryDto } from './dto/products-recommended-query.dto';
 import { ProductsBuyAgainQueryDto } from './dto/products-buy-again-query.dto';
 import { BlogsQueryDto } from './dto/blogs-query.dto';
@@ -43,40 +41,7 @@ export class HomeController {
     return this.homeService.getBanners();
   }
 
-  /**
-   * GET /categories/tree (Must be above :id)
-   */
-  @Get('categories/tree')
-  async getCategoryTree() {
-    return this.homeService.getCategoryTree();
-  }
 
-  /**
-   * GET /categories
-   */
-  @Get('categories')
-  async getCategories() {
-    return this.homeService.getCategories();
-  }
-
-  /**
-   * GET /categories/:id
-   */
-  @Get('categories/:id')
-  async getCategoryById(@Param() params: UuidParamDto) {
-    return this.homeService.getCategoryById(params.id);
-  }
-
-  /**
-   * GET /categories/:id/products
-   */
-  @Get('categories/:id/products')
-  async getCategoryProducts(
-    @Param() params: UuidParamDto,
-    @Query() query: CategoryProductsQueryDto,
-  ) {
-    return this.homeService.getCategoryProducts(params.id, query);
-  }
 
   /**
    * GET /products/trending
