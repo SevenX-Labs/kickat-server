@@ -28,6 +28,7 @@ import { ProductsModule } from './modules/admin/products/products.module';
 import { CategoriesModule } from './modules/admin/categories/categories.module';
 import { OrdersModule } from './modules/admin/orders/orders.module';
 import { CustomersModule } from './modules/admin/customers/customers.module';
+import { BlogsModule } from './modules/admin/blogs/blogs.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { CustomersModule } from './modules/admin/customers/customers.module';
     AdminAuthModule,
     DashboardModule,
     CustomersModule,
+    BlogsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
