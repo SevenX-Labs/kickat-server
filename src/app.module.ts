@@ -27,6 +27,7 @@ import { DashboardModule } from './modules/admin/dashboard/dashboard.module';
 import { ProductsModule } from './modules/admin/products/products.module';
 import { CategoriesModule } from './modules/admin/categories/categories.module';
 import { OrdersModule } from './modules/admin/orders/orders.module';
+import { CustomersModule } from './modules/admin/customers/customers.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { OrdersModule } from './modules/admin/orders/orders.module';
     CategoriesModule,
     AdminAuthModule,
     DashboardModule,
+    CustomersModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
