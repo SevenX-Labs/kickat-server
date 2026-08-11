@@ -24,16 +24,16 @@ import { AuditService } from './common/services/audit.service';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { AuthModule as AdminAuthModule } from './modules/admin/auth/auth.module';
 import { DashboardModule } from './modules/admin/dashboard/dashboard.module';
-import { ProductsModule } from './modules/admin/products/products.module';
-import { CategoriesModule } from './modules/admin/categories/categories.module';
-import { OrdersModule } from './modules/admin/orders/orders.module';
-import { CustomersModule } from './modules/admin/customers/customers.module';
-import { BlogsModule } from './modules/admin/blogs/blogs.module';
-import { ReviewsModule } from './modules/admin/reviews/reviews.module';
-import { AnalyticsModule } from './modules/admin/analytics/analytics.module';
-import { NotificationsModule } from './modules/admin/notifications/notifications.module';
-import { SettingsModule } from './modules/admin/settings/settings.module';
-import { ShippingModule } from './modules/admin/shipping/shipping.module';
+import { ProductsModule as AdminProductsModule } from './modules/admin/products/products.module';
+import { CategoriesModule as AdminCategoriesModule } from './modules/admin/categories/categories.module';
+import { OrdersModule as AdminOrdersModule } from './modules/admin/orders/orders.module';
+import { CustomersModule as AdminCustomersModule } from './modules/admin/customers/customers.module';
+import { BlogsModule as AdminBlogsModule } from './modules/admin/blogs/blogs.module';
+import { ReviewsModule as AdminReviewsModule } from './modules/admin/reviews/reviews.module';
+import { AnalyticsModule as AdminAnalyticsModule } from './modules/admin/analytics/analytics.module';
+import { NotificationsModule as AdminNotificationsModule } from './modules/admin/notifications/notifications.module';
+import { SettingsModule as AdminSettingsModule } from './modules/admin/settings/settings.module';
+import { ShippingModule as AdminShippingModule } from './modules/admin/shipping/shipping.module';
 
 @Module({
   imports: [
@@ -57,11 +57,16 @@ import { ShippingModule } from './modules/admin/shipping/shipping.module';
     CategoriesModule,
     AdminAuthModule,
     DashboardModule,
-    CustomersModule,
-    BlogsModule,
-    AnalyticsModule,
-    SettingsModule,
-    ShippingModule,
+    AdminProductsModule,
+    AdminCategoriesModule,
+    AdminOrdersModule,
+    AdminCustomersModule,
+    AdminBlogsModule,
+    AdminReviewsModule,
+    AdminAnalyticsModule,
+    AdminNotificationsModule,
+    AdminSettingsModule,
+    AdminShippingModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
