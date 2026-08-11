@@ -186,7 +186,7 @@ export class NotificationsService {
       dto.audienceFilter,
     );
 
-    let initialStatus = CampaignStatusEnum.DRAFT;
+    let initialStatus: CampaignStatusEnum = CampaignStatusEnum.DRAFT;
     let scheduledDate: Date | null = null;
 
     if (dto.scheduledAt) {
@@ -343,7 +343,7 @@ export class NotificationsService {
     const logsData = recipients.map((r) => ({
       campaignId: campaign.id,
       recipientId: r.id,
-      recipient: campaign.channel === CampaignChannelEnum.EMAIL ? r.email : r.phone || r.email,
+      recipient: (campaign.channel === CampaignChannelEnum.EMAIL ? r.email : r.phone || r.email) || 'unknown@kickat.in',
       status: 'SENT',
       sentAt: new Date(),
     }));
