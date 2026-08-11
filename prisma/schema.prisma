@@ -295,8 +295,14 @@ model ProductMedia {
   @@map("product_media")
 }
 
+enum ReviewStatusEnum {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model ProductReview {
-  id                 String          @id @default(uuid())
+  id                 String           @id @default(uuid())
   productId          String
   userId             String?
   orderId            String?
@@ -305,17 +311,24 @@ model ProductReview {
   rating             Int
   title              String?
   comment            String
-  photos             String[]        @default([])
-  isVerifiedPurchase Boolean         @default(true)
-  helpfulCount       Int             @default(0)
+  photos             String[]         @default([])
+  isVerifiedPurchase Boolean          @default(true)
+  helpfulCount       Int              @default(0)
+  status             ReviewStatusEnum @default(APPROVED)
+  isSpam             Boolean          @default(false)
+  adminReply         String?
+  adminReplyAt       DateTime?
+  rejectionReason    String?
   deletedAt          DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  product            Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  product            Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   helpfulVotes       ReviewHelpful[]
 
   @@index([orderId, productId])
   @@index([productId])
+  @@index([status])
+  @@index([isSpam])
   @@map("product_reviews")
 }
 
@@ -702,4 +715,69 @@ model SystemSetting {
 
   @@index([group])
   @@map("system_settings")
+}
+
+enum CampaignChannelEnum {
+  WHATSAPP
+  SMS
+  EMAIL
+}
+
+enum CampaignStatusEnum {
+  DRAFT
+  SCHEDULED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum CampaignAudienceEnum {
+  ALL_CUSTOMERS
+  FILTERED_CUSTOMERS
+  CUSTOM_LIST
+}
+
+model Campaign {
+  id             String               @id @default(uuid())
+  name           String
+  subject        String?
+  message        String
+  templateId     String?
+  channel        CampaignChannelEnum
+  status         CampaignStatusEnum   @default(DRAFT)
+  audienceType   CampaignAudienceEnum @default(ALL_CUSTOMERS)
+  audienceFilter Json?
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  completedAt    DateTime?
+  sentCount      Int                  @default(0)
+  deliveredCount Int                  @default(0)
+  failedCount    Int                  @default(0)
+  pendingCount   Int                  @default(0)
+  totalTarget    Int                  @default(0)
+  deletedAt      DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  logs           CampaignLog[]
+
+  @@index([status])
+  @@index([channel])
+  @@map("campaigns")
+}
+
+model CampaignLog {
+  id           String   @id @default(uuid())
+  campaignId   String
+  recipientId  String?
+  recipient    String
+  status       String   @default("PENDING")
+  errorMessage String?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime @default(now())
+  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@map("campaign_logs")
 }
