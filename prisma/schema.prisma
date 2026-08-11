@@ -332,21 +332,43 @@ model ReviewHelpful {
   @@map("review_helpful_votes")
 }
 
-model BlogPost {
-  id          String   @id @default(uuid())
-  title       String
-  slug        String   @unique
-  content     String
-  summary     String?
-  coverImage  String?
-  category    String?
-  tags        String[] @default([])
-  isPublished Boolean  @default(true)
-  publishedAt DateTime @default(now())
+model BlogCategory {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  slug        String     @unique
+  description String?
+  imageUrl    String?
+  order       Int        @default(0)
+  isActive    Boolean    @default(true)
   deletedAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  posts       BlogPost[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
+  @@map("blog_categories")
+}
+
+model BlogPost {
+  id              String        @id @default(uuid())
+  title           String
+  slug            String        @unique
+  content         String
+  summary         String?
+  coverImage      String?
+  category        String?
+  categoryId      String?
+  blogCategory    BlogCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags            String[]      @default([])
+  isPublished     Boolean       @default(true)
+  publishedAt     DateTime      @default(now())
+  authorName      String?       @default("Kickat Editorial Team")
+  viewCount       Int           @default(0)
+  readTimeMinutes Int?          @default(3)
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([categoryId])
   @@map("blog_posts")
 }
 
