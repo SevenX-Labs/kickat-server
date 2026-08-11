@@ -41,8 +41,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       where: { id: payload.sub },
     });
 
-    if (!user) {
-      throw new UnauthorizedException('User not found or unauthorized');
+    if (!user || user.isBlocked) {
+      throw new UnauthorizedException('User not found, unauthorized, or account is blocked');
     }
 
     return user;

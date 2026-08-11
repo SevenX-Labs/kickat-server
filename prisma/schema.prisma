@@ -98,6 +98,7 @@ model User {
   googleId          String?            @unique
   isEmailVerified   Boolean            @default(false)
   isPhoneVerified   Boolean            @default(false)
+  isBlocked         Boolean            @default(false)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   refreshTokens     RefreshToken[]
