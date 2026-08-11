@@ -34,6 +34,7 @@ import { AnalyticsModule as AdminAnalyticsModule } from './modules/admin/analyti
 import { NotificationsModule as AdminNotificationsModule } from './modules/admin/notifications/notifications.module';
 import { SettingsModule as AdminSettingsModule } from './modules/admin/settings/settings.module';
 import { ShippingModule as AdminShippingModule } from './modules/admin/shipping/shipping.module';
+import { ReportsModule } from './modules/admin/reports/reports.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { ShippingModule as AdminShippingModule } from './modules/admin/shipping/
     AdminNotificationsModule,
     AdminSettingsModule,
     AdminShippingModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService],
