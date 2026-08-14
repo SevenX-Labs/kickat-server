@@ -1,0 +1,369 @@
+================================================================================
+KICKAT E-COMMERCE SERVER - CUSTOMER-SIDE RATE LIMITING ANALYSIS
+================================================================================
+Document Version : 1.0.0
+Date Analyzed    : 2026-08-14
+Target Server    : Kickat E-Commerce Backend (NestJS + Prisma + PostgreSQL)
+Base URL Prefix  : /api/v1
+Scope            : All Customer-Facing Endpoints & Infrastructure
+================================================================================
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Rate limiting on the customer-facing side is PARTIALLY IMPLEMENTED.
+
+[YES] Application-Level Custom Rate Limiting:
+      - Implemented specifically for OTP (One-Time Password) generation and
+        verification across SMS and Email flows.
+      - Backed by PostgreSQL (`otp_logs` table) to persist attempt counts across
+        server restarts and distributed instances.
+
+[NO]  Global / HTTP-Level Rate Limiting:
+      - `@nestjs/throttler` (v6.5.0) is installed in `package.json`, but is NOT
+        imported or registered in `AppModule` or `main.ts`.
+      - There are NO global IP-based rate limiting guards or reverse-proxy rate
+        limiters configured in the NestJS application layer.
+      - Public browsing, product catalog, search queries, cart, checkout, and
+        payment endpoints currently lack request throttling.
+
+================================================================================
+2. DETAILED ENDPOINT-BY-ENDPOINT AUDIT
+================================================================================
+
++-------------------------------------------------------------------------------+
+| MODULE 1: AUTHENTICATION (/api/v1/auth)                                      |
++-------------------------------------------------------------------------------+
+| Method | Endpoint               | Rate Limited? | Mechanism / Limits          |
++--------+------------------------+---------------+-----------------------------+
+| POST   | /auth/otp/send         | YES           | 5 requests / hour / phone   |
+| POST   | /auth/otp/verify       | YES           | 5 attempts / hour / phone   |
+| POST   | /auth/email-otp/send   | YES           | 5 requests / hour / email   |
+| POST   | /auth/email-otp/verify | YES           | 5 attempts / hour / email   |
+| POST   | /auth/google           | NO            | No rate limit               |
+| GET    | /auth/login/google     | NO            | No rate limit               |
+| GET    | /auth/callback/google  | NO            | No rate limit               |
+| POST   | /auth/refresh          | NO            | No rate limit               |
+| POST   | /auth/logout           | NO            | No rate limit (Auth guard)  |
+| POST   | /auth/logout-all       | NO            | No rate limit (Auth guard)  |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 2: USER IDENTITY & VERIFICATION (/api/v1/users)                       |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                        | Rate Limited? | Mechanism / Limits |
++--------+---------------------------------+---------------+--------------------+
+| GET    | /users/me                       | NO            | Auth guard only    |
+| POST   | /users/me/recently-viewed       | NO            | Auth guard only    |
+| GET    | /users/me/recently-viewed       | NO            | Auth guard only    |
+| POST   | /users/email/send-verification  | YES           | 5 req / hr / email |
+| POST   | /users/email/verify             | YES           | 5 att / hr / email |
+| POST   | /users/mobile/send-verification | YES           | 5 req / hr / phone |
+| POST   | /users/mobile/verify            | YES           | 5 att / hr / phone |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 3: PROFILE & ONBOARDING (/api/v1/profile)                             |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /profile                 | NO            | Auth Guard                |
+| POST   | /profile/basic           | NO            | Auth Guard + DTO Validate |
+| POST   | /profile/address         | NO            | Auth Guard + DTO Validate |
+| POST   | /profile/pet             | NO            | Auth Guard + DTO Validate |
+| POST   | /profile                 | NO            | Auth Guard + DTO Validate |
+| PUT    | /profile                 | NO            | Auth Guard + DTO Validate |
+| PATCH  | /profile                 | NO            | Auth Guard + DTO Validate |
+| POST   | /profile/addresses       | NO            | Auth Guard + DTO Validate |
+| PUT    | /profile/addresses/:id   | NO            | Auth Guard + DTO Validate |
+| DELETE | /profile/addresses/:id   | NO            | Auth Guard + DTO Validate |
+| POST   | /profile/pets            | NO            | Auth Guard + DTO Validate |
+| PUT    | /profile/pets/:id        | NO            | Auth Guard + DTO Validate |
+| DELETE | /profile/pets/:id        | NO            | Auth Guard + DTO Validate |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 4: HOME & CONTENT FEED (/api/v1/home, /api/v1/blogs)                   |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                   | Rate Limited? | Protection Applied      |
++--------+----------------------------+---------------+-------------------------+
+| GET    | /home                      | NO            | None (Public)           |
+| GET    | /home/banners              | NO            | None (Public)           |
+| GET    | /products/trending         | NO            | None (Public)           |
+| GET    | /products/best-sellers     | NO            | None (Public)           |
+| GET    | /products/recommended      | NO            | Optional Auth           |
+| GET    | /products/buy-again        | NO            | Auth Guard              |
+| POST   | /products/buy-again/reorder| NO            | Auth Guard              |
+| POST   | /products/reorder          | NO            | Auth Guard              |
+| GET    | /blogs/categories          | NO            | None (Public)           |
+| GET    | /blogs                     | NO            | None (Public)           |
+| GET    | /blogs/:slug               | NO            | None (Public)           |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 5: PRODUCTS CATALOG (/api/v1/products)                                |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /products                | NO            | Pagination (limit <= 50)  |
+| GET    | /products/:id            | NO            | UUID Validation           |
+| GET    | /products/:id/variants   | NO            | UUID Validation           |
+| GET    | /products/:id/media      | NO            | UUID Validation           |
+| GET    | /products/:id/images     | NO            | UUID Validation           |
+| GET    | /products/:id/videos     | NO            | UUID Validation           |
+| GET    | /products/:id/related    | NO            | Pagination (limit <= 50)  |
+| GET    | /products/:id/reviews    | NO            | Pagination (limit <= 50)  |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 6: CATEGORIES CATALOG (/api/v1/categories)                            |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /categories              | NO            | None (Public)           |
+| GET    | /categories/tree         | NO            | None (Public)           |
+| GET    | /categories/:id          | NO            | UUID Validation           |
+| GET    | /categories/:id/products | NO            | Pagination (limit <= 50)  |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 7: SEARCH & DISCOVERY (/api/v1/search)                                |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /search                  | NO            | Pagination (limit <= 50)  |
+| GET    | /search/suggestions      | NO            | None (Public)           |
+| GET    | /search/trending         | NO            | None (Public)           |
+| GET    | /search/popular          | NO            | None (Public)           |
+| GET    | /search/filters          | NO            | None (Public)           |
+| GET    | /search/recent           | NO            | Auth Guard                |
+| DELETE | /search/recent/:queryId  | NO            | Auth Guard                |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 8: CART & GUEST CHECKOUT (/api/v1/cart)                               |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /cart                    | NO            | Auth Guard                |
+| POST   | /cart/items              | NO            | Auth Guard                |
+| PUT    | /cart/items/:itemId      | NO            | Auth Guard                |
+| DELETE | /cart/items/:itemId      | NO            | Auth Guard                |
+| POST   | /cart/buy-now            | NO            | Auth Guard                |
+| POST   | /cart/guest              | NO            | DTO Validation            |
+| GET    | /cart/guest/:sessionId   | NO            | DTO Validation            |
+| POST   | /cart/merge              | NO            | Auth Guard                |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 9: WISHLIST (/api/v1/wishlist)                                        |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                      | Rate Limited? | Protection Applied   |
++--------+-------------------------------+---------------+----------------------+
+| GET    | /wishlist                     | NO            | Auth Guard + Paging  |
+| POST   | /wishlist                     | NO            | Auth Guard           |
+| DELETE | /wishlist/:productId          | NO            | Auth Guard           |
+| POST   | /wishlist/:id/move-to-cart    | NO            | Auth Guard           |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 10: CHECKOUT & ORDER PLACEMENT (/api/v1/checkout)                     |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /checkout                | NO            | Auth Guard                |
+| POST   | /checkout/validate-address| NO           | Auth Guard                |
+| GET    | /checkout/payment-methods| NO            | Auth Guard                |
+| POST   | /checkout/place-order    | NO (Idempotent)| Idempotency-Key (UUID v4)|
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 11: ORDERS & TRACKING (/api/v1/orders, /api/v1/returns)               |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /orders                  | NO            | Auth Guard + Paging       |
+| GET    | /orders/:id              | NO            | Auth Guard                |
+| GET    | /orders/:id/timeline     | NO            | Auth Guard                |
+| GET    | /orders/:id/tracking     | NO            | Auth Guard                |
+| GET    | /orders/:id/tracking-live| NO            | Auth Guard                |
+| GET    | /orders/:id/invoice      | NO            | Auth Guard                |
+| PATCH  | /orders/:id/cancel       | NO            | Auth Guard                |
+| POST   | /orders/:id/return       | NO            | Auth Guard                |
+| POST   | /orders/reorder          | NO            | Auth Guard                |
+| GET    | /orders/order-again      | NO            | Auth Guard                |
+| GET    | /returns                 | NO            | Auth Guard + Paging       |
+| GET    | /returns/:id             | NO            | Auth Guard                |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 12: PAYMENTS (/api/v1/payments)                                       |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| POST   | /payments/create-order   | NO (Idempotent)| Idempotency-Key (UUID v4)|
+| POST   | /payments/verify         | NO            | Auth Guard + Signature    |
+| POST   | /payments/retry          | NO (Idempotent)| Idempotency-Key (UUID v4)|
+| GET    | /payments/:id            | NO            | Auth Guard                |
+| POST   | /payments/cod/confirm    | NO (Idempotent)| Idempotency-Key (UUID v4)|
+| POST   | /payments/webhook        | NO            | Razorpay Signature Check  |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 13: REVIEWS (/api/v1/reviews)                                         |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| POST   | /reviews                 | NO            | Auth Guard                |
+| GET    | /reviews                 | NO            | Pagination (limit <= 50)  |
+| GET    | /reviews/:id             | NO            | None (Public)           |
+| PATCH  | /reviews/:id/helpful     | NO            | Auth Guard                |
++-------------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------------+
+| MODULE 14: NOTIFICATIONS (/api/v1/notifications)                             |
++-------------------------------------------------------------------------------+
+| Method | Endpoint                 | Rate Limited? | Protection Applied        |
++--------+--------------------------+---------------+---------------------------+
+| GET    | /notifications           | NO            | Auth Guard + Paging       |
+| PATCH  | /notifications/read-all  | NO            | Auth Guard                |
+| PATCH  | /notifications/:id/read  | NO            | Auth Guard                |
++-------------------------------------------------------------------------------+
+
+================================================================================
+3. EXISTING RATE LIMITING IMPLEMENTATION DEEP DIVE
+================================================================================
+
+1. DATABASE SCHEMA:
+   The database maintains a dedicated table `otp_logs` mapped to the Prisma
+   `OtpLog` model:
+
+   ```prisma
+   model OtpLog {
+     id         String   @id @default(uuid())
+     identifier String   // E.g. Phone number (+91...) or Email address
+     otpHash    String   // Bcrypt hash of 6-digit OTP
+     type       OtpType  // SMS or EMAIL
+     expiresAt  DateTime // 1 min (SMS) or 10 min (EMAIL)
+     attempts   Int      @default(0)
+     isUsed     Boolean  @default(false)
+     createdAt  DateTime @default(now())
+
+     @@index([identifier, createdAt])
+     @@map("otp_logs")
+   }
+   ```
+
+2. SEND OTP RATE LIMITING ALGORITHM:
+   - Window: 1 Hour (Rolling 60 minutes)
+   - Maximum Requests: 5 requests per identifier (phone / email)
+   - Code Flow:
+     ```typescript
+     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+     const recentOtpCount = await this.prisma.otpLog.count({
+       where: {
+         identifier: phoneOrEmail,
+         createdAt: { gte: oneHourAgo },
+       },
+     });
+
+     if (recentOtpCount >= 5) {
+       throw new HttpException(
+         'Rate limit exceeded — max 5 per hour per identifier',
+         HttpStatus.TOO_MANY_REQUESTS // 429
+       );
+     }
+     ```
+
+3. VERIFY OTP ATTEMPTS RATE LIMITING ALGORITHM:
+   - Window: 1 Hour (Rolling 60 minutes)
+   - Maximum Failed/Total Attempts: 5 attempts per identifier
+   - Code Flow:
+     ```typescript
+     const attemptsCount = await this.prisma.otpLog.aggregate({
+       where: {
+         identifier: targetIdentifier,
+         createdAt: { gte: oneHourAgo },
+       },
+       _sum: { attempts: true },
+     });
+
+     const totalAttempts = attemptsCount._sum.attempts || 0;
+     if (totalAttempts >= 5) {
+       throw new HttpException(
+         'Too many attempts — max 5 per hour',
+         HttpStatus.TOO_MANY_REQUESTS // 429
+       );
+     }
+     ```
+   - On failed comparison (`bcrypt.compare` mismatch), `attempts` is incremented:
+     ```typescript
+     await this.prisma.otpLog.update({
+       where: { id: latestOtp.id },
+       data: { attempts: { increment: 1 } },
+     });
+     ```
+
+================================================================================
+4. IDENTIFIED SECURITY & PERFORMANCE GAPS
+================================================================================
+
+1. Missing Global IP Throttling:
+   - `@nestjs/throttler` is present in `package.json` dependencies but is unused.
+   - An attacker can flood any public GET/POST endpoint from a single IP without
+     triggering HTTP 429.
+
+2. Unthrottled Search & Catalog Scraping:
+   - `/api/v1/search`, `/api/v1/search/suggestions`, and `/api/v1/products` run
+     intensive database queries (ILIKE text matching, joins, relations).
+   - Without rate limits, bots can cause high CPU / database connection spikes.
+
+3. Unthrottled Token Refresh & Auth Endpoints:
+   - `POST /api/v1/auth/refresh` has no throttling, allowing high-frequency token
+     rotation abuse.
+   - `POST /api/v1/auth/google` is not rate-limited.
+
+4. Guest Cart Flooding:
+   - `POST /api/v1/cart/guest` accepts arbitrary guest cart items without user
+     authentication or rate limit, which could be used to bloat the database.
+
+5. Review Voting Manipulation:
+   - `PATCH /api/v1/reviews/:id/helpful` has no rate limiter, allowing rapid
+     repeated calls by an authenticated user.
+
+================================================================================
+5. RECOMMENDED NEXT STEPS TO ENABLE FULL RATE LIMITING
+================================================================================
+
+Step 1: Activate `@nestjs/throttler` globally in `AppModule`:
+   ```typescript
+   import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+   import { APP_GUARD } from '@nestjs/core';
+
+   @Module({
+     imports: [
+       ThrottlerModule.forRoot([{
+         ttl: 60000, // 60 seconds
+         limit: 100, // 100 requests per minute per IP
+       }]),
+       // other modules...
+     ],
+     providers: [
+       {
+         provide: APP_GUARD,
+         useClass: ThrottlerGuard,
+       },
+     ],
+   })
+   export class AppModule {}
+   ```
+
+Step 2: Add stricter route-level `@Throttle()` decorators on sensitive endpoints:
+   - Search: `@Throttle({ default: { limit: 30, ttl: 60000 } })` (30 req/min)
+   - Auth Refresh: `@Throttle({ default: { limit: 10, ttl: 60000 } })` (10 req/min)
+   - Guest Cart: `@Throttle({ default: { limit: 20, ttl: 60000 } })` (20 req/min)
+   - Checkout / Payment: `@Throttle({ default: { limit: 10, ttl: 60000 } })` (10 req/min)
+
+Step 3: Keep existing DB-backed OTP rate limiter for multi-device SMS/Email
+        quotas, combining it with the IP-level ThrottlerGuard for defense-in-depth.
+================================================================================
