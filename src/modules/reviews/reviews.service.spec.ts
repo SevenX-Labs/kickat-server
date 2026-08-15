@@ -191,8 +191,10 @@ describe('ReviewsService', () => {
   });
 
   describe('markHelpful', () => {
+    const voterUserId = '55555555-5555-4555-8555-555555555555';
+
     it('should throw BadRequestException if id is invalid UUID', async () => {
-      await expect(service.markHelpful(mockUserId, 'invalid-id')).rejects.toThrow(
+      await expect(service.markHelpful(voterUserId, 'invalid-id')).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -200,8 +202,18 @@ describe('ReviewsService', () => {
     it('should throw NotFoundException if review not found', async () => {
       prisma.productReview.findUnique.mockResolvedValue(null);
       await expect(
-        service.markHelpful(mockUserId, mockReviewId),
+        service.markHelpful(voterUserId, mockReviewId),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException if user tries to mark their own review as helpful', async () => {
+      prisma.productReview.findUnique.mockResolvedValue(mockReview); // review.userId is mockUserId
+
+      await expect(
+        service.markHelpful(mockUserId, mockReviewId),
+      ).rejects.toThrow(
+        new BadRequestException('You cannot mark your own review as helpful'),
+      );
     });
 
     it('should throw ConflictException if already marked helpful', async () => {
@@ -209,7 +221,7 @@ describe('ReviewsService', () => {
       prisma.reviewHelpful.findUnique.mockResolvedValue({ id: 'vote_1' });
 
       await expect(
-        service.markHelpful(mockUserId, mockReviewId),
+        service.markHelpful(voterUserId, mockReviewId),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -221,7 +233,7 @@ describe('ReviewsService', () => {
         helpfulCount: 3,
       });
 
-      const res = await service.markHelpful(mockUserId, mockReviewId);
+      const res = await service.markHelpful(voterUserId, mockReviewId);
       expect(res.success).toBe(true);
       expect(res.helpfulCount).toBe(3);
     });

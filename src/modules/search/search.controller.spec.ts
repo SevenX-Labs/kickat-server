@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SearchController } from './search.controller';
 import { SearchService } from './search.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('SearchController', () => {
   let controller: SearchController;
@@ -18,7 +19,10 @@ describe('SearchController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SearchController],
       providers: [{ provide: SearchService, useValue: mockSearchService }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<SearchController>(SearchController);
   });

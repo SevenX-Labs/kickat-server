@@ -58,6 +58,26 @@ import { ReportsModule } from './modules/admin/reports/reports.module';
         ttl: hours(1), // 1 hour
         limit: 20, // 20 attempts / hour / IP
       },
+      {
+        name: 'search',
+        ttl: minutes(1), // 1 minute
+        limit: 30, // 30 requests / min / IP
+      },
+      {
+        name: 'products',
+        ttl: minutes(1), // 1 minute
+        limit: 60, // 60 requests / min / IP
+      },
+      {
+        name: 'guest-cart',
+        ttl: minutes(1), // 1 minute
+        limit: 20, // 20 requests / min / IP
+      },
+      {
+        name: 'reviews-helpful',
+        ttl: minutes(1), // 1 minute
+        limit: 20, // 20 requests / min / IP
+      },
     ]),
     PrismaModule,
     AuthModule,

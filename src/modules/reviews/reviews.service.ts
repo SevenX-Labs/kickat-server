@@ -228,6 +228,10 @@ export class ReviewsService {
       throw new NotFoundException('Review not found');
     }
 
+    if (review.userId === userId) {
+      throw new BadRequestException('You cannot mark your own review as helpful');
+    }
+
     const existingVote = await this.prisma.reviewHelpful.findUnique({
       where: {
         reviewId_userId: {
@@ -238,7 +242,7 @@ export class ReviewsService {
     });
 
     if (existingVote) {
-      throw new ConflictException('Already marked helpful');
+      throw new ConflictException('You have already marked this review as helpful');
     }
 
     const updatedReview = await this.prisma.$transaction(async (tx) => {

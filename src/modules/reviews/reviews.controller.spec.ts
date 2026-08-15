@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ReviewsController } from './reviews.controller';
 import { ReviewsService } from './reviews.service';
 import { ReviewSortEnum } from './dto/get-reviews-query.dto';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('ReviewsController', () => {
   let controller: ReviewsController;
@@ -35,7 +36,10 @@ describe('ReviewsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ReviewsController],
       providers: [{ provide: ReviewsService, useValue: service }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<ReviewsController>(ReviewsController);
   });

@@ -1,7 +1,7 @@
 ================================================================================
 KICKAT E-COMMERCE SERVER - CUSTOMER-SIDE RATE LIMITING ANALYSIS
 ================================================================================
-Document Version : 1.1.0
+Document Version : 1.2.0
 Date Analyzed    : 2026-08-15
 Target Server    : Kickat E-Commerce Backend (NestJS + Prisma + PostgreSQL)
 Base URL Prefix  : /api/v1
@@ -11,8 +11,9 @@ Scope            : All Customer-Facing Endpoints & Infrastructure
 --------------------------------------------------------------------------------
 1. EXECUTIVE SUMMARY
 --------------------------------------------------------------------------------
-Rate limiting and abuse protection on the customer-facing side has been significantly
-strengthened with a multi-layered defense-in-depth architecture.
+Rate limiting and abuse protection on the customer-facing side has been comprehensively
+strengthened across authentication, identity verification, catalog search, guest cart,
+and user review voting.
 
 [YES] Application-Level DB Quotas (PostgreSQL `otp_logs` table):
       - Preserves persistent hourly quotas across server restarts and crashes.
@@ -22,7 +23,6 @@ strengthened with a multi-layered defense-in-depth architecture.
 [YES] In-Memory / LRU Cache Layer (`OtpCacheService`):
       - Fast, synchronous, zero-delay in-memory state tracking via `lru-cache`.
       - 60-Second Cooldown on OTP Send: Enforces 1 send per 60 seconds per phone/email.
-        Prevents rapid spamming before DB query execution.
       - Isolated Key Namespaces:
         * Auth SMS:   `otp:cooldown:phone:{phone}`
         * Auth Email: `otp:cooldown:email:{email}`
@@ -33,22 +33,25 @@ strengthened with a multi-layered defense-in-depth architecture.
         immediately marked `isUsed = true` and further attempts are rejected with HTTP 429.
       - Single-Use Enforcement: Validated OTPs are immediately invalidated.
       - Standardized 5-Minute Expiry across all SMS and Email flows.
-      - Clean `IOtpCacheService` abstraction ready for seamless future Redis migration.
 
 [YES] IP-Level Protection via `@nestjs/throttler` (v6.5.0):
       - Configured with named throttlers in `AppModule`:
         * `otp-send-short`: 3 requests / 10 minutes / IP
         * `otp-send-long`: 20 requests / hour / IP
         * `otp-verify`: 20 attempts / hour / IP
-      - Enforced via `@UseGuards(ThrottlerGuard)` and route-level `@Throttle` in
-        `AuthController` and `UsersController`.
-      - `@SkipThrottle()` applied to non-OTP routes (e.g. `/users/me`, Google OAuth).
+        * `search`: 30 requests / min / IP (`/search`, `/search/suggestions`)
+        * `products`: 60 requests / min / IP (`/products`)
+        * `guest-cart`: 20 requests / min / IP (`/cart/guest`, `/cart/guest/:sessionId`)
+        * `reviews-helpful`: 20 requests / min / IP (`/reviews/:id/helpful`)
+      - Enforced via `@UseGuards(ThrottlerGuard)` and route-level `@Throttle`.
       - Google OAuth Rate Limit: Custom IP-based rate limiting (10 requests / hour / IP).
 
-[PARTIAL] General Public Endpoints (Search, Catalog, Guest Cart):
-      - Sensitive authentication and verification flows are fully protected.
-      - General catalog browsing and guest cart endpoints remain unthrottled at the
-        application layer (can be protected with reverse proxy / Cloudflare WAF).
+[YES] Review Helpful Voting Business Rules:
+      - Rate limit: 20 requests / min / IP.
+      - Self-voting prevention: Users cannot vote on their own reviews (HTTP 400).
+      - Duplicate voting prevention: Users cannot vote more than once on the same review (HTTP 409).
+      - Enforced via `review_helpful_votes` composite unique constraint `[reviewId, userId]`
+        inside an atomic database `$transaction`.
 
 ================================================================================
 2. DETAILED ENDPOINT-BY-ENDPOINT AUDIT
@@ -148,7 +151,7 @@ strengthened with a multi-layered defense-in-depth architecture.
 +-------------------------------------------------------------------------------+
 | Method | Endpoint                 | Rate Limited? | Protection Applied        |
 +--------+--------------------------+---------------+---------------------------+
-| GET    | /products                | NO            | Pagination (limit <= 50)  |
+| GET    | /products                | YES           | 60 req / min / IP         |
 | GET    | /products/:id            | NO            | UUID Validation           |
 | GET    | /products/:id/variants   | NO            | UUID Validation           |
 | GET    | /products/:id/media      | NO            | UUID Validation           |
@@ -174,8 +177,8 @@ strengthened with a multi-layered defense-in-depth architecture.
 +-------------------------------------------------------------------------------+
 | Method | Endpoint                 | Rate Limited? | Protection Applied        |
 +--------+--------------------------+---------------+---------------------------+
-| GET    | /search                  | NO            | Pagination (limit <= 50)  |
-| GET    | /search/suggestions      | NO            | None (Public)           |
+| GET    | /search                  | YES           | 30 req / min / IP         |
+| GET    | /search/suggestions      | YES           | 30 req / min / IP         |
 | GET    | /search/trending         | NO            | None (Public)           |
 | GET    | /search/popular          | NO            | None (Public)           |
 | GET    | /search/filters          | NO            | None (Public)           |
@@ -193,8 +196,8 @@ strengthened with a multi-layered defense-in-depth architecture.
 | PUT    | /cart/items/:itemId      | NO            | Auth Guard                |
 | DELETE | /cart/items/:itemId      | NO            | Auth Guard                |
 | POST   | /cart/buy-now            | NO            | Auth Guard                |
-| POST   | /cart/guest              | NO            | DTO Validation            |
-| GET    | /cart/guest/:sessionId   | NO            | DTO Validation            |
+| POST   | /cart/guest              | YES           | 20 req / min / IP + UUID  |
+| GET    | /cart/guest/:sessionId   | YES           | 20 req / min / IP + UUID  |
 | POST   | /cart/merge              | NO            | Auth Guard                |
 +-------------------------------------------------------------------------------+
 
@@ -260,7 +263,10 @@ strengthened with a multi-layered defense-in-depth architecture.
 | POST   | /reviews                 | NO            | Auth Guard                |
 | GET    | /reviews                 | NO            | Pagination (limit <= 50)  |
 | GET    | /reviews/:id             | NO            | None (Public)           |
-| PATCH  | /reviews/:id/helpful     | NO            | Auth Guard                |
+| PATCH  | /reviews/:id/helpful     | YES           | 20 req / min / IP         |
+|        |                          |               | + Self-vote disallow      |
+|        |                          |               | + Duplicate vote check    |
+|        |                          |               | + Atomic DB $transaction  |
 +-------------------------------------------------------------------------------+
 
 +-------------------------------------------------------------------------------+
@@ -298,55 +304,24 @@ strengthened with a multi-layered defense-in-depth architecture.
         ├─ Persist OTP record in PostgreSQL (`otp_logs`)
         └─ Mask logs (no raw OTPs, masked email/phone)
 
-   Incoming Request (Verify OTP)
-        │
-        ▼
-   [Layer 1: IP ThrottlerGuard] ───> Exceeds 20 attempts / hr / IP ───────> HTTP 429
-        │ (Passed)
-        ▼
-   [Layer 2: DB Hourly Quota] ─────> Total attempts >= 5 in last 1 hour ──> HTTP 429
-        │ (Passed)
-        ▼
-   [Layer 3: Per-OTP Attempt Limit] > Failed attempts >= 5 ───────────────> Invalidate OTP & HTTP 429
-        │ (Passed)
-        ▼
-   [Layer 4: Verify Bcrypt Hash] ───> Mismatch ────────────────────────────> Increment LRU + DB
-        │                                                                     (if 5th failure -> HTTP 429,
-        │                                                                      else HTTP 401)
-        ▼ (Match)
-   [Layer 5: Invalidate & Mark Used]
-        ├─ `isUsed = true` (Single-Use OTP enforcement)
-        ├─ Clear attempt counter in LRU cache
-        └─ Update user verification flag (`isEmailVerified` / `isPhoneVerified`)
+2. CATALOG, GUEST CART & REVIEW SECURITY PIPELINE:
 
-2. DATABASE SCHEMA (`prisma/schema.prisma`):
-   ```prisma
-   model OtpLog {
-     id         String   @id @default(uuid())
-     identifier String   // E.g. Phone (+91...) or Email
-     otpHash    String   // Bcrypt hash of 6-digit OTP
-     type       OtpType  // SMS or EMAIL
-     expiresAt  DateTime // 5 minutes across all channels
-     attempts   Int      @default(0)
-     isUsed     Boolean  @default(false)
-     createdAt  DateTime @default(now())
+   GET /search, GET /search/suggestions
+        └─ IP Rate Limit: 30 requests / minute / IP
 
-     @@index([identifier, createdAt])
-     @@map("otp_logs")
-   }
-   ```
+   GET /products
+        └─ IP Rate Limit: 60 requests / minute / IP
 
-3. IN-MEMORY LRU CACHE (`src/common/services/otp-cache.service.ts`):
-   - Fast, zero-overhead atomic state tracking without external service dependencies.
-   - Clean interface `IOtpCacheService` enables future drop-in replacement with Redis.
-   - Keys & TTLs:
-     * `otp:cooldown:phone:{phone}` (TTL 60s)
-     * `otp:cooldown:email:{email}` (TTL 60s)
-     * `otp:cooldown:user-phone:{phone}` (TTL 60s)
-     * `otp:cooldown:user-email:{email}` (TTL 60s)
-     * `otp:attempts:{otpId}` (TTL 5m)
+   POST /cart/guest, GET /cart/guest/:sessionId
+        ├─ IP Rate Limit: 20 requests / minute / IP
+        └─ Strict UUID v4 session validation preventing enumeration
 
-4. THROTTLER CONFIGURATION (`src/app.module.ts`):
+   PATCH /reviews/:id/helpful
+        ├─ IP Rate Limit: 20 requests / minute / IP
+        ├─ Self-Voting Prevention: Cannot vote on own review (400 Bad Request)
+        └─ Duplicate Vote Prevention: Enforced by `review_helpful_votes` `@@unique([reviewId, userId])` (409 Conflict)
+
+3. THROTTLER CONFIGURATION (`src/app.module.ts`):
    ```typescript
    ThrottlerModule.forRoot([
      {
@@ -364,38 +339,26 @@ strengthened with a multi-layered defense-in-depth architecture.
        ttl: hours(1), // 3,600,000 ms
        limit: 20,
      },
+     {
+       name: 'search',
+       ttl: minutes(1), // 60,000 ms
+       limit: 30,
+     },
+     {
+       name: 'products',
+       ttl: minutes(1), // 60,000 ms
+       limit: 60,
+     },
+     {
+       name: 'guest-cart',
+       ttl: minutes(1), // 60,000 ms
+       limit: 20,
+     },
+     {
+       name: 'reviews-helpful',
+       ttl: minutes(1), // 60,000 ms
+       limit: 20,
+     },
    ])
    ```
-
-================================================================================
-4. REMAINING IDENTIFIED SECURITY & PERFORMANCE GAPS
-================================================================================
-
-1. Unthrottled Search & Catalog Scraping:
-   - `/api/v1/search`, `/api/v1/search/suggestions`, and `/api/v1/products` run
-     intensive database queries (ILIKE text matching, joins, relations).
-   - Without application or reverse-proxy limits, bots can cause elevated database load.
-
-2. Guest Cart Operations:
-   - `POST /api/v1/cart/guest` creates cart items for unauthenticated users without
-     IP rate limiting.
-
-3. Review Voting:
-   - `PATCH /api/v1/reviews/:id/helpful` has no rate limiter, allowing rapid
-     repeated calls by an authenticated user.
-
-================================================================================
-5. RECOMMENDED NEXT STEPS FOR GENERAL APPLICATION PROTECTION
-================================================================================
-
-Step 1: Configure global fallback or route-specific `@Throttle` decorators for
-        non-auth public endpoints:
-        - Search: `@Throttle({ default: { limit: 30, ttl: 60000 } })` (30 req/min/IP)
-        - Guest Cart: `@Throttle({ default: { limit: 20, ttl: 60000 } })` (20 req/min/IP)
-
-Step 2: When migrating to a multi-instance / distributed cluster in the future:
-        - Replace `OtpCacheService` internals with Redis (or Redis cluster / Upstash).
-        - Replace `@nestjs/throttler` in-memory storage with `ThrottlerStorageRedisService`.
-        - The `IOtpCacheService` interface guarantees zero changes needed in controller
-          or service business logic.
 ================================================================================

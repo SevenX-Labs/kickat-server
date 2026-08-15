@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('CartController', () => {
   let controller: CartController;
@@ -20,7 +21,10 @@ describe('CartController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CartController],
       providers: [{ provide: CartService, useValue: mockCartService }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<CartController>(CartController);
   });
