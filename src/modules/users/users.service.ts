@@ -99,6 +99,18 @@ export class UsersService {
     };
   }
 
+  private maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    if (!domain) return '***';
+    const maskedLocal = local.length > 2 ? `${local[0]}***${local.slice(-1)}` : `${local[0]}***`;
+    return `${maskedLocal}@${domain}`;
+  }
+
+  private maskPhone(phone: string): string {
+    if (phone.length <= 4) return '***';
+    return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+  }
+
   /**
    * POST /users/email/send-verification
    */
@@ -118,8 +130,8 @@ export class UsersService {
       );
     }
 
-    // 1. 60-second cooldown check
-    if (this.otpCacheService.isCooldownActive(email, 'email')) {
+    // 1. 60-second cooldown check (isolated user-email namespace)
+    if (this.otpCacheService.isCooldownActive(email, 'user-email')) {
       throw new HttpException(
         'Please wait 60 seconds before requesting another OTP',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -157,10 +169,11 @@ export class UsersService {
       },
     });
 
-    // 4. Activate 60s cooldown
-    this.otpCacheService.setCooldown(email, 'email', 60 * 1000);
+    // 4. Activate 60s cooldown in LRU cache
+    this.otpCacheService.setCooldown(email, 'user-email', 60 * 1000);
 
     await this.emailService.sendOtpEmail(email, otp);
+    this.logger.log(`[EMAIL VERIFICATION OTP SENT] Dispatched to ${this.maskEmail(email)}`);
 
     return {
       success: true,
@@ -184,7 +197,7 @@ export class UsersService {
       );
     }
 
-    // 1. Check hourly verification attempt limit
+    // 1. Check hourly verification attempt limit (max 5 / hour)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const attemptsCount = await this.prisma.otpLog.aggregate({
       where: {
@@ -202,7 +215,7 @@ export class UsersService {
       );
     }
 
-    // 2. Fetch latest active OTP
+    // 2. Fetch latest active, unused OTP
     const latestOtp = await this.prisma.otpLog.findFirst({
       where: {
         identifier: targetEmail,
@@ -216,7 +229,7 @@ export class UsersService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
-    // 3. Check per-OTP attempt limit (5 attempts per OTP)
+    // 3. Check per-OTP attempt limit (5 attempts per individual OTP)
     const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
     if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
       await this.prisma.otpLog.update({
@@ -252,7 +265,7 @@ export class UsersService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
-    // 5. Invalidate OTP (single-use)
+    // 5. Invalidate OTP immediately (single-use)
     await this.prisma.otpLog.update({
       where: { id: latestOtp.id },
       data: { isUsed: true },
@@ -302,8 +315,8 @@ export class UsersService {
       );
     }
 
-    // 1. 60-second cooldown check
-    if (this.otpCacheService.isCooldownActive(phone, 'phone')) {
+    // 1. 60-second cooldown check (isolated user-phone namespace)
+    if (this.otpCacheService.isCooldownActive(phone, 'user-phone')) {
       throw new HttpException(
         'Please wait 60 seconds before requesting another OTP',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -341,10 +354,10 @@ export class UsersService {
       },
     });
 
-    // 4. Activate 60s cooldown
-    this.otpCacheService.setCooldown(phone, 'phone', 60 * 1000);
+    // 4. Activate 60s cooldown in LRU cache
+    this.otpCacheService.setCooldown(phone, 'user-phone', 60 * 1000);
 
-    this.logger.log(`[MOBILE VERIFICATION OTP SENT] To: ${phone} | OTP: ${otp}`);
+    this.logger.log(`[MOBILE VERIFICATION OTP SENT] Dispatched to ${this.maskPhone(phone)}`);
 
     return {
       success: true,

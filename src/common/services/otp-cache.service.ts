@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import LRU from 'lru-cache';
 
+export type OtpCooldownType = 'phone' | 'email' | 'user-phone' | 'user-email';
+
 export interface IOtpCacheService {
-  isCooldownActive(identifier: string, type: 'phone' | 'email'): boolean;
-  setCooldown(identifier: string, type: 'phone' | 'email', ttlMs?: number): void;
-  clearCooldown(identifier: string, type: 'phone' | 'email'): void;
+  isCooldownActive(identifier: string, type: OtpCooldownType): boolean;
+  setCooldown(identifier: string, type: OtpCooldownType, ttlMs?: number): void;
+  clearCooldown(identifier: string, type: OtpCooldownType): void;
   getOtpAttempts(otpId: string): number;
   incrementOtpAttempts(otpId: string, ttlMs?: number): number;
   clearOtpAttempts(otpId: string): void;
@@ -32,11 +34,17 @@ export class OtpCacheService implements IOtpCacheService {
 
   /**
    * Builds an isolated cache key for phone or email send cooldown.
-   * Example: otp:cooldown:phone:+919876543210 or otp:cooldown:email:user@example.com
+   * Examples:
+   * - Auth Phone: otp:cooldown:phone:+919876543210
+   * - Auth Email: otp:cooldown:email:user@example.com
+   * - User Verification Phone: otp:cooldown:user-phone:+919876543210
+   * - User Verification Email: otp:cooldown:user-email:user@example.com
    */
-  private buildCooldownKey(identifier: string, type: 'phone' | 'email'): string {
-    const sanitizedIdentifier =
-      type === 'email' ? identifier.trim().toLowerCase() : identifier.trim();
+  private buildCooldownKey(identifier: string, type: OtpCooldownType): string {
+    const isEmail = type === 'email' || type === 'user-email';
+    const sanitizedIdentifier = isEmail
+      ? identifier.trim().toLowerCase()
+      : identifier.trim();
     return `otp:cooldown:${type}:${sanitizedIdentifier}`;
   }
 
@@ -51,7 +59,7 @@ export class OtpCacheService implements IOtpCacheService {
   /**
    * Checks if an OTP send cooldown is currently active.
    */
-  isCooldownActive(identifier: string, type: 'phone' | 'email'): boolean {
+  isCooldownActive(identifier: string, type: OtpCooldownType): boolean {
     const key = this.buildCooldownKey(identifier, type);
     return this.cache.has(key);
   }
@@ -61,7 +69,7 @@ export class OtpCacheService implements IOtpCacheService {
    */
   setCooldown(
     identifier: string,
-    type: 'phone' | 'email',
+    type: OtpCooldownType,
     ttlMs: number = this.DEFAULT_COOLDOWN_TTL_MS,
   ): void {
     const key = this.buildCooldownKey(identifier, type);
@@ -71,7 +79,7 @@ export class OtpCacheService implements IOtpCacheService {
   /**
    * Clears an active OTP send cooldown.
    */
-  clearCooldown(identifier: string, type: 'phone' | 'email'): void {
+  clearCooldown(identifier: string, type: OtpCooldownType): void {
     const key = this.buildCooldownKey(identifier, type);
     this.cache.del(key);
   }
