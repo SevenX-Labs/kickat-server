@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { ConfigService } from '@nestjs/config';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -9,6 +10,8 @@ describe('AuthController', () => {
   const mockAuthService = {
     sendOtp: jest.fn(),
     verifyOtp: jest.fn(),
+    sendEmailOtp: jest.fn(),
+    verifyEmailOtp: jest.fn(),
     googleAuth: jest.fn(),
     refreshToken: jest.fn(),
     logout: jest.fn(),
@@ -27,7 +30,10 @@ describe('AuthController', () => {
         { provide: AuthService, useValue: mockAuthService },
         { provide: ConfigService, useValue: mockConfigService },
       ],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });

@@ -8,7 +8,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmailService } from '../../common';
+import { EmailService, OtpCacheService } from '../../common';
 import {
   SendEmailVerificationDto,
   VerifyEmailVerificationDto,
@@ -27,6 +27,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly otpCacheService: OtpCacheService,
   ) {}
 
   async addRecentlyViewed(userId: string, productId: string) {
@@ -50,7 +51,6 @@ export class UsersService {
     const userViews = await this.prisma.recentlyViewed.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      select: { id: true },
     });
 
     if (userViews.length > 20) {
@@ -62,7 +62,7 @@ export class UsersService {
 
     return {
       success: true,
-      message: 'Product added to recently viewed',
+      message: 'Product added to recently viewed list.',
     };
   }
 
@@ -73,8 +73,16 @@ export class UsersService {
       take: 20,
       include: {
         product: {
-          include: {
-            category: { select: { id: true, name: true, slug: true } },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            price: true,
+            discountPrice: true,
+            rating: true,
+            imageUrl: true,
+            stock: true,
+            status: true,
           },
         },
       },
@@ -82,14 +90,22 @@ export class UsersService {
 
     return {
       success: true,
-      products: views.map((v) => v.product),
+      data: views
+        .filter((v) => v.product !== null && v.product.status === 'ACTIVE')
+        .map((v) => ({
+          ...v.product,
+          viewedAt: v.createdAt,
+        })),
     };
   }
 
   /**
    * POST /users/email/send-verification
    */
-  async sendEmailVerification(userId: string, dto: SendEmailVerificationDto) {
+  async sendEmailVerification(
+    userId: string,
+    dto: SendEmailVerificationDto,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
@@ -102,7 +118,15 @@ export class UsersService {
       );
     }
 
-    // Rate limit: max 5 OTP requests per hour per email
+    // 1. 60-second cooldown check
+    if (this.otpCacheService.isCooldownActive(email, 'email')) {
+      throw new HttpException(
+        'Please wait 60 seconds before requesting another OTP',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // 2. Rate limit: max 5 OTP requests per hour per email
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentOtpCount = await this.prisma.otpLog.count({
       where: {
@@ -119,9 +143,10 @@ export class UsersService {
       );
     }
 
+    // 3. Generate OTP with 5-minute expiry
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minute expiry
 
     await this.prisma.otpLog.create({
       data: {
@@ -131,6 +156,9 @@ export class UsersService {
         expiresAt,
       },
     });
+
+    // 4. Activate 60s cooldown
+    this.otpCacheService.setCooldown(email, 'email', 60 * 1000);
 
     await this.emailService.sendOtpEmail(email, otp);
 
@@ -156,6 +184,7 @@ export class UsersService {
       );
     }
 
+    // 1. Check hourly verification attempt limit
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const attemptsCount = await this.prisma.otpLog.aggregate({
       where: {
@@ -173,6 +202,7 @@ export class UsersService {
       );
     }
 
+    // 2. Fetch latest active OTP
     const latestOtp = await this.prisma.otpLog.findFirst({
       where: {
         identifier: targetEmail,
@@ -186,19 +216,48 @@ export class UsersService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
+    // 3. Check per-OTP attempt limit (5 attempts per OTP)
+    const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
+    if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
+      await this.prisma.otpLog.update({
+        where: { id: latestOtp.id },
+        data: { isUsed: true },
+      });
+      throw new HttpException(
+        'Maximum verification attempts exceeded for this OTP. Please request a new OTP.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // 4. Verify OTP
     const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
     if (!isMatch) {
+      const updatedAttempts = this.otpCacheService.incrementOtpAttempts(latestOtp.id);
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
         data: { attempts: { increment: 1 } },
       });
+
+      if (updatedAttempts >= 5 || latestOtp.attempts + 1 >= 5) {
+        await this.prisma.otpLog.update({
+          where: { id: latestOtp.id },
+          data: { isUsed: true },
+        });
+        throw new HttpException(
+          'Maximum verification attempts exceeded for this OTP. Please request a new OTP.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
+    // 5. Invalidate OTP (single-use)
     await this.prisma.otpLog.update({
       where: { id: latestOtp.id },
       data: { isUsed: true },
     });
+    this.otpCacheService.clearOtpAttempts(latestOtp.id);
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
@@ -236,13 +295,22 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const phone = dto.phone || user.phone;
+    const phone = (dto.phone || user.phone)?.trim();
     if (!phone) {
       throw new BadRequestException(
         'Phone number is required to send verification code',
       );
     }
 
+    // 1. 60-second cooldown check
+    if (this.otpCacheService.isCooldownActive(phone, 'phone')) {
+      throw new HttpException(
+        'Please wait 60 seconds before requesting another OTP',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // 2. Rate limit: max 5 OTP requests per hour per phone
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentOtpCount = await this.prisma.otpLog.count({
       where: {
@@ -259,9 +327,10 @@ export class UsersService {
       );
     }
 
+    // 3. Generate OTP with 5-minute expiry
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(Date.now() + 1 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minute expiry
 
     await this.prisma.otpLog.create({
       data: {
@@ -271,6 +340,9 @@ export class UsersService {
         expiresAt,
       },
     });
+
+    // 4. Activate 60s cooldown
+    this.otpCacheService.setCooldown(phone, 'phone', 60 * 1000);
 
     this.logger.log(`[MOBILE VERIFICATION OTP SENT] To: ${phone} | OTP: ${otp}`);
 
@@ -289,11 +361,12 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const targetPhone = dto.phone || user.phone;
+    const targetPhone = (dto.phone || user.phone)?.trim();
     if (!targetPhone) {
       throw new BadRequestException('Phone number is required for verification');
     }
 
+    // 1. Hourly attempt limit check
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const attemptsCount = await this.prisma.otpLog.aggregate({
       where: {
@@ -311,6 +384,7 @@ export class UsersService {
       );
     }
 
+    // 2. Fetch latest active OTP
     const latestOtp = await this.prisma.otpLog.findFirst({
       where: {
         identifier: targetPhone,
@@ -324,19 +398,48 @@ export class UsersService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
+    // 3. Check per-OTP attempt limit (5 attempts per OTP)
+    const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
+    if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
+      await this.prisma.otpLog.update({
+        where: { id: latestOtp.id },
+        data: { isUsed: true },
+      });
+      throw new HttpException(
+        'Maximum verification attempts exceeded for this OTP. Please request a new OTP.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // 4. Verify OTP
     const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
     if (!isMatch) {
+      const updatedAttempts = this.otpCacheService.incrementOtpAttempts(latestOtp.id);
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
         data: { attempts: { increment: 1 } },
       });
+
+      if (updatedAttempts >= 5 || latestOtp.attempts + 1 >= 5) {
+        await this.prisma.otpLog.update({
+          where: { id: latestOtp.id },
+          data: { isUsed: true },
+        });
+        throw new HttpException(
+          'Maximum verification attempts exceeded for this OTP. Please request a new OTP.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
+    // 5. Invalidate OTP (single-use)
     await this.prisma.otpLog.update({
       where: { id: latestOtp.id },
       data: { isUsed: true },
     });
+    this.otpCacheService.clearOtpAttempts(latestOtp.id);
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },

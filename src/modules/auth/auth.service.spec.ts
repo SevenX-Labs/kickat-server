@@ -8,7 +8,7 @@ import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common
 import * as crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 
-import { EmailService } from '../../common';
+import { EmailService, OtpCacheService } from '../../common';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -16,6 +16,7 @@ describe('AuthService', () => {
   let jwtMock: any;
   let configMock: any;
   let emailMock: any;
+  let otpCacheService: OtpCacheService;
 
   beforeEach(async () => {
     emailMock = {
@@ -65,6 +66,7 @@ describe('AuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        OtpCacheService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: jwtMock },
         { provide: ConfigService, useValue: configMock },
@@ -73,6 +75,7 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    otpCacheService = module.get<OtpCacheService>(OtpCacheService);
   });
 
   it('should be defined', () => {

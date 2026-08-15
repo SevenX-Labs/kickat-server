@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { ProfileService } from '../profile/profile.service';
 import { UsersService } from './users.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -13,6 +14,10 @@ describe('UsersController', () => {
   const mockUsersService = {
     addRecentlyViewed: jest.fn(),
     getRecentlyViewed: jest.fn(),
+    sendEmailVerification: jest.fn(),
+    verifyEmail: jest.fn(),
+    sendMobileVerification: jest.fn(),
+    verifyMobile: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -22,7 +27,10 @@ describe('UsersController', () => {
         { provide: ProfileService, useValue: mockProfileService },
         { provide: UsersService, useValue: mockUsersService },
       ],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<UsersController>(UsersController);
   });

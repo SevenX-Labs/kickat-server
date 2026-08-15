@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Auth, CurrentUser } from '../../common';
 import { ProfileService } from '../profile/profile.service';
 import { UsersService } from './users.service';
@@ -13,17 +14,20 @@ import {
 
 @Auth()
 @Controller('users')
+@UseGuards(ThrottlerGuard)
 export class UsersController {
   constructor(
     private readonly profileService: ProfileService,
     private readonly usersService: UsersService,
   ) {}
 
+  @SkipThrottle()
   @Get('me')
   async getMe(@CurrentUser('id') userId: string) {
     return this.profileService.getProfile(userId);
   }
 
+  @SkipThrottle()
   @Post('me/recently-viewed')
   async addRecentlyViewed(
     @CurrentUser('id') userId: string,
@@ -32,11 +36,17 @@ export class UsersController {
     return this.usersService.addRecentlyViewed(userId, productId);
   }
 
+  @SkipThrottle()
   @Get('me/recently-viewed')
   async getRecentlyViewed(@CurrentUser('id') userId: string) {
     return this.usersService.getRecentlyViewed(userId);
   }
 
+  @Throttle({
+    'otp-send-short': { limit: 3, ttl: 600000 },
+    'otp-send-long': { limit: 20, ttl: 3600000 },
+    'otp-verify': { limit: 10000, ttl: 3600000 },
+  })
   @Post('email/send-verification')
   @HttpCode(HttpStatus.OK)
   async sendEmailVerification(
@@ -46,6 +56,11 @@ export class UsersController {
     return this.usersService.sendEmailVerification(userId, dto);
   }
 
+  @Throttle({
+    'otp-send-short': { limit: 10000, ttl: 600000 },
+    'otp-send-long': { limit: 10000, ttl: 3600000 },
+    'otp-verify': { limit: 20, ttl: 3600000 },
+  })
   @Post('email/verify')
   @HttpCode(HttpStatus.OK)
   async verifyEmail(
@@ -55,6 +70,11 @@ export class UsersController {
     return this.usersService.verifyEmail(userId, dto);
   }
 
+  @Throttle({
+    'otp-send-short': { limit: 3, ttl: 600000 },
+    'otp-send-long': { limit: 20, ttl: 3600000 },
+    'otp-verify': { limit: 10000, ttl: 3600000 },
+  })
   @Post('mobile/send-verification')
   @HttpCode(HttpStatus.OK)
   async sendMobileVerification(
@@ -64,6 +84,11 @@ export class UsersController {
     return this.usersService.sendMobileVerification(userId, dto);
   }
 
+  @Throttle({
+    'otp-send-short': { limit: 10000, ttl: 600000 },
+    'otp-send-long': { limit: 10000, ttl: 3600000 },
+    'otp-verify': { limit: 20, ttl: 3600000 },
+  })
   @Post('mobile/verify')
   @HttpCode(HttpStatus.OK)
   async verifyMobile(

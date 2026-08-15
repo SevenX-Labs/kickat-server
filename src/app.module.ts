@@ -21,6 +21,8 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditService } from './common/services/audit.service';
+import { OtpCacheService } from './common/services/otp-cache.service';
+import { ThrottlerModule, minutes, hours } from '@nestjs/throttler';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { AuthModule as AdminAuthModule } from './modules/admin/auth/auth.module';
 import { DashboardModule } from './modules/admin/dashboard/dashboard.module';
@@ -40,6 +42,23 @@ import { ReportsModule } from './modules/admin/reports/reports.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        name: 'otp-send-short',
+        ttl: minutes(10), // 10 minutes
+        limit: 3, // 3 requests / 10 minutes / IP
+      },
+      {
+        name: 'otp-send-long',
+        ttl: hours(1), // 1 hour
+        limit: 20, // 20 requests / hour / IP
+      },
+      {
+        name: 'otp-verify',
+        ttl: hours(1), // 1 hour
+        limit: 20, // 20 attempts / hour / IP
+      },
+    ]),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -71,8 +90,8 @@ import { ReportsModule } from './modules/admin/reports/reports.module';
     ReportsModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AuditService],
-  exports: [AuditService],
+  providers: [AppService, AuditService, OtpCacheService],
+  exports: [AuditService, OtpCacheService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

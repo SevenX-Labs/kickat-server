@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmailService } from '../../common';
+import { EmailService, OtpCacheService } from '../../common';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -25,6 +25,7 @@ describe('UsersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
+        OtpCacheService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: EmailService, useValue: mockEmailService },
       ],

@@ -4,11 +4,12 @@ import { UsersController } from './users.controller';
 import { ProfileModule } from '../profile/profile.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { OtpCacheService } from '../../common';
 
 @Module({
   imports: [ProfileModule, PrismaModule, AuthModule],
   controllers: [UsersController],
-  providers: [UsersService],
+  providers: [UsersService, OtpCacheService],
   exports: [UsersService],
 })
 export class UsersModule {}
