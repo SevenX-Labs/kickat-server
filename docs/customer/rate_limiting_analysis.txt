@@ -1,8 +1,8 @@
 ================================================================================
 KICKAT E-COMMERCE SERVER - CUSTOMER-SIDE RATE LIMITING ANALYSIS
 ================================================================================
-Document Version : 1.0.0
-Date Analyzed    : 2026-08-14
+Document Version : 1.1.0
+Date Analyzed    : 2026-08-15
 Target Server    : Kickat E-Commerce Backend (NestJS + Prisma + PostgreSQL)
 Base URL Prefix  : /api/v1
 Scope            : All Customer-Facing Endpoints & Infrastructure
@@ -11,56 +11,99 @@ Scope            : All Customer-Facing Endpoints & Infrastructure
 --------------------------------------------------------------------------------
 1. EXECUTIVE SUMMARY
 --------------------------------------------------------------------------------
-Rate limiting on the customer-facing side is PARTIALLY IMPLEMENTED.
+Rate limiting and abuse protection on the customer-facing side has been significantly
+strengthened with a multi-layered defense-in-depth architecture.
 
-[YES] Application-Level Custom Rate Limiting:
-      - Implemented specifically for OTP (One-Time Password) generation and
-        verification across SMS and Email flows.
-      - Backed by PostgreSQL (`otp_logs` table) to persist attempt counts across
-        server restarts and distributed instances.
+[YES] Application-Level DB Quotas (PostgreSQL `otp_logs` table):
+      - Preserves persistent hourly quotas across server restarts and crashes.
+      - SMS OTP: 5 requests / hour / phone on send, 5 attempts / hour / phone on verify.
+      - Email OTP: 5 requests / hour / email on send, 5 attempts / hour / email on verify.
 
-[NO]  Global / HTTP-Level Rate Limiting:
-      - `@nestjs/throttler` (v6.5.0) is installed in `package.json`, but is NOT
-        imported or registered in `AppModule` or `main.ts`.
-      - There are NO global IP-based rate limiting guards or reverse-proxy rate
-        limiters configured in the NestJS application layer.
-      - Public browsing, product catalog, search queries, cart, checkout, and
-        payment endpoints currently lack request throttling.
+[YES] In-Memory / LRU Cache Layer (`OtpCacheService`):
+      - Fast, synchronous, zero-delay in-memory state tracking via `lru-cache`.
+      - 60-Second Cooldown on OTP Send: Enforces 1 send per 60 seconds per phone/email.
+        Prevents rapid spamming before DB query execution.
+      - Isolated Key Namespaces:
+        * Auth SMS:   `otp:cooldown:phone:{phone}`
+        * Auth Email: `otp:cooldown:email:{email}`
+        * User Mobile Verification: `otp:cooldown:user-phone:{phone}`
+        * User Email Verification:  `otp:cooldown:user-email:{email}`
+      - Per-OTP Attempt Limit: Enforces a maximum of 5 failed attempts per individual
+        generated OTP (`otp:attempts:{otpId}`). Upon the 5th failed attempt, the OTP is
+        immediately marked `isUsed = true` and further attempts are rejected with HTTP 429.
+      - Single-Use Enforcement: Validated OTPs are immediately invalidated.
+      - Standardized 5-Minute Expiry across all SMS and Email flows.
+      - Clean `IOtpCacheService` abstraction ready for seamless future Redis migration.
+
+[YES] IP-Level Protection via `@nestjs/throttler` (v6.5.0):
+      - Configured with named throttlers in `AppModule`:
+        * `otp-send-short`: 3 requests / 10 minutes / IP
+        * `otp-send-long`: 20 requests / hour / IP
+        * `otp-verify`: 20 attempts / hour / IP
+      - Enforced via `@UseGuards(ThrottlerGuard)` and route-level `@Throttle` in
+        `AuthController` and `UsersController`.
+      - `@SkipThrottle()` applied to non-OTP routes (e.g. `/users/me`, Google OAuth).
+      - Google OAuth Rate Limit: Custom IP-based rate limiting (10 requests / hour / IP).
+
+[PARTIAL] General Public Endpoints (Search, Catalog, Guest Cart):
+      - Sensitive authentication and verification flows are fully protected.
+      - General catalog browsing and guest cart endpoints remain unthrottled at the
+        application layer (can be protected with reverse proxy / Cloudflare WAF).
 
 ================================================================================
 2. DETAILED ENDPOINT-BY-ENDPOINT AUDIT
 ================================================================================
 
-+-------------------------------------------------------------------------------+
-| MODULE 1: AUTHENTICATION (/api/v1/auth)                                      |
-+-------------------------------------------------------------------------------+
-| Method | Endpoint               | Rate Limited? | Mechanism / Limits          |
-+--------+------------------------+---------------+-----------------------------+
-| POST   | /auth/otp/send         | YES           | 5 requests / hour / phone   |
-| POST   | /auth/otp/verify       | YES           | 5 attempts / hour / phone   |
-| POST   | /auth/email-otp/send   | YES           | 5 requests / hour / email   |
-| POST   | /auth/email-otp/verify | YES           | 5 attempts / hour / email   |
-| POST   | /auth/google           | NO            | No rate limit               |
-| GET    | /auth/login/google     | NO            | No rate limit               |
-| GET    | /auth/callback/google  | NO            | No rate limit               |
-| POST   | /auth/refresh          | NO            | No rate limit               |
-| POST   | /auth/logout           | NO            | No rate limit (Auth guard)  |
-| POST   | /auth/logout-all       | NO            | No rate limit (Auth guard)  |
-+-------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------------------+
+| MODULE 1: AUTHENTICATION (/api/v1/auth)                                                           |
++---------------------------------------------------------------------------------------------------+
+| Method | Endpoint               | Rate Limited? | Protection Applied & Limits                     |
++--------+------------------------+---------------+-------------------------------------------------+
+| POST   | /auth/otp/send         | YES           | 5 req/hr/phone (DB)                             |
+|        |                        |               | + 60s cooldown/phone (LRU)                      |
+|        |                        |               | + 3 req/10m & 20 req/hr/IP (Throttler)          |
+| POST   | /auth/otp/verify       | YES           | 5 att/hr/phone (DB)                             |
+|        |                        |               | + Max 5 att/OTP (LRU + DB invalidation)         |
+|        |                        |               | + 5-min expiry + Single-use invalidation        |
+|        |                        |               | + 20 att/hr/IP (Throttler)                      |
+| POST   | /auth/email-otp/send   | YES           | 5 req/hr/email (DB)                             |
+|        |                        |               | + 60s cooldown/email (LRU)                      |
+|        |                        |               | + 3 req/10m & 20 req/hr/IP (Throttler)          |
+| POST   | /auth/email-otp/verify | YES           | 5 att/hr/email (DB)                             |
+|        |                        |               | + Max 5 att/OTP (LRU + DB invalidation)         |
+|        |                        |               | + 5-min expiry + Single-use invalidation        |
+|        |                        |               | + 20 att/hr/IP (Throttler)                      |
+| POST   | /auth/google           | YES           | 10 requests / hour / IP                         |
+| GET    | /auth/login/google     | NO            | No rate limit (Redirect URL builder)            |
+| GET    | /auth/callback/google  | NO            | No rate limit                                   |
+| POST   | /auth/refresh          | YES (Token)   | Token Family Revocation & Reuse Detection       |
+| POST   | /auth/logout           | NO            | Auth Guard                                      |
+| POST   | /auth/logout-all       | NO            | Auth Guard                                      |
++---------------------------------------------------------------------------------------------------+
 
-+-------------------------------------------------------------------------------+
-| MODULE 2: USER IDENTITY & VERIFICATION (/api/v1/users)                       |
-+-------------------------------------------------------------------------------+
-| Method | Endpoint                        | Rate Limited? | Mechanism / Limits |
-+--------+---------------------------------+---------------+--------------------+
-| GET    | /users/me                       | NO            | Auth guard only    |
-| POST   | /users/me/recently-viewed       | NO            | Auth guard only    |
-| GET    | /users/me/recently-viewed       | NO            | Auth guard only    |
-| POST   | /users/email/send-verification  | YES           | 5 req / hr / email |
-| POST   | /users/email/verify             | YES           | 5 att / hr / email |
-| POST   | /users/mobile/send-verification | YES           | 5 req / hr / phone |
-| POST   | /users/mobile/verify            | YES           | 5 att / hr / phone |
-+-------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------------------+
+| MODULE 2: USER IDENTITY & VERIFICATION (/api/v1/users)                                            |
++---------------------------------------------------------------------------------------------------+
+| Method | Endpoint                        | Rate Limited? | Protection Applied & Limits            |
++--------+---------------------------------+---------------+----------------------------------------+
+| GET    | /users/me                       | NO            | Auth Guard (SkipThrottle)              |
+| POST   | /users/me/recently-viewed       | NO            | Auth Guard (SkipThrottle)              |
+| GET    | /users/me/recently-viewed       | NO            | Auth Guard (SkipThrottle)              |
+| POST   | /users/email/send-verification  | YES           | 5 req/hr/email (DB)                    |
+|        |                                 |               | + 60s cooldown (LRU: `user-email`)     |
+|        |                                 |               | + 3 req/10m & 20 req/hr/IP (Throttler) |
+| POST   | /users/email/verify             | YES           | 5 att/hr/email (DB)                    |
+|        |                                 |               | + Max 5 att/OTP (LRU + DB)             |
+|        |                                 |               | + 5-min expiry + Single-use            |
+|        |                                 |               | + 20 att/hr/IP (Throttler)             |
+| POST   | /users/mobile/send-verification | YES           | 5 req/hr/phone (DB)                    |
+|        |                                 |               | + 60s cooldown (LRU: `user-phone`)     |
+|        |                                 |               | + 3 req/10m & 20 req/hr/IP (Throttler) |
+| POST   | /users/mobile/verify            | YES           | 5 att/hr/phone (DB)                    |
+|        |                                 |               | + Max 5 att/OTP (LRU + DB)             |
+|        |                                 |               | + 5-min expiry + Single-use            |
+|        |                                 |               | + 20 att/hr/IP (Throttler)             |
++---------------------------------------------------------------------------------------------------+
 
 +-------------------------------------------------------------------------------+
 | MODULE 3: PROFILE & ONBOARDING (/api/v1/profile)                             |
@@ -231,20 +274,59 @@ Rate limiting on the customer-facing side is PARTIALLY IMPLEMENTED.
 +-------------------------------------------------------------------------------+
 
 ================================================================================
-3. EXISTING RATE LIMITING IMPLEMENTATION DEEP DIVE
+3. MULTI-LAYER RATE LIMITING & SECURITY ARCHITECTURE
 ================================================================================
 
-1. DATABASE SCHEMA:
-   The database maintains a dedicated table `otp_logs` mapped to the Prisma
-   `OtpLog` model:
+1. DEFENSE-IN-DEPTH OTP PIPELINE:
 
+   Incoming Request (Send OTP)
+        │
+        ▼
+   [Layer 1: IP ThrottlerGuard] ───> Exceeds 3 req / 10m OR 20 req / hr ──> HTTP 429
+        │ (Passed)
+        ▼
+   [Layer 2: LRU Cooldown Check] ──> Cooldown active (< 60s since last) ─> HTTP 429
+        │ (Passed)
+        ▼
+   [Layer 3: DB Hourly Quota] ─────> Count >= 5 requests in last 1 hour ─> HTTP 429
+        │ (Passed)
+        ▼
+   [Layer 4: Generate & Dispatch OTP]
+        │
+        ├─ Standardize 5-minute expiry (`Date.now() + 5 * 60 * 1000`)
+        ├─ Set 60s cooldown in LRU cache (`otpCacheService.setCooldown`)
+        ├─ Persist OTP record in PostgreSQL (`otp_logs`)
+        └─ Mask logs (no raw OTPs, masked email/phone)
+
+   Incoming Request (Verify OTP)
+        │
+        ▼
+   [Layer 1: IP ThrottlerGuard] ───> Exceeds 20 attempts / hr / IP ───────> HTTP 429
+        │ (Passed)
+        ▼
+   [Layer 2: DB Hourly Quota] ─────> Total attempts >= 5 in last 1 hour ──> HTTP 429
+        │ (Passed)
+        ▼
+   [Layer 3: Per-OTP Attempt Limit] > Failed attempts >= 5 ───────────────> Invalidate OTP & HTTP 429
+        │ (Passed)
+        ▼
+   [Layer 4: Verify Bcrypt Hash] ───> Mismatch ────────────────────────────> Increment LRU + DB
+        │                                                                     (if 5th failure -> HTTP 429,
+        │                                                                      else HTTP 401)
+        ▼ (Match)
+   [Layer 5: Invalidate & Mark Used]
+        ├─ `isUsed = true` (Single-Use OTP enforcement)
+        ├─ Clear attempt counter in LRU cache
+        └─ Update user verification flag (`isEmailVerified` / `isPhoneVerified`)
+
+2. DATABASE SCHEMA (`prisma/schema.prisma`):
    ```prisma
    model OtpLog {
      id         String   @id @default(uuid())
-     identifier String   // E.g. Phone number (+91...) or Email address
+     identifier String   // E.g. Phone (+91...) or Email
      otpHash    String   // Bcrypt hash of 6-digit OTP
      type       OtpType  // SMS or EMAIL
-     expiresAt  DateTime // 1 min (SMS) or 10 min (EMAIL)
+     expiresAt  DateTime // 5 minutes across all channels
      attempts   Int      @default(0)
      isUsed     Boolean  @default(false)
      createdAt  DateTime @default(now())
@@ -254,116 +336,66 @@ Rate limiting on the customer-facing side is PARTIALLY IMPLEMENTED.
    }
    ```
 
-2. SEND OTP RATE LIMITING ALGORITHM:
-   - Window: 1 Hour (Rolling 60 minutes)
-   - Maximum Requests: 5 requests per identifier (phone / email)
-   - Code Flow:
-     ```typescript
-     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-     const recentOtpCount = await this.prisma.otpLog.count({
-       where: {
-         identifier: phoneOrEmail,
-         createdAt: { gte: oneHourAgo },
-       },
-     });
+3. IN-MEMORY LRU CACHE (`src/common/services/otp-cache.service.ts`):
+   - Fast, zero-overhead atomic state tracking without external service dependencies.
+   - Clean interface `IOtpCacheService` enables future drop-in replacement with Redis.
+   - Keys & TTLs:
+     * `otp:cooldown:phone:{phone}` (TTL 60s)
+     * `otp:cooldown:email:{email}` (TTL 60s)
+     * `otp:cooldown:user-phone:{phone}` (TTL 60s)
+     * `otp:cooldown:user-email:{email}` (TTL 60s)
+     * `otp:attempts:{otpId}` (TTL 5m)
 
-     if (recentOtpCount >= 5) {
-       throw new HttpException(
-         'Rate limit exceeded — max 5 per hour per identifier',
-         HttpStatus.TOO_MANY_REQUESTS // 429
-       );
-     }
-     ```
-
-3. VERIFY OTP ATTEMPTS RATE LIMITING ALGORITHM:
-   - Window: 1 Hour (Rolling 60 minutes)
-   - Maximum Failed/Total Attempts: 5 attempts per identifier
-   - Code Flow:
-     ```typescript
-     const attemptsCount = await this.prisma.otpLog.aggregate({
-       where: {
-         identifier: targetIdentifier,
-         createdAt: { gte: oneHourAgo },
-       },
-       _sum: { attempts: true },
-     });
-
-     const totalAttempts = attemptsCount._sum.attempts || 0;
-     if (totalAttempts >= 5) {
-       throw new HttpException(
-         'Too many attempts — max 5 per hour',
-         HttpStatus.TOO_MANY_REQUESTS // 429
-       );
-     }
-     ```
-   - On failed comparison (`bcrypt.compare` mismatch), `attempts` is incremented:
-     ```typescript
-     await this.prisma.otpLog.update({
-       where: { id: latestOtp.id },
-       data: { attempts: { increment: 1 } },
-     });
-     ```
+4. THROTTLER CONFIGURATION (`src/app.module.ts`):
+   ```typescript
+   ThrottlerModule.forRoot([
+     {
+       name: 'otp-send-short',
+       ttl: minutes(10), // 600,000 ms
+       limit: 3,
+     },
+     {
+       name: 'otp-send-long',
+       ttl: hours(1), // 3,600,000 ms
+       limit: 20,
+     },
+     {
+       name: 'otp-verify',
+       ttl: hours(1), // 3,600,000 ms
+       limit: 20,
+     },
+   ])
+   ```
 
 ================================================================================
-4. IDENTIFIED SECURITY & PERFORMANCE GAPS
+4. REMAINING IDENTIFIED SECURITY & PERFORMANCE GAPS
 ================================================================================
 
-1. Missing Global IP Throttling:
-   - `@nestjs/throttler` is present in `package.json` dependencies but is unused.
-   - An attacker can flood any public GET/POST endpoint from a single IP without
-     triggering HTTP 429.
-
-2. Unthrottled Search & Catalog Scraping:
+1. Unthrottled Search & Catalog Scraping:
    - `/api/v1/search`, `/api/v1/search/suggestions`, and `/api/v1/products` run
      intensive database queries (ILIKE text matching, joins, relations).
-   - Without rate limits, bots can cause high CPU / database connection spikes.
+   - Without application or reverse-proxy limits, bots can cause elevated database load.
 
-3. Unthrottled Token Refresh & Auth Endpoints:
-   - `POST /api/v1/auth/refresh` has no throttling, allowing high-frequency token
-     rotation abuse.
-   - `POST /api/v1/auth/google` is not rate-limited.
+2. Guest Cart Operations:
+   - `POST /api/v1/cart/guest` creates cart items for unauthenticated users without
+     IP rate limiting.
 
-4. Guest Cart Flooding:
-   - `POST /api/v1/cart/guest` accepts arbitrary guest cart items without user
-     authentication or rate limit, which could be used to bloat the database.
-
-5. Review Voting Manipulation:
+3. Review Voting:
    - `PATCH /api/v1/reviews/:id/helpful` has no rate limiter, allowing rapid
      repeated calls by an authenticated user.
 
 ================================================================================
-5. RECOMMENDED NEXT STEPS TO ENABLE FULL RATE LIMITING
+5. RECOMMENDED NEXT STEPS FOR GENERAL APPLICATION PROTECTION
 ================================================================================
 
-Step 1: Activate `@nestjs/throttler` globally in `AppModule`:
-   ```typescript
-   import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-   import { APP_GUARD } from '@nestjs/core';
+Step 1: Configure global fallback or route-specific `@Throttle` decorators for
+        non-auth public endpoints:
+        - Search: `@Throttle({ default: { limit: 30, ttl: 60000 } })` (30 req/min/IP)
+        - Guest Cart: `@Throttle({ default: { limit: 20, ttl: 60000 } })` (20 req/min/IP)
 
-   @Module({
-     imports: [
-       ThrottlerModule.forRoot([{
-         ttl: 60000, // 60 seconds
-         limit: 100, // 100 requests per minute per IP
-       }]),
-       // other modules...
-     ],
-     providers: [
-       {
-         provide: APP_GUARD,
-         useClass: ThrottlerGuard,
-       },
-     ],
-   })
-   export class AppModule {}
-   ```
-
-Step 2: Add stricter route-level `@Throttle()` decorators on sensitive endpoints:
-   - Search: `@Throttle({ default: { limit: 30, ttl: 60000 } })` (30 req/min)
-   - Auth Refresh: `@Throttle({ default: { limit: 10, ttl: 60000 } })` (10 req/min)
-   - Guest Cart: `@Throttle({ default: { limit: 20, ttl: 60000 } })` (20 req/min)
-   - Checkout / Payment: `@Throttle({ default: { limit: 10, ttl: 60000 } })` (10 req/min)
-
-Step 3: Keep existing DB-backed OTP rate limiter for multi-device SMS/Email
-        quotas, combining it with the IP-level ThrottlerGuard for defense-in-depth.
+Step 2: When migrating to a multi-instance / distributed cluster in the future:
+        - Replace `OtpCacheService` internals with Redis (or Redis cluster / Upstash).
+        - Replace `@nestjs/throttler` in-memory storage with `ThrottlerStorageRedisService`.
+        - The `IOtpCacheService` interface guarantees zero changes needed in controller
+          or service business logic.
 ================================================================================
