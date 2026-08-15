@@ -34,6 +34,10 @@ describe('PaymentsController', () => {
         success: true,
         message: 'COD payment confirmed successfully',
       }),
+      handleWebhook: jest.fn().mockResolvedValue({
+        success: true,
+        message: 'Webhook processed successfully',
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -116,6 +120,27 @@ describe('PaymentsController', () => {
       mockUserId,
       mockIdempotencyKey,
       dto,
+    );
+    expect(res.success).toBe(true);
+  });
+
+  it('should call handleWebhook', async () => {
+    const signature = 'mock_wh_sig_123';
+    const headerEventId = 'evt_123';
+    const body = { event: 'payment.captured' };
+    const req = { rawBody: Buffer.from(JSON.stringify(body)) } as any;
+
+    const res = await controller.handleWebhook(
+      signature,
+      headerEventId,
+      req,
+      body,
+    );
+    expect(service.handleWebhook).toHaveBeenCalledWith(
+      signature,
+      body,
+      req.rawBody,
+      headerEventId,
     );
     expect(res.success).toBe(true);
   });

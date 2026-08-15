@@ -513,24 +513,31 @@ export class PaymentsService {
     signature: string,
     body: any,
     rawBody?: string | Buffer,
+    headerEventId?: string,
   ) {
     const isValid = this.razorpayService.verifyWebhookSignature({
-      rawBody: rawBody || JSON.stringify(body),
+      rawBody: rawBody || JSON.stringify(body || {}),
       signature: signature || '',
     });
 
     if (!isValid) {
-      return {
-        success: false,
-        message: 'Invalid webhook signature',
-      };
+      throw new BadRequestException('Invalid webhook signature');
     }
 
-    const eventId =
-      body?.event_id ||
-      body?.payload?.payment?.entity?.id ||
-      `evt_${Date.now()}`;
     const eventType = body?.event || 'unknown';
+    const paymentEntity = body?.payload?.payment?.entity;
+    const orderEntity = body?.payload?.order?.entity;
+    const refundEntity = body?.payload?.refund?.entity;
+
+    const eventId =
+      headerEventId ||
+      body?.id ||
+      body?.event_id ||
+      (paymentEntity?.id
+        ? `${eventType}_${paymentEntity.id}`
+        : orderEntity?.id
+          ? `${eventType}_${orderEntity.id}`
+          : `evt_${Date.now()}`);
 
     // Duplicate check for webhook idempotency
     const existingLog = await this.prisma.webhookLog.findUnique({
@@ -556,12 +563,20 @@ export class PaymentsService {
     });
 
     const razorpayOrderId =
-      body?.payload?.payment?.entity?.order_id ||
-      body?.payload?.order?.entity?.id;
+      paymentEntity?.order_id ||
+      orderEntity?.id;
+    const razorpayPaymentId =
+      paymentEntity?.id ||
+      refundEntity?.payment_id;
 
-    if (razorpayOrderId) {
+    if (razorpayOrderId || razorpayPaymentId) {
       const payment = await this.prisma.payment.findFirst({
-        where: { razorpayOrderId },
+        where: {
+          OR: [
+            ...(razorpayOrderId ? [{ razorpayOrderId }] : []),
+            ...(razorpayPaymentId ? [{ razorpayPaymentId }] : []),
+          ],
+        },
       });
 
       if (payment) {
@@ -570,43 +585,89 @@ export class PaymentsService {
           eventType === 'payment.authorized' ||
           eventType === 'order.paid'
         ) {
+          if (payment.status !== PaymentStatusEnum.COMPLETED) {
+            await this.prisma.$transaction(async (tx) => {
+              await tx.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: PaymentStatusEnum.COMPLETED,
+                  razorpayPaymentId: paymentEntity?.id || payment.razorpayPaymentId,
+                  razorpaySignature: signature || payment.razorpaySignature,
+                },
+              });
+
+              await tx.order.update({
+                where: { id: payment.orderId },
+                data: {
+                  paymentStatus: PaymentStatusEnum.COMPLETED,
+                  orderStatus: 'PLACED',
+                },
+              });
+
+              // Fulfill stock reservation
+              await tx.stockReservation.updateMany({
+                where: {
+                  userId: payment.userId,
+                  isFulfilled: false,
+                },
+                data: {
+                  isFulfilled: true,
+                },
+              });
+            });
+          }
+        } else if (eventType === 'payment.failed') {
+          if (payment.status !== PaymentStatusEnum.COMPLETED) {
+            await this.prisma.$transaction(async (tx) => {
+              await tx.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: PaymentStatusEnum.FAILED,
+                  failureReason:
+                    paymentEntity?.error_description ||
+                    paymentEntity?.error_reason ||
+                    'Payment failed',
+                },
+              });
+
+              await tx.order.update({
+                where: { id: payment.orderId },
+                data: {
+                  paymentStatus: PaymentStatusEnum.FAILED,
+                },
+              });
+
+              // Immediate stock reservation release on payment failure
+              await tx.stockReservation.updateMany({
+                where: {
+                  userId: payment.userId,
+                  isFulfilled: false,
+                },
+                data: {
+                  expiresAt: new Date(Date.now() - 1000),
+                },
+              });
+            });
+          }
+        } else if (
+          eventType === 'refund.processed' ||
+          eventType === 'refund.created' ||
+          eventType === 'refund.speed_changed'
+        ) {
           await this.prisma.$transaction(async (tx) => {
             await tx.payment.update({
               where: { id: payment.id },
               data: {
-                status: PaymentStatusEnum.COMPLETED,
-                razorpayPaymentId: body?.payload?.payment?.entity?.id,
+                status: PaymentStatusEnum.REFUNDED,
               },
             });
 
             await tx.order.update({
               where: { id: payment.orderId },
               data: {
-                paymentStatus: PaymentStatusEnum.COMPLETED,
-                orderStatus: 'PLACED',
+                paymentStatus: PaymentStatusEnum.REFUNDED,
               },
             });
-          });
-        } else if (eventType === 'payment.failed') {
-          await this.prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              status: PaymentStatusEnum.FAILED,
-              failureReason:
-                body?.payload?.payment?.entity?.error_description ||
-                'Payment failed',
-            },
-          });
-
-          // Immediate stock reservation release on payment failure
-          await this.prisma.stockReservation.updateMany({
-            where: {
-              userId: payment.userId,
-              isFulfilled: false,
-            },
-            data: {
-              expiresAt: new Date(Date.now() - 1000),
-            },
           });
         }
       }

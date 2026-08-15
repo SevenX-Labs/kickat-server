@@ -7,7 +7,10 @@ import {
   HttpStatus,
   Param,
   Post,
+  Req,
+  RawBodyRequest,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { PaymentsService } from './payments.service';
 import { Auth, CurrentUser } from '../../common';
 import { CreatePaymentOrderDto } from './dto/create-payment-order.dto';
@@ -97,8 +100,20 @@ export class PaymentsController {
   @HttpCode(HttpStatus.OK)
   async handleWebhook(
     @Headers('x-razorpay-signature') signature: string,
+    @Headers('x-razorpay-event-id') headerEventId: string,
+    @Req() req: RawBodyRequest<Request>,
     @Body() body: any,
   ) {
-    return this.paymentsService.handleWebhook(signature, body);
+    const rawBody = req?.rawBody
+      ? req.rawBody
+      : typeof body === 'string'
+        ? body
+        : JSON.stringify(body || {});
+    return this.paymentsService.handleWebhook(
+      signature,
+      body,
+      rawBody,
+      headerEventId,
+    );
   }
 }

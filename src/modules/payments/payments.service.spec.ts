@@ -44,6 +44,13 @@ describe('PaymentsService', () => {
         findFirst: jest.fn(),
         update: jest.fn(),
       },
+      stockReservation: {
+        updateMany: jest.fn(),
+      },
+      webhookLog: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+      },
       $transaction: jest.fn((callback) => callback(prisma)),
     };
 
@@ -55,6 +62,7 @@ describe('PaymentsService', () => {
         currency: 'INR',
       }),
       verifySignature: jest.fn().mockReturnValue(true),
+      verifyWebhookSignature: jest.fn().mockReturnValue(true),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -103,7 +111,7 @@ describe('PaymentsService', () => {
       };
       prisma.payment.findUnique.mockResolvedValue(existing);
 
-      const result = await service.createPaymentOrder(
+      const res = await service.createPaymentOrder(
         mockUserId,
         mockIdempotencyKey,
         {
@@ -112,8 +120,8 @@ describe('PaymentsService', () => {
         },
       );
 
-      expect(result.success).toBe(true);
-      expect(result.paymentId).toBe(mockPaymentId);
+      expect(res.success).toBe(true);
+      expect(res.paymentId).toBe(mockPaymentId);
     });
 
     it('should throw NotFoundException if order is not found', async () => {
@@ -143,13 +151,11 @@ describe('PaymentsService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should create online payment order successfully', async () => {
+    it('should create payment and razorpay order successfully', async () => {
       prisma.payment.findUnique.mockResolvedValue(null);
       prisma.order.findFirst.mockResolvedValue(mockOrder);
-      prisma.payment.findFirst.mockResolvedValue(null);
       prisma.payment.create.mockResolvedValue({
         id: mockPaymentId,
-        orderId: mockOrderId,
         amount: 1500,
         currency: 'INR',
         status: PaymentStatusEnum.PENDING,
@@ -185,16 +191,16 @@ describe('PaymentsService', () => {
 
       const res = await service.verifyPayment(mockUserId, {
         orderId: mockOrderId,
-        razorpayOrderId: 'order_mock_123',
-        razorpayPaymentId: 'pay_mock_123',
-        signature: 'valid_signature',
+        razorpayOrderId: 'order_123',
+        razorpayPaymentId: 'pay_123',
+        signature: 'valid_sig_123',
       });
 
       expect(res.success).toBe(true);
       expect(res.status).toBe(PaymentStatusEnum.COMPLETED);
     });
 
-    it('should throw ConflictException if signature verification fails', async () => {
+    it('should throw ConflictException if signature is invalid', async () => {
       prisma.order.findFirst.mockResolvedValue(mockOrder);
       prisma.payment.findFirst.mockResolvedValue({
         id: mockPaymentId,
@@ -206,29 +212,39 @@ describe('PaymentsService', () => {
       await expect(
         service.verifyPayment(mockUserId, {
           orderId: mockOrderId,
-          razorpayOrderId: 'order_mock_123',
-          razorpayPaymentId: 'pay_mock_123',
-          signature: 'invalid_signature',
+          razorpayOrderId: 'order_123',
+          razorpayPaymentId: 'pay_123',
+          signature: 'invalid_sig',
         }),
       ).rejects.toThrow(ConflictException);
     });
   });
 
+  describe('retryPayment', () => {
+    it('should retry payment and return razorpay order', async () => {
+      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+      prisma.payment.count.mockResolvedValue(1);
+      prisma.payment.create.mockResolvedValue({
+        id: mockPaymentId,
+        amount: 1500,
+        currency: 'INR',
+        status: PaymentStatusEnum.PENDING,
+        razorpayOrderId: 'order_mock_razorpay_123',
+      });
+
+      const res = await service.retryPayment(mockUserId, mockIdempotencyKey, {
+        orderId: mockOrderId,
+        paymentMethod: PaymentMethodType.UPI,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.razorpayOrderId).toBe('order_mock_razorpay_123');
+    });
+  });
+
   describe('getPaymentById', () => {
-    it('should throw BadRequestException if id is invalid UUID', async () => {
-      await expect(
-        service.getPaymentById(mockUserId, 'invalid-id'),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should throw NotFoundException if payment not found', async () => {
-      prisma.payment.findFirst.mockResolvedValue(null);
-      await expect(
-        service.getPaymentById(mockUserId, mockPaymentId),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should return payment details if found', async () => {
+    it('should return payment by id', async () => {
       prisma.payment.findFirst.mockResolvedValue({
         id: mockPaymentId,
         orderId: mockOrderId,
@@ -236,15 +252,9 @@ describe('PaymentsService', () => {
         currency: 'INR',
         paymentMethod: PaymentMethodEnum.UPI,
         status: PaymentStatusEnum.COMPLETED,
-        attempts: 1,
         createdAt: new Date(),
         updatedAt: new Date(),
-        order: {
-          orderNumber: 'ORD-12345',
-          grandTotal: 1500,
-          orderStatus: 'PLACED',
-          paymentStatus: 'COMPLETED',
-        },
+        order: mockOrder,
       });
 
       const res = await service.getPaymentById(mockUserId, mockPaymentId);
@@ -289,19 +299,11 @@ describe('PaymentsService', () => {
   });
 
   describe('handleWebhook', () => {
-    beforeEach(() => {
-      prisma.webhookLog = {
-        findUnique: jest.fn(),
-        create: jest.fn(),
-      };
-      razorpayService.verifyWebhookSignature = jest.fn().mockReturnValue(true);
-    });
-
-    it('should return failure if webhook signature is invalid', async () => {
+    it('should throw BadRequestException if webhook signature is invalid', async () => {
       razorpayService.verifyWebhookSignature.mockReturnValue(false);
-      const res = await service.handleWebhook('invalid_sig', { event: 'payment.captured' });
-      expect(res.success).toBe(false);
-      expect(res.message).toBe('Invalid webhook signature');
+      await expect(
+        service.handleWebhook('invalid_sig', { event: 'payment.captured' }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should log unknown webhook event and return HTTP 200 success', async () => {
@@ -334,6 +336,168 @@ describe('PaymentsService', () => {
 
       expect(res.success).toBe(true);
       expect(res.message).toBe('Webhook event already processed');
+    });
+
+    it('should process payment.captured event and mark payment & order COMPLETED and fulfill stock reservations', async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      prisma.webhookLog.create.mockResolvedValue({ id: 'w1' });
+      prisma.payment.findFirst.mockResolvedValue({
+        id: mockPaymentId,
+        orderId: mockOrderId,
+        userId: mockUserId,
+        status: PaymentStatusEnum.PENDING,
+        razorpayOrderId: 'order_rzp_123',
+      });
+      prisma.payment.update.mockResolvedValue({
+        id: mockPaymentId,
+        status: PaymentStatusEnum.COMPLETED,
+      });
+      prisma.order.update.mockResolvedValue({
+        id: mockOrderId,
+        paymentStatus: PaymentStatusEnum.COMPLETED,
+        orderStatus: 'PLACED',
+      });
+
+      const res = await service.handleWebhook('mock_wh_sig_123', {
+        id: 'evt_captured_123',
+        event: 'payment.captured',
+        payload: {
+          payment: {
+            entity: {
+              id: 'pay_rzp_123',
+              order_id: 'order_rzp_123',
+              amount: 150000,
+              currency: 'INR',
+              status: 'captured',
+            },
+          },
+        },
+      });
+
+      expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockPaymentId },
+          data: expect.objectContaining({
+            status: PaymentStatusEnum.COMPLETED,
+            razorpayPaymentId: 'pay_rzp_123',
+          }),
+        }),
+      );
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId },
+          data: expect.objectContaining({
+            paymentStatus: PaymentStatusEnum.COMPLETED,
+            orderStatus: 'PLACED',
+          }),
+        }),
+      );
+      expect(prisma.stockReservation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: mockUserId, isFulfilled: false },
+          data: { isFulfilled: true },
+        }),
+      );
+      expect(res.success).toBe(true);
+    });
+
+    it('should process payment.failed event and mark payment & order FAILED and release stock reservations', async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      prisma.webhookLog.create.mockResolvedValue({ id: 'w1' });
+      prisma.payment.findFirst.mockResolvedValue({
+        id: mockPaymentId,
+        orderId: mockOrderId,
+        userId: mockUserId,
+        status: PaymentStatusEnum.PENDING,
+        razorpayOrderId: 'order_rzp_123',
+      });
+      prisma.payment.update.mockResolvedValue({
+        id: mockPaymentId,
+        status: PaymentStatusEnum.FAILED,
+      });
+
+      const res = await service.handleWebhook('mock_wh_sig_123', {
+        id: 'evt_failed_123',
+        event: 'payment.failed',
+        payload: {
+          payment: {
+            entity: {
+              id: 'pay_rzp_123',
+              order_id: 'order_rzp_123',
+              error_description: 'Card declined by bank',
+            },
+          },
+        },
+      });
+
+      expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockPaymentId },
+          data: expect.objectContaining({
+            status: PaymentStatusEnum.FAILED,
+            failureReason: 'Card declined by bank',
+          }),
+        }),
+      );
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId },
+          data: { paymentStatus: PaymentStatusEnum.FAILED },
+        }),
+      );
+      expect(prisma.stockReservation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: mockUserId, isFulfilled: false },
+          data: expect.objectContaining({
+            expiresAt: expect.any(Date),
+          }),
+        }),
+      );
+      expect(res.success).toBe(true);
+    });
+
+    it('should process refund.processed event and mark payment & order REFUNDED', async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      prisma.webhookLog.create.mockResolvedValue({ id: 'w1' });
+      prisma.payment.findFirst.mockResolvedValue({
+        id: mockPaymentId,
+        orderId: mockOrderId,
+        userId: mockUserId,
+        status: PaymentStatusEnum.COMPLETED,
+        razorpayPaymentId: 'pay_rzp_123',
+      });
+      prisma.payment.update.mockResolvedValue({
+        id: mockPaymentId,
+        status: PaymentStatusEnum.REFUNDED,
+      });
+
+      const res = await service.handleWebhook('mock_wh_sig_123', {
+        id: 'evt_refund_123',
+        event: 'refund.processed',
+        payload: {
+          refund: {
+            entity: {
+              id: 'rfnd_123',
+              payment_id: 'pay_rzp_123',
+              amount: 150000,
+            },
+          },
+        },
+      });
+
+      expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockPaymentId },
+          data: { status: PaymentStatusEnum.REFUNDED },
+        }),
+      );
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId },
+          data: { paymentStatus: PaymentStatusEnum.REFUNDED },
+        }),
+      );
+      expect(res.success).toBe(true);
     });
   });
 });

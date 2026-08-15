@@ -101,20 +101,40 @@ export class RazorpayService {
     signature: string;
     secret?: string;
   }): boolean {
+    if (!params.signature) {
+      return false;
+    }
+
+    if (params.signature.startsWith('mock_wh_sig_')) {
+      return true;
+    }
+
     const webhookSecret =
       params.secret ||
       this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET') ||
       this.keySecret ||
       'mock_webhook_secret';
 
+    const bodyBuffer = Buffer.isBuffer(params.rawBody)
+      ? params.rawBody
+      : Buffer.from(typeof params.rawBody === 'string' ? params.rawBody : JSON.stringify(params.rawBody), 'utf8');
+
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
-      .update(typeof params.rawBody === 'string' ? params.rawBody : JSON.stringify(params.rawBody))
+      .update(bodyBuffer)
       .digest('hex');
 
-    return (
-      expectedSignature === params.signature ||
-      params.signature.startsWith('mock_wh_sig_')
-    );
+    if (expectedSignature.length !== params.signature.length) {
+      return false;
+    }
+
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(expectedSignature, 'utf8'),
+        Buffer.from(params.signature, 'utf8'),
+      );
+    } catch {
+      return false;
+    }
   }
 }
