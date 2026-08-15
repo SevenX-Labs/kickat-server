@@ -357,6 +357,7 @@ export class OrdersService {
       OrderStatusEnum.DELIVERED,
       OrderStatusEnum.CANCELLED,
       OrderStatusEnum.RETURNED,
+      OrderStatusEnum.RETURN_INITIATED,
     ];
 
     if (nonCancellableStatuses.includes(order.orderStatus)) {
@@ -365,14 +366,46 @@ export class OrdersService {
       );
     }
 
-    const updatedOrder = await this.prisma.order.update({
-      where: { id: order.id },
-      data: {
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
+      const updateRes = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          userId,
+          orderStatus: { notIn: nonCancellableStatuses },
+        },
+        data: {
+          orderStatus: OrderStatusEnum.CANCELLED,
+          cancelReason: dto.reason,
+          cancelReasonOther: dto.reasonOther,
+          cancelledAt: new Date(),
+        },
+      });
+
+      if (updateRes.count === 0) {
+        throw new ConflictException(
+          'Order already packed, shipped, delivered, or cancelled',
+        );
+      }
+
+      // Atomically restore deducted stock for all order items
+      for (const item of order.items) {
+        if (item.variantId) {
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { increment: item.quantity } },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }
+
+      return {
+        id: order.id,
         orderStatus: OrderStatusEnum.CANCELLED,
-        cancelReason: dto.reason,
-        cancelReasonOther: dto.reasonOther,
-        cancelledAt: new Date(),
-      },
+      };
     });
 
     return {
@@ -415,8 +448,25 @@ export class OrdersService {
       }
     }
 
-    // Create return record in transaction
+    // Create return record atomically with conditional state check
     const returnRecord = await this.prisma.$transaction(async (tx) => {
+      const updateRes = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          userId,
+          orderStatus: OrderStatusEnum.DELIVERED,
+        },
+        data: {
+          orderStatus: OrderStatusEnum.RETURN_INITIATED,
+        },
+      });
+
+      if (updateRes.count === 0) {
+        throw new ConflictException(
+          'Order is not in delivered state or return already initiated',
+        );
+      }
+
       const ret = await tx.orderReturn.create({
         data: {
           orderId: order.id,
@@ -431,13 +481,6 @@ export class OrdersService {
               photos: item.photos || [],
             })),
           },
-        },
-      });
-
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          orderStatus: OrderStatusEnum.RETURN_INITIATED,
         },
       });
 

@@ -158,13 +158,15 @@ export class CheckoutService {
       );
     }
 
-    // Idempotency check
+    // Persistent database idempotency check
     const existingOrder = await this.prisma.order.findUnique({
       where: { idempotencyKey },
-      include: { items: true },
     });
 
     if (existingOrder) {
+      if (existingOrder.userId !== userId) {
+        throw new ConflictException('Idempotency key already used');
+      }
       return {
         success: true,
         message: 'Order already placed (idempotent response)',
@@ -237,21 +239,11 @@ export class CheckoutService {
       );
     }
 
-    // Stock verification
+    // Calculate subtotal and build items payload
     let subtotal = 0;
     const orderItemDataList: any[] = [];
 
     for (const item of cartItems) {
-      const availableStock = item.variant
-        ? item.variant.stock
-        : item.product.stock;
-
-      if (availableStock < item.quantity) {
-        throw new ConflictException(
-          `Insufficient stock for ${item.product.name}`,
-        );
-      }
-
       const price = item.variant
         ? item.variant.price
         : item.product.discountPrice ?? item.product.price;
@@ -273,49 +265,111 @@ export class CheckoutService {
     const grandTotal = subtotal + deliveryFee;
     const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // Create order and clear cart in transaction
-    const order = await this.prisma.$transaction(async (tx) => {
-      const createdOrder = await tx.order.create({
-        data: {
-          orderNumber,
-          userId,
-          addressId: dto.addressId,
-          paymentMethod: dto.paymentMethod as any,
-          paymentStatus:
-            dto.paymentMethod === CheckoutPaymentMethodEnum.COD
-              ? 'PENDING'
-              : 'COMPLETED',
-          orderStatus: 'PLACED',
-          subtotal,
-          deliveryFee,
-          grandTotal,
-          idempotencyKey,
-          deliveryInstructions: dto.deliveryInstructions,
-          items: {
-            create: orderItemDataList,
+    try {
+      // Execute atomic stock deduction, order creation, cart clearing, and reservation fulfillment in one transaction
+      const order = await this.prisma.$transaction(async (tx) => {
+        // 1. Atomic conditional stock deduction for each item in the order
+        for (const item of cartItems) {
+          if (item.variantId) {
+            const updated = await tx.productVariant.updateMany({
+              where: {
+                id: item.variantId,
+                stock: { gte: item.quantity },
+              },
+              data: {
+                stock: { decrement: item.quantity },
+              },
+            });
+
+            if (updated.count === 0) {
+              throw new ConflictException(
+                `Insufficient stock for ${item.product.name} (${item.variant?.name || 'selected variant'})`,
+              );
+            }
+          } else {
+            const updated = await tx.product.updateMany({
+              where: {
+                id: item.productId,
+                stock: { gte: item.quantity },
+              },
+              data: {
+                stock: { decrement: item.quantity },
+              },
+            });
+
+            if (updated.count === 0) {
+              throw new ConflictException(
+                `Insufficient stock for ${item.product.name}`,
+              );
+            }
+          }
+        }
+
+        // 2. Create the order
+        const createdOrder = await tx.order.create({
+          data: {
+            orderNumber,
+            userId,
+            addressId: dto.addressId,
+            paymentMethod: dto.paymentMethod as any,
+            paymentStatus:
+              dto.paymentMethod === CheckoutPaymentMethodEnum.COD
+                ? 'PENDING'
+                : 'COMPLETED',
+            orderStatus: 'PLACED',
+            subtotal,
+            deliveryFee,
+            grandTotal,
+            idempotencyKey,
+            deliveryInstructions: dto.deliveryInstructions,
+            items: {
+              create: orderItemDataList,
+            },
           },
-        },
+        });
+
+        // 3. Clear user cart
+        await tx.cartItem.deleteMany({ where: { userId } });
+
+        // 4. Mark stock reservation fulfilled
+        await tx.stockReservation.update({
+          where: { id: reservation.id },
+          data: { isFulfilled: true },
+        });
+
+        return createdOrder;
       });
 
-      // Clear user cart
-      await tx.cartItem.deleteMany({ where: { userId } });
-
-      // Mark reservation fulfilled
-      await tx.stockReservation.update({
-        where: { id: reservation.id },
-        data: { isFulfilled: true },
-      });
-
-      return createdOrder;
-    });
-
-    return {
-      success: true,
-      message: 'Order placed successfully',
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      status: order.orderStatus,
-      grandTotal: order.grandTotal,
-    };
+      return {
+        success: true,
+        message: 'Order placed successfully',
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        status: order.orderStatus,
+        grandTotal: order.grandTotal,
+      };
+    } catch (error: any) {
+      // Handle concurrent P2002 race on unique idempotencyKey gracefully
+      if (
+        error?.code === 'P2002' ||
+        (typeof error?.message === 'string' &&
+          error.message.includes('Unique constraint failed on the fields: (`idempotencyKey`)'))
+      ) {
+        const concurrentOrder = await this.prisma.order.findUnique({
+          where: { idempotencyKey },
+        });
+        if (concurrentOrder && concurrentOrder.userId === userId) {
+          return {
+            success: true,
+            message: 'Order already placed (idempotent response)',
+            orderId: concurrentOrder.id,
+            orderNumber: concurrentOrder.orderNumber,
+            status: concurrentOrder.orderStatus,
+            grandTotal: concurrentOrder.grandTotal,
+          };
+        }
+      }
+      throw error;
+    }
   }
 }

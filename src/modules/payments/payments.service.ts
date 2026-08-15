@@ -10,7 +10,7 @@ import { CreatePaymentOrderDto, PaymentMethodType } from './dto/create-payment-o
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { RetryPaymentDto } from './dto/retry-payment.dto';
 import { ConfirmCodDto } from './dto/confirm-cod.dto';
-import { PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
+import { PaymentMethodEnum, PaymentStatusEnum, OrderStatusEnum } from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -59,12 +59,15 @@ export class PaymentsService {
     const validKey = this.validateIdempotencyKey(idempotencyKey);
     this.validateUuid(dto.orderId, 'orderId');
 
-    // Idempotency check
+    // Persistent database idempotency check
     const existingPayment = await this.prisma.payment.findUnique({
       where: { idempotencyKey: validKey },
     });
 
     if (existingPayment) {
+      if (existingPayment.userId !== userId) {
+        throw new ConflictException('Idempotency key already used');
+      }
       return {
         success: true,
         message: 'Payment order already created (idempotent response)',
@@ -92,8 +95,11 @@ export class PaymentsService {
       throw new ConflictException('Order is already paid');
     }
 
-    if (order.orderStatus === 'CANCELLED') {
-      throw new ConflictException('Order expired or cancelled');
+    if (
+      order.orderStatus === OrderStatusEnum.CANCELLED ||
+      order.orderStatus === OrderStatusEnum.DELIVERED
+    ) {
+      throw new ConflictException('Order not in payable state');
     }
 
     // Check if an active PENDING payment already exists for this order
@@ -112,27 +118,47 @@ export class PaymentsService {
 
     // COD handling
     if (dto.paymentMethod === PaymentMethodType.COD) {
-      const payment = await this.prisma.payment.create({
-        data: {
-          orderId: order.id,
-          userId,
-          amount: order.grandTotal,
-          currency: 'INR',
-          paymentMethod: PaymentMethodEnum.COD,
-          status: PaymentStatusEnum.PENDING,
-          idempotencyKey: validKey,
-        },
-      });
+      try {
+        const payment = await this.prisma.payment.create({
+          data: {
+            orderId: order.id,
+            userId,
+            amount: order.grandTotal,
+            currency: 'INR',
+            paymentMethod: PaymentMethodEnum.COD,
+            status: PaymentStatusEnum.PENDING,
+            idempotencyKey: validKey,
+          },
+        });
 
-      return {
-        success: true,
-        paymentId: payment.id,
-        orderId: order.id,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        paymentMethod: 'cod',
-      };
+        return {
+          success: true,
+          paymentId: payment.id,
+          orderId: order.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: payment.status,
+          paymentMethod: 'cod',
+        };
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          const concurrent = await this.prisma.payment.findUnique({
+            where: { idempotencyKey: validKey },
+          });
+          if (concurrent && concurrent.userId === userId) {
+            return {
+              success: true,
+              paymentId: concurrent.id,
+              orderId: concurrent.orderId,
+              amount: concurrent.amount,
+              currency: concurrent.currency,
+              status: concurrent.status,
+              paymentMethod: 'cod',
+            };
+          }
+        }
+        throw error;
+      }
     }
 
     // Online Razorpay Payment creation
@@ -147,35 +173,57 @@ export class PaymentsService {
       },
     });
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        orderId: order.id,
-        userId,
-        amount: order.grandTotal,
-        currency: 'INR',
-        paymentMethod: methodEnum,
-        status: PaymentStatusEnum.PENDING,
-        razorpayOrderId: rzpOrder.id,
-        idempotencyKey: validKey,
-        upiId: dto.upiId,
-        savedCardId: dto.savedCardId,
-        walletProvider: dto.walletProvider,
-        bankCode: dto.bankCode,
-        saveCard: dto.saveCard ?? false,
-      },
-    });
+    try {
+      const payment = await this.prisma.payment.create({
+        data: {
+          orderId: order.id,
+          userId,
+          amount: order.grandTotal,
+          currency: 'INR',
+          paymentMethod: methodEnum,
+          status: PaymentStatusEnum.PENDING,
+          razorpayOrderId: rzpOrder.id,
+          idempotencyKey: validKey,
+          upiId: dto.upiId,
+          savedCardId: dto.savedCardId,
+          walletProvider: dto.walletProvider,
+          bankCode: dto.bankCode,
+          saveCard: dto.saveCard ?? false,
+        },
+      });
 
-    return {
-      success: true,
-      paymentId: payment.id,
-      orderId: order.id,
-      razorpayOrderId: rzpOrder.id,
-      amount: payment.amount,
-      currency: payment.currency,
-      status: payment.status,
-      paymentMethod: dto.paymentMethod,
-      key: this.razorpayService.getKeyId(),
-    };
+      return {
+        success: true,
+        paymentId: payment.id,
+        orderId: order.id,
+        razorpayOrderId: rzpOrder.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        paymentMethod: dto.paymentMethod,
+        key: this.razorpayService.getKeyId(),
+      };
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        const concurrent = await this.prisma.payment.findUnique({
+          where: { idempotencyKey: validKey },
+        });
+        if (concurrent && concurrent.userId === userId) {
+          return {
+            success: true,
+            paymentId: concurrent.id,
+            orderId: concurrent.orderId,
+            razorpayOrderId: concurrent.razorpayOrderId,
+            amount: concurrent.amount,
+            currency: concurrent.currency,
+            status: concurrent.status,
+            paymentMethod: dto.paymentMethod,
+            key: this.razorpayService.getKeyId(),
+          };
+        }
+      }
+      throw error;
+    }
   }
 
   /**
@@ -243,6 +291,17 @@ export class PaymentsService {
         },
       });
 
+      // Fulfill stock reservation
+      await tx.stockReservation.updateMany({
+        where: {
+          userId,
+          isFulfilled: false,
+        },
+        data: {
+          isFulfilled: true,
+        },
+      });
+
       return p;
     });
 
@@ -272,6 +331,9 @@ export class PaymentsService {
     });
 
     if (existingPayment) {
+      if (existingPayment.userId !== userId) {
+        throw new ConflictException('Idempotency key already used');
+      }
       return {
         success: true,
         message: 'Payment retry request already processed (idempotent response)',
@@ -298,7 +360,7 @@ export class PaymentsService {
       throw new ConflictException('Order not in retryable state');
     }
 
-    if (order.orderStatus === 'CANCELLED') {
+    if (order.orderStatus === 'CANCELLED' || order.orderStatus === 'DELIVERED') {
       throw new ConflictException('Order not in retryable state');
     }
 
@@ -319,28 +381,48 @@ export class PaymentsService {
     const methodEnum = this.toPaymentMethodEnum(dto.paymentMethod);
 
     if (dto.paymentMethod === PaymentMethodType.COD) {
-      const payment = await this.prisma.payment.create({
-        data: {
-          orderId: order.id,
-          userId,
-          amount: order.grandTotal,
-          currency: 'INR',
-          paymentMethod: PaymentMethodEnum.COD,
-          status: PaymentStatusEnum.PENDING,
-          idempotencyKey: validKey,
-          attempts: attemptCount + 1,
-        },
-      });
+      try {
+        const payment = await this.prisma.payment.create({
+          data: {
+            orderId: order.id,
+            userId,
+            amount: order.grandTotal,
+            currency: 'INR',
+            paymentMethod: PaymentMethodEnum.COD,
+            status: PaymentStatusEnum.PENDING,
+            idempotencyKey: validKey,
+            attempts: attemptCount + 1,
+          },
+        });
 
-      return {
-        success: true,
-        paymentId: payment.id,
-        orderId: order.id,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        paymentMethod: 'cod',
-      };
+        return {
+          success: true,
+          paymentId: payment.id,
+          orderId: order.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: payment.status,
+          paymentMethod: 'cod',
+        };
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          const concurrent = await this.prisma.payment.findUnique({
+            where: { idempotencyKey: validKey },
+          });
+          if (concurrent && concurrent.userId === userId) {
+            return {
+              success: true,
+              paymentId: concurrent.id,
+              orderId: concurrent.orderId,
+              amount: concurrent.amount,
+              currency: concurrent.currency,
+              status: concurrent.status,
+              paymentMethod: 'cod',
+            };
+          }
+        }
+        throw error;
+      }
     }
 
     // Online Razorpay Payment creation for retry
@@ -356,36 +438,58 @@ export class PaymentsService {
       },
     });
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        orderId: order.id,
-        userId,
-        amount: order.grandTotal,
-        currency: 'INR',
-        paymentMethod: methodEnum,
-        status: PaymentStatusEnum.PENDING,
-        razorpayOrderId: rzpOrder.id,
-        idempotencyKey: validKey,
-        upiId: dto.upiId,
-        savedCardId: dto.savedCardId,
-        walletProvider: dto.walletProvider,
-        bankCode: dto.bankCode,
-        saveCard: dto.saveCard ?? false,
-        attempts: attemptCount + 1,
-      },
-    });
+    try {
+      const payment = await this.prisma.payment.create({
+        data: {
+          orderId: order.id,
+          userId,
+          amount: order.grandTotal,
+          currency: 'INR',
+          paymentMethod: methodEnum,
+          status: PaymentStatusEnum.PENDING,
+          razorpayOrderId: rzpOrder.id,
+          idempotencyKey: validKey,
+          upiId: dto.upiId,
+          savedCardId: dto.savedCardId,
+          walletProvider: dto.walletProvider,
+          bankCode: dto.bankCode,
+          saveCard: dto.saveCard ?? false,
+          attempts: attemptCount + 1,
+        },
+      });
 
-    return {
-      success: true,
-      paymentId: payment.id,
-      orderId: order.id,
-      razorpayOrderId: rzpOrder.id,
-      amount: payment.amount,
-      currency: payment.currency,
-      status: payment.status,
-      paymentMethod: dto.paymentMethod,
-      key: this.razorpayService.getKeyId(),
-    };
+      return {
+        success: true,
+        paymentId: payment.id,
+        orderId: order.id,
+        razorpayOrderId: rzpOrder.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        paymentMethod: dto.paymentMethod,
+        key: this.razorpayService.getKeyId(),
+      };
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        const concurrent = await this.prisma.payment.findUnique({
+          where: { idempotencyKey: validKey },
+        });
+        if (concurrent && concurrent.userId === userId) {
+          return {
+            success: true,
+            paymentId: concurrent.id,
+            orderId: concurrent.orderId,
+            razorpayOrderId: concurrent.razorpayOrderId,
+            amount: concurrent.amount,
+            currency: concurrent.currency,
+            status: concurrent.status,
+            paymentMethod: dto.paymentMethod,
+            key: this.razorpayService.getKeyId(),
+          };
+        }
+      }
+      throw error;
+    }
   }
 
   /**
@@ -448,6 +552,9 @@ export class PaymentsService {
     });
 
     if (existingPayment) {
+      if (existingPayment.userId !== userId) {
+        throw new ConflictException('Idempotency key already used');
+      }
       return {
         success: true,
         message: 'COD payment confirmed successfully (idempotent response)',
@@ -473,37 +580,72 @@ export class PaymentsService {
       throw new ConflictException('Order already paid');
     }
 
-    const payment = await this.prisma.$transaction(async (tx) => {
-      const createdPayment = await tx.payment.create({
-        data: {
-          orderId: order.id,
-          userId,
-          amount: order.grandTotal,
-          currency: 'INR',
-          paymentMethod: PaymentMethodEnum.COD,
-          status: PaymentStatusEnum.COMPLETED,
-          idempotencyKey: validKey,
-        },
+    if (order.orderStatus === 'CANCELLED') {
+      throw new ConflictException('Order is cancelled');
+    }
+
+    try {
+      const payment = await this.prisma.$transaction(async (tx) => {
+        // Atomically ensure order is still pending and eligible
+        const updateResult = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            userId,
+            paymentMethod: PaymentMethodEnum.COD,
+            paymentStatus: { not: PaymentStatusEnum.COMPLETED },
+            orderStatus: { not: 'CANCELLED' },
+          },
+          data: {
+            paymentStatus: PaymentStatusEnum.COMPLETED,
+            orderStatus: 'PLACED',
+          },
+        });
+
+        if (updateResult.count === 0) {
+          throw new ConflictException(
+            'Order already confirmed, paid, or cancelled',
+          );
+        }
+
+        const createdPayment = await tx.payment.create({
+          data: {
+            orderId: order.id,
+            userId,
+            amount: order.grandTotal,
+            currency: 'INR',
+            paymentMethod: PaymentMethodEnum.COD,
+            status: PaymentStatusEnum.COMPLETED,
+            idempotencyKey: validKey,
+          },
+        });
+
+        return createdPayment;
       });
 
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          paymentStatus: PaymentStatusEnum.COMPLETED,
-          orderStatus: 'PLACED',
-        },
-      });
-
-      return createdPayment;
-    });
-
-    return {
-      success: true,
-      message: 'COD payment confirmed successfully',
-      paymentId: payment.id,
-      orderId: order.id,
-      status: payment.status,
-    };
+      return {
+        success: true,
+        message: 'COD payment confirmed successfully',
+        paymentId: payment.id,
+        orderId: order.id,
+        status: payment.status,
+      };
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        const concurrent = await this.prisma.payment.findUnique({
+          where: { idempotencyKey: validKey },
+        });
+        if (concurrent && concurrent.userId === userId) {
+          return {
+            success: true,
+            message: 'COD payment confirmed successfully (idempotent response)',
+            paymentId: concurrent.id,
+            orderId: concurrent.orderId,
+            status: concurrent.status,
+          };
+        }
+      }
+      throw error;
+    }
   }
 
   /**
@@ -551,16 +693,26 @@ export class PaymentsService {
       };
     }
 
-    // Save WebhookLog entry
-    await this.prisma.webhookLog.create({
-      data: {
-        eventId,
-        event: eventType,
-        payload: JSON.parse(JSON.stringify(body || {})),
-        status: 'SUCCESS',
-        processedAt: new Date(),
-      },
-    });
+    // Save WebhookLog entry with graceful P2002 handling on concurrent duplicate delivery
+    try {
+      await this.prisma.webhookLog.create({
+        data: {
+          eventId,
+          event: eventType,
+          payload: JSON.parse(JSON.stringify(body || {})),
+          status: 'SUCCESS',
+          processedAt: new Date(),
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        return {
+          success: true,
+          message: 'Webhook event already processed',
+        };
+      }
+      throw error;
+    }
 
     const razorpayOrderId =
       paymentEntity?.order_id ||
@@ -655,17 +807,10 @@ export class PaymentsService {
           eventType === 'refund.speed_changed'
         ) {
           await this.prisma.$transaction(async (tx) => {
-            await tx.payment.update({
-              where: { id: payment.id },
-              data: {
-                status: PaymentStatusEnum.REFUNDED,
-              },
-            });
-
             await tx.order.update({
               where: { id: payment.orderId },
               data: {
-                paymentStatus: PaymentStatusEnum.REFUNDED,
+                orderStatus: 'RETURNED',
               },
             });
           });

@@ -59,6 +59,7 @@ describe('OrdersService', () => {
         count: jest.fn().mockResolvedValue(1),
         findUnique: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       orderReturn: {
         create: jest.fn(),
@@ -68,9 +69,13 @@ describe('OrdersService', () => {
       },
       product: {
         findUnique: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       productVariant: {
         findUnique: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       cartItem: {
         upsert: jest.fn(),

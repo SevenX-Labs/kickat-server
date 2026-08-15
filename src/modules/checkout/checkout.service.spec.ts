@@ -23,6 +23,12 @@ describe('CheckoutService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
     },
+    product: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    productVariant: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     $transaction: jest.fn((cb) => cb(mockPrismaService)),
   };
 

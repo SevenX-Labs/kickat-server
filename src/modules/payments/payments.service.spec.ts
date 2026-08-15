@@ -43,6 +43,7 @@ describe('PaymentsService', () => {
       order: {
         findFirst: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       stockReservation: {
         updateMany: jest.fn(),
@@ -103,6 +104,7 @@ describe('PaymentsService', () => {
       const existing = {
         id: mockPaymentId,
         orderId: mockOrderId,
+        userId: mockUserId,
         razorpayOrderId: 'order_mock_razorpay_123',
         amount: 1500,
         currency: 'INR',
@@ -456,7 +458,7 @@ describe('PaymentsService', () => {
       expect(res.success).toBe(true);
     });
 
-    it('should process refund.processed event and mark payment & order REFUNDED', async () => {
+    it('should process refund.processed event and mark order as RETURNED', async () => {
       prisma.webhookLog.findUnique.mockResolvedValue(null);
       prisma.webhookLog.create.mockResolvedValue({ id: 'w1' });
       prisma.payment.findFirst.mockResolvedValue({
@@ -466,9 +468,9 @@ describe('PaymentsService', () => {
         status: PaymentStatusEnum.COMPLETED,
         razorpayPaymentId: 'pay_rzp_123',
       });
-      prisma.payment.update.mockResolvedValue({
-        id: mockPaymentId,
-        status: PaymentStatusEnum.REFUNDED,
+      prisma.order.update.mockResolvedValue({
+        id: mockOrderId,
+        orderStatus: 'RETURNED',
       });
 
       const res = await service.handleWebhook('mock_wh_sig_123', {
@@ -485,16 +487,10 @@ describe('PaymentsService', () => {
         },
       });
 
-      expect(prisma.payment.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: mockPaymentId },
-          data: { status: PaymentStatusEnum.REFUNDED },
-        }),
-      );
       expect(prisma.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: mockOrderId },
-          data: { paymentStatus: PaymentStatusEnum.REFUNDED },
+          data: { orderStatus: 'RETURNED' },
         }),
       );
       expect(res.success).toBe(true);
