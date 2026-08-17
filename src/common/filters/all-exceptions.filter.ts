@@ -38,10 +38,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = exception.message;
     }
 
-    this.logger.error(
-      `[${request.method}] ${request.url} - Status: ${status} - Error: ${message}`,
-      exception instanceof Error ? exception.stack : undefined,
-    );
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      this.logger.error(
+        `[${request.method}] ${request.url} - Status: ${status} - Error: ${message}`,
+        exception instanceof Error ? exception.stack : undefined,
+      );
+    } else {
+      this.logger.warn(
+        `[${request.method}] ${request.url} - Status: ${status} - Error: ${message}`,
+      );
+    }
 
     response.status(status).json({
       success: false,
