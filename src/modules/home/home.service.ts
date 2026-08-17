@@ -349,6 +349,7 @@ export class HomeService {
           createdAt: 'desc',
         },
       },
+      take: Math.max(50, limit * 5),
     });
 
     // Collect unique product IDs preserving order (most recent first)

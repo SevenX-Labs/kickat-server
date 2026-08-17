@@ -375,34 +375,36 @@ export class CartService {
       return this.getCart(userId);
     }
 
-    for (const item of guestItems) {
-      const existing = await this.prisma.cartItem.findFirst({
-        where: {
-          userId,
-          productId: item.productId,
-          variantId: item.variantId,
-        },
-      });
-
-      if (existing) {
-        await this.prisma.cartItem.update({
-          where: { id: existing.id },
-          data: { quantity: Math.min(100, existing.quantity + item.quantity) },
-        });
-      } else {
-        await this.prisma.cartItem.create({
-          data: {
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of guestItems) {
+        const existing = await tx.cartItem.findFirst({
+          where: {
             userId,
             productId: item.productId,
             variantId: item.variantId,
-            quantity: item.quantity,
           },
         });
-      }
-    }
 
-    await this.prisma.guestCartItem.deleteMany({
-      where: { sessionId: guestSessionId },
+        if (existing) {
+          await tx.cartItem.update({
+            where: { id: existing.id },
+            data: { quantity: Math.min(100, existing.quantity + item.quantity) },
+          });
+        } else {
+          await tx.cartItem.create({
+            data: {
+              userId,
+              productId: item.productId,
+              variantId: item.variantId,
+              quantity: item.quantity,
+            },
+          });
+        }
+      }
+
+      await tx.guestCartItem.deleteMany({
+        where: { sessionId: guestSessionId },
+      });
     });
 
     return this.getCart(userId);

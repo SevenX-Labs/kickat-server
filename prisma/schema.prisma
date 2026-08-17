@@ -129,6 +129,7 @@ model RefreshToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([familyId])
   @@map("refresh_tokens")
 }
 
@@ -222,6 +223,7 @@ model Category {
   children  Category[] @relation("CategoryToCategory")
   products  Product[]
 
+  @@index([parentId, isActive, deletedAt])
   @@map("categories")
 }
 
@@ -258,6 +260,9 @@ model Product {
 
   @@index([categoryId])
   @@index([petSpecies])
+  @@index([status, deletedAt])
+  @@index([isTrending, status])
+  @@index([isBestSeller, status])
   @@map("products")
 }
 
@@ -329,6 +334,7 @@ model ProductReview {
   @@index([productId])
   @@index([status])
   @@index([isSpam])
+  @@index([userId])
   @@map("product_reviews")
 }
 
@@ -382,6 +388,7 @@ model BlogPost {
   updatedAt       DateTime      @updatedAt
 
   @@index([categoryId])
+  @@index([isPublished, publishedAt])
   @@map("blog_posts")
 }
 
@@ -453,6 +460,7 @@ model StockReservation {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([userId, isFulfilled, expiresAt])
   @@map("stock_reservations")
 }
 
@@ -486,6 +494,9 @@ model Order {
   returns              OrderReturn[]
 
   @@index([userId])
+  @@index([orderStatus])
+  @@index([userId, createdAt])
+  @@index([addressId])
   @@map("orders")
 }
 
@@ -504,6 +515,7 @@ model OrderItem {
   returnItems OrderReturnItem[]
 
   @@index([orderId])
+  @@index([productId])
   @@map("order_items")
 }
 
@@ -533,6 +545,8 @@ model Payment {
 
   @@index([orderId])
   @@index([userId])
+  @@index([razorpayOrderId])
+  @@index([status])
   @@map("payments")
 }
 
@@ -609,6 +623,8 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
   @@map("notifications")
 }
 
@@ -649,6 +665,7 @@ model RecentlyViewed {
 
   @@unique([userId, productId])
   @@index([userId])
+  @@index([userId, createdAt])
   @@map("recently_viewed")
 }
 

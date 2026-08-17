@@ -54,9 +54,6 @@ export class ProfileService {
    * GET /profile or GET /users/me (Get user profile with addresses and petProfiles)
    */
   async getProfile(userId: string) {
-    // Automatically re-evaluate profile completion status
-    await this.checkAndUpdateProfileCompletion(userId);
-
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -67,6 +64,20 @@ export class ProfileService {
 
     if (!user) {
       throw new NotFoundException('User profile not found');
+    }
+
+    // Automatically re-evaluate profile completion status without duplicate DB query
+    const hasBasicDetails = Boolean(user.name && user.gender && user.dob);
+    const hasAddress = user.addresses.length > 0;
+    const hasPet = user.pets.length > 0;
+    const isComplete = hasBasicDetails && hasAddress && hasPet;
+
+    if (user.isProfileComplete !== isComplete) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { isProfileComplete: isComplete },
+      });
+      user.isProfileComplete = isComplete;
     }
 
     return {

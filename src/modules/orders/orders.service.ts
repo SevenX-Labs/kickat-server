@@ -572,71 +572,84 @@ export class OrdersService {
     const total = aggregatedList.length;
     const pagedEntries = aggregatedList.slice(skip, skip + limit);
 
-    // Fetch full product and variant information
-    const items = await Promise.all(
-      pagedEntries.map(async (entry) => {
-        const product = await this.prisma.product.findUnique({
-          where: { id: entry.productId },
-          include: {
-            category: { select: { id: true, name: true, slug: true } },
-          },
-        });
+    // Fetch full product and variant information using batch queries (eliminates N+1 queries)
+    const pagedProductIds = Array.from(new Set(pagedEntries.map((e) => e.productId)));
+    const pagedVariantIds = Array.from(
+      new Set(pagedEntries.map((e) => e.variantId).filter(Boolean)),
+    ) as string[];
 
-        let variant: any = null;
-        if (entry.variantId) {
-          variant = await this.prisma.productVariant.findUnique({
-            where: { id: entry.variantId },
-          });
-        }
+    let products: any[] = [];
+    let variants: any[] = [];
 
-        const inStock = product
-          ? (variant ? variant.stock > 0 : product.stock > 0) &&
-            product.status === 'ACTIVE'
-          : false;
-        const availableStock = product
-          ? variant
-            ? variant.stock
-            : product.stock
-          : 0;
+    if (pagedProductIds.length > 0) {
+      products = await this.prisma.product.findMany({
+        where: { id: { in: pagedProductIds } },
+        include: {
+          category: { select: { id: true, name: true, slug: true } },
+        },
+      });
+    }
 
-        return {
-          productId: entry.productId,
-          variantId: entry.variantId || null,
-          productName: product?.name || entry.productName,
-          variantName: variant?.name || entry.variantName || null,
-          lastOrderedAt: entry.lastOrderedAt,
-          lastOrderId: entry.lastOrderId,
-          lastOrderNumber: entry.lastOrderNumber,
-          lastQuantity: entry.lastQuantity,
-          timesOrdered: entry.timesOrdered,
-          totalQuantityOrdered: entry.totalQuantityOrdered,
-          inStock,
-          availableStock,
-          product: product
-            ? {
-                id: product.id,
-                name: product.name,
-                slug: product.slug,
-                price: product.price,
-                discountPrice: product.discountPrice,
-                imageUrl: product.imageUrl,
-                rating: product.rating,
-                reviewsCount: product.reviewsCount,
-                stock: product.stock,
-                category: product.category,
-              }
-            : null,
-          variant: variant
-            ? {
-                id: variant.id,
-                name: variant.name,
-                price: variant.price,
-                stock: variant.stock,
-              }
-            : null,
-        };
-      }),
-    );
+    if (pagedVariantIds.length > 0) {
+      variants = await this.prisma.productVariant.findMany({
+        where: { id: { in: pagedVariantIds } },
+      });
+    }
+
+    const productMap = new Map<string, any>(products.map((p: any) => [p.id, p]));
+    const variantMap = new Map<string, any>(variants.map((v: any) => [v.id, v]));
+
+    const items = pagedEntries.map((entry) => {
+      const product = productMap.get(entry.productId) || null;
+      const variant = entry.variantId ? variantMap.get(entry.variantId) || null : null;
+
+      const inStock = product
+        ? (variant ? variant.stock > 0 : product.stock > 0) &&
+          product.status === 'ACTIVE'
+        : false;
+      const availableStock = product
+        ? variant
+          ? variant.stock
+          : product.stock
+        : 0;
+
+      return {
+        productId: entry.productId,
+        variantId: entry.variantId || null,
+        productName: product?.name || entry.productName,
+        variantName: variant?.name || entry.variantName || null,
+        lastOrderedAt: entry.lastOrderedAt,
+        lastOrderId: entry.lastOrderId,
+        lastOrderNumber: entry.lastOrderNumber,
+        lastQuantity: entry.lastQuantity,
+        timesOrdered: entry.timesOrdered,
+        totalQuantityOrdered: entry.totalQuantityOrdered,
+        inStock,
+        availableStock,
+        product: product
+          ? {
+              id: product.id,
+              name: product.name,
+              slug: product.slug,
+              price: product.price,
+              discountPrice: product.discountPrice,
+              imageUrl: product.imageUrl,
+              rating: product.rating,
+              reviewsCount: product.reviewsCount,
+              stock: product.stock,
+              category: product.category,
+            }
+          : null,
+        variant: variant
+          ? {
+              id: variant.id,
+              name: variant.name,
+              price: variant.price,
+              stock: variant.stock,
+            }
+          : null,
+      };
+    });
 
     return {
       success: true,
@@ -689,12 +702,24 @@ export class OrdersService {
       throw new BadRequestException('Order has no items to reorder');
     }
 
-    // Check stock / active products
-    for (const item of order.items) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+    // Check stock / active products using batch lookups
+    const productIds = Array.from(new Set(order.items.map((i) => i.productId)));
+    const variantIds = Array.from(
+      new Set(order.items.map((i) => i.variantId).filter(Boolean)),
+    ) as string[];
 
+    const [products, variants] = await Promise.all([
+      this.prisma.product.findMany({ where: { id: { in: productIds } } }),
+      variantIds.length > 0
+        ? this.prisma.productVariant.findMany({ where: { id: { in: variantIds } } })
+        : Promise.resolve([]),
+    ]);
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const variantMap = new Map(variants.map((v) => [v.id, v]));
+
+    for (const item of order.items) {
+      const product = productMap.get(item.productId);
       if (!product || product.stock < 1) {
         throw new ConflictException(
           `Product '${item.productName}' is out of stock or discontinued`,
@@ -702,10 +727,7 @@ export class OrdersService {
       }
 
       if (item.variantId) {
-        const variant = await this.prisma.productVariant.findUnique({
-          where: { id: item.variantId },
-        });
-
+        const variant = variantMap.get(item.variantId);
         if (!variant || variant.stock < 1) {
           throw new ConflictException(
             `Variant '${item.variantName || item.productName}' is out of stock or discontinued`,
@@ -745,17 +767,31 @@ export class OrdersService {
   }
 
   private async reorderItemsList(userId: string, items: ReorderItemDto[]) {
-    // Check stock for all items
     for (const item of items) {
       this.validateUuid(item.productId, 'productId');
       if (item.variantId) {
         this.validateUuid(item.variantId, 'variantId');
       }
+    }
 
-      const product = await this.prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+    // Check stock for all items using batch lookups
+    const productIds = Array.from(new Set(items.map((i) => i.productId)));
+    const variantIds = Array.from(
+      new Set(items.map((i) => i.variantId).filter(Boolean)),
+    ) as string[];
 
+    const [products, variants] = await Promise.all([
+      this.prisma.product.findMany({ where: { id: { in: productIds } } }),
+      variantIds.length > 0
+        ? this.prisma.productVariant.findMany({ where: { id: { in: variantIds } } })
+        : Promise.resolve([]),
+    ]);
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const variantMap = new Map(variants.map((v) => [v.id, v]));
+
+    for (const item of items) {
+      const product = productMap.get(item.productId);
       const requiredQty = item.quantity || 1;
       if (!product || product.stock < requiredQty) {
         throw new ConflictException(
@@ -764,10 +800,7 @@ export class OrdersService {
       }
 
       if (item.variantId) {
-        const variant = await this.prisma.productVariant.findUnique({
-          where: { id: item.variantId },
-        });
-
+        const variant = variantMap.get(item.variantId);
         if (!variant || variant.stock < requiredQty) {
           throw new ConflictException(
             `Variant '${variant?.name || item.variantId}' is out of stock or discontinued`,

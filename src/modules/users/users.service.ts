@@ -47,14 +47,16 @@ export class UsersService {
       update: { createdAt: new Date() },
     });
 
-    // Enforce maximum 20 items per user
-    const userViews = await this.prisma.recentlyViewed.findMany({
+    // Enforce maximum 20 items per user by fetching only excess records if any
+    const excessViews = await this.prisma.recentlyViewed.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      skip: 20,
+      select: { id: true },
     });
 
-    if (userViews.length > 20) {
-      const idsToDelete = userViews.slice(20).map((v) => v.id);
+    if (excessViews.length > 0) {
+      const idsToDelete = excessViews.map((v) => v.id);
       await this.prisma.recentlyViewed.deleteMany({
         where: { id: { in: idsToDelete } },
       });

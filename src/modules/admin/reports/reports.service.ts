@@ -133,6 +133,7 @@ export class ReportsService {
         orderStatus: { not: OrderStatusEnum.CANCELLED },
       },
       orderBy: { createdAt: 'desc' },
+      take: 5000,
       include: {
         user: { select: { name: true, email: true, phone: true } },
         items: true,
@@ -543,7 +544,7 @@ export class ReportsService {
       createdAt: { gte: from, lte: to },
     };
 
-    const [returns, total, refundedOrders] = await Promise.all([
+    const [returns, total, refundedOrdersAgg] = await Promise.all([
       this.prisma.orderReturn.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -568,12 +569,12 @@ export class ReportsService {
         },
       }),
       this.prisma.orderReturn.count({ where }),
-      this.prisma.order.findMany({
+      this.prisma.order.aggregate({
         where: {
           createdAt: { gte: from, lte: to },
           orderStatus: { in: [OrderStatusEnum.RETURNED, OrderStatusEnum.CANCELLED] },
         },
-        select: { grandTotal: true },
+        _sum: { grandTotal: true },
       }),
     ]);
 
@@ -600,7 +601,7 @@ export class ReportsService {
       };
     });
 
-    const totalRefundAmount = refundedOrders.reduce((sum, o) => sum + o.grandTotal, 0);
+    const totalRefundAmount = refundedOrdersAgg._sum.grandTotal ?? 0;
     const averageRefund = total > 0 ? Number((totalRefundAmount / total).toFixed(2)) : 0;
     const totalPages = Math.ceil(total / limit);
 

@@ -49,13 +49,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
+    const isProduction = process.env.NODE_ENV === 'production';
+    const clientMessage =
+      status >= HttpStatus.INTERNAL_SERVER_ERROR && isProduction
+        ? 'Internal server error'
+        : message;
+    const clientErrors =
+      status >= HttpStatus.INTERNAL_SERVER_ERROR && isProduction ? [] : errors;
+
     response.status(status).json({
       success: false,
       statusCode: status,
-      message,
+      message: clientMessage,
       path: request.url,
       timestamp: new Date().toISOString(),
-      errors,
+      errors: clientErrors,
     });
   }
 }
