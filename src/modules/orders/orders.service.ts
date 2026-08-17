@@ -712,11 +712,11 @@ export class OrdersService {
       this.prisma.product.findMany({ where: { id: { in: productIds } } }),
       variantIds.length > 0
         ? this.prisma.productVariant.findMany({ where: { id: { in: variantIds } } })
-        : Promise.resolve([]),
+        : Promise.resolve<any[]>([]),
     ]);
 
     const productMap = new Map(products.map((p) => [p.id, p]));
-    const variantMap = new Map(variants.map((v) => [v.id, v]));
+    const variantMap = new Map<string, any>((variants as any[]).map((v) => [v.id, v]));
 
     for (const item of order.items) {
       const product = productMap.get(item.productId);
@@ -784,11 +784,11 @@ export class OrdersService {
       this.prisma.product.findMany({ where: { id: { in: productIds } } }),
       variantIds.length > 0
         ? this.prisma.productVariant.findMany({ where: { id: { in: variantIds } } })
-        : Promise.resolve([]),
+        : Promise.resolve<any[]>([]),
     ]);
 
     const productMap = new Map(products.map((p) => [p.id, p]));
-    const variantMap = new Map(variants.map((v) => [v.id, v]));
+    const variantMap = new Map<string, any>((variants as any[]).map((v) => [v.id, v]));
 
     for (const item of items) {
       const product = productMap.get(item.productId);

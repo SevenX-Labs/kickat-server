@@ -69,11 +69,13 @@ describe('OrdersService', () => {
       },
       product: {
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([{ id: mockProductId, stock: 50, name: 'Pet Food' }]),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       productVariant: {
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
@@ -212,10 +214,13 @@ describe('OrdersService', () => {
   describe('reorder', () => {
     it('should add order items to cart if product is in stock', async () => {
       prisma.order.findUnique.mockResolvedValue(mockOrder);
-      prisma.product.findUnique.mockResolvedValue({
-        id: mockProductId,
-        stock: 50,
-      });
+      prisma.product.findMany.mockResolvedValue([
+        {
+          id: mockProductId,
+          stock: 50,
+          name: 'Pet Food Premium',
+        },
+      ]);
 
       const res = await service.reorder(mockUserId, mockOrderId);
       expect(res.success).toBe(true);
@@ -224,10 +229,13 @@ describe('OrdersService', () => {
 
     it('should throw ConflictException if product is out of stock', async () => {
       prisma.order.findUnique.mockResolvedValue(mockOrder);
-      prisma.product.findUnique.mockResolvedValue({
-        id: mockProductId,
-        stock: 0,
-      });
+      prisma.product.findMany.mockResolvedValue([
+        {
+          id: mockProductId,
+          stock: 0,
+          name: 'Pet Food Premium',
+        },
+      ]);
 
       await expect(service.reorder(mockUserId, mockOrderId)).rejects.toThrow(
         ConflictException,

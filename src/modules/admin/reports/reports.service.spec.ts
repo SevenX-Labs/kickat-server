@@ -260,7 +260,7 @@ describe('Admin ReportsService', () => {
 
       prisma.orderReturn.findMany.mockResolvedValue(mockReturns);
       prisma.orderReturn.count.mockResolvedValue(1);
-      prisma.order.findMany.mockResolvedValue([{ grandTotal: 1200 }]);
+      prisma.order.aggregate.mockResolvedValue({ _sum: { grandTotal: 1200 } });
 
       const result = await service.getRefundsReport({ page: 1, limit: 10 });
 

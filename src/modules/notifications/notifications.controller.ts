@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { Auth, CurrentUser } from '../../common';
+import { GetNotificationsQueryDto } from './dto/get-notifications-query.dto';
 
 @Auth()
 @Controller('notifications')
@@ -16,13 +17,12 @@ export class NotificationsController {
   @Get()
   async getUserNotifications(
     @CurrentUser('id') userId: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() query: GetNotificationsQueryDto,
   ) {
     const res = await this.notificationsService.getUserNotifications(
       userId,
-      page ? Number(page) : 1,
-      limit ? Number(limit) : 10,
+      query.page || 1,
+      query.limit || 10,
     );
     return {
       success: true,

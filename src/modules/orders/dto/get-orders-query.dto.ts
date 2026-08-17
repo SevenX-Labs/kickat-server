@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  Max,
   Min,
 } from 'class-validator';
 
@@ -35,6 +36,7 @@ export class GetOrdersQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(50)
   limit?: number = 10;
 
   @IsOptional()

@@ -56,9 +56,8 @@ describe('UsersService', () => {
     mockPrismaService.product.findFirst.mockResolvedValue({ id: 'p21' });
     mockPrismaService.recentlyViewed.upsert.mockResolvedValue({ id: 'rv21' });
 
-    // Mock 21 entries
-    const mock21Entries = Array.from({ length: 21 }, (_, i) => ({ id: `rv_${i + 1}` }));
-    mockPrismaService.recentlyViewed.findMany.mockResolvedValue(mock21Entries);
+    // Mock 1 excess entry after skip: 20
+    mockPrismaService.recentlyViewed.findMany.mockResolvedValue([{ id: 'rv_21' }]);
 
     await service.addRecentlyViewed('user1', 'p21');
 
