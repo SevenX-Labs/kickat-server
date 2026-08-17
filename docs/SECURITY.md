@@ -114,14 +114,68 @@ Rate limiting is enforced at the IP level via `@nestjs/throttler`:
 
 ---
 
-## 8. Secrets & Environment Configuration
+## 8. Secrets Management & Fail-Fast Startup Validation
 
-- **Environment Variables**:
+- **Critical Environment Secrets**:
+  - `DATABASE_URL`: Primary transaction pooler PostgreSQL connection string.
+  - `DIRECT_URL`: Direct PostgreSQL connection string for Prisma migrations.
   - `JWT_ACCESS_SECRET`: Secret key for signing short-lived access tokens (15m).
   - `JWT_REFRESH_SECRET`: Secret key for signing refresh tokens (30d).
-  - `DATABASE_URL`: PostgreSQL connection string with connection pooling.
   - `RAZORPAY_KEY_ID` & `RAZORPAY_KEY_SECRET`: Gateway credentials.
-  - `RAZORPAY_WEBHOOK_SECRET`: Webhook HMAC verification secret.
-  - `ALLOWED_ORIGINS`: Comma-separated list of allowed production web domains.
-- **Bootstrap Security Checks**:
-  - The application logs startup warnings in production if default/development JWT secrets are detected.
+  - `RAZORPAY_WEBHOOK_SECRET`: Webhook HMAC signature verification key.
+- **Fail-Fast Startup Check (`validateEnvironment`)**:
+  - Executed at the very start of application bootstrap in `src/main.ts`.
+  - In production (`NODE_ENV=production`):
+    - Throws a fatal exception if `DATABASE_URL` is missing.
+    - Throws a fatal exception if `JWT_ACCESS_SECRET` or `JWT_REFRESH_SECRET` is unset, matches default fallback keys, or is under 32 characters.
+    - Halts application boot immediately before binding HTTP ports to prevent running with insecure defaults.
+- **Secret Masking**:
+  - Admin settings endpoints mask sensitive credentials (API keys, SMTP passwords) with `••••••••` upon retrieval.
+
+---
+
+## 9. `.env` and Git Protection
+
+- **Git Tracking Rules**:
+  - `.gitignore` explicitly wildcard-blocks all dotenv files (`.env`, `.env.*`).
+  - `.env.example` is the only environment file tracked in git, serving as a sanitized configuration blueprint with safe placeholder values.
+- **Rules for Team & Deployment**:
+  1. Never commit real credentials to `.env.example` or any markdown document.
+  2. Inject secrets into production via container environment variables, AWS Secrets Manager, HashiCorp Vault, or deployment pipeline secrets.
+
+---
+
+## 10. Dependency Vulnerability Management
+
+- **Automated Scanning**:
+  - Run `npm audit` on all CI/CD deployment pipelines.
+  - Zero high or critical vulnerabilities allowed in production builds.
+- **Dependency Overrides**:
+  - Package overrides in `package.json` resolve transitive vulnerabilities (e.g. `js-yaml >= 5.2.2`).
+
+---
+
+## 11. File-Upload Architecture & Media Security
+
+- **Stateless Storage Model**:
+  - The backend server does not accept direct multipart/form-data arbitrary file uploads to the local filesystem.
+  - Product images, user avatars, and review media are stored on secure cloud object storage (e.g. S3 / Cloudinary / Supabase Storage) and referenced via validated HTTPS URLs.
+- **DTO Validation**:
+  - Media URLs are validated with `@IsUrl()` or `@IsString()` in request DTOs.
+  - Internal non-production endpoints (such as `GET /api/v1/auth/google-test`) return `404 Not Found` when `NODE_ENV=production`.
+
+---
+
+## 12. Production Deployment Security Checklist
+
+Before deploying to production:
+
+- [ ] `NODE_ENV` is set to `production`.
+- [ ] `ALLOWED_ORIGINS` contains exact frontend domain(s) (e.g. `https://kickat.co.in,https://admin.kickat.co.in`).
+- [ ] `JWT_ACCESS_SECRET` is a random, cryptographically secure 64+ character string.
+- [ ] `JWT_REFRESH_SECRET` is a random, cryptographically secure 64+ character string (different from access secret).
+- [ ] `DATABASE_URL` connects over TLS to PostgreSQL with connection pooling enabled.
+- [ ] Reverse proxy (Nginx / Cloudflare / ALB) terminates TLS 1.2+ and passes `X-Forwarded-For` headers.
+- [ ] `npm audit` passes with 0 vulnerabilities.
+- [ ] Automated test suite (`npm test`) passes 100%.
+- [ ] Application build (`npm run build`) succeeds.

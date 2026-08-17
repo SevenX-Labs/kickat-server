@@ -7,9 +7,66 @@ import compression from 'compression';
 import { json, urlencoded } from 'express';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
+function validateEnvironment(logger: Logger, isProduction: boolean) {
+  const insecureDefaults = [
+    'default-access-secret',
+    'default-refresh-secret',
+    'kickat_super_secret_access_key_2026',
+    'kickat_super_secret_refresh_key_2026',
+  ];
+
+  if (!process.env.DATABASE_URL && !process.env.DIRECT_URL) {
+    const errorMsg =
+      'DATABASE_URL or DIRECT_URL is required to initialize the database connection.';
+    if (isProduction) {
+      throw new Error(`[FATAL ENVIRONMENT ERROR]: ${errorMsg}`);
+    } else {
+      logger.warn(`[CONFIG WARNING]: ${errorMsg}`);
+    }
+  }
+
+  const accessSecret = process.env.JWT_ACCESS_SECRET;
+  const refreshSecret = process.env.JWT_REFRESH_SECRET;
+
+  if (isProduction) {
+    if (
+      !accessSecret ||
+      insecureDefaults.includes(accessSecret) ||
+      accessSecret.length < 32
+    ) {
+      throw new Error(
+        '[FATAL SECURITY CONFIGURATION ERROR]: JWT_ACCESS_SECRET is unset, matches a known development default, or is shorter than 32 characters in production!',
+      );
+    }
+    if (
+      !refreshSecret ||
+      insecureDefaults.includes(refreshSecret) ||
+      refreshSecret.length < 32
+    ) {
+      throw new Error(
+        '[FATAL SECURITY CONFIGURATION ERROR]: JWT_REFRESH_SECRET is unset, matches a known development default, or is shorter than 32 characters in production!',
+      );
+    }
+  } else {
+    if (!accessSecret || insecureDefaults.includes(accessSecret)) {
+      logger.warn(
+        '[DEV CONFIG WARNING]: JWT_ACCESS_SECRET is unset or using a development fallback. Set a secure key in .env.',
+      );
+    }
+    if (!refreshSecret || insecureDefaults.includes(refreshSecret)) {
+      logger.warn(
+        '[DEV CONFIG WARNING]: JWT_REFRESH_SECRET is unset or using a development fallback. Set a secure key in .env.',
+      );
+    }
+  }
+}
+
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const isProduction = process.env.NODE_ENV === 'production';
+
+  // Validate environment variables and enforce production security criteria
+  validateEnvironment(logger, isProduction);
 
   const app = await NestFactory.create(AppModule, { rawBody: true });
 

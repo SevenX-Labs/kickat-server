@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  NotFoundException,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -35,7 +36,13 @@ export class AuthController {
   @SkipThrottle()
   @Get('google-test')
   googleTestPage(@Res() res: any) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new NotFoundException('Route not found');
+    }
     const htmlPath = path.resolve(process.cwd(), 'google-auth-test.html');
+    if (!fs.existsSync(htmlPath)) {
+      throw new NotFoundException('Test page not found');
+    }
     const htmlContent = fs.readFileSync(htmlPath, 'utf8');
     res.setHeader('Content-Type', 'text/html');
     return res.send(htmlContent);
