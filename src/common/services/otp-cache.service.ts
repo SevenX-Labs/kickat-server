@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import LRU from 'lru-cache';
+import { LRUCache } from 'lru-cache';
 
 export type OtpCooldownType = 'phone' | 'email' | 'user-phone' | 'user-email';
 
@@ -19,16 +19,16 @@ export interface IOtpCacheService {
 @Injectable()
 export class OtpCacheService implements IOtpCacheService {
   private readonly logger = new Logger(OtpCacheService.name);
-  private readonly cache: LRU<string, any>;
+  private readonly cache: LRUCache<string, any>;
 
   // Default TTLs in milliseconds
   private readonly DEFAULT_COOLDOWN_TTL_MS = 60 * 1000; // 60 seconds
   private readonly DEFAULT_OTP_ATTEMPTS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor() {
-    this.cache = new LRU<string, any>({
+    this.cache = new LRUCache<string, any>({
       max: 10000, // Maximum 10,000 active keys
-      maxAge: 60 * 60 * 1000, // Default 1 hour fallback TTL
+      ttl: 60 * 60 * 1000, // Default 1 hour fallback TTL
     });
   }
 
@@ -73,7 +73,7 @@ export class OtpCacheService implements IOtpCacheService {
     ttlMs: number = this.DEFAULT_COOLDOWN_TTL_MS,
   ): void {
     const key = this.buildCooldownKey(identifier, type);
-    this.cache.set(key, true, ttlMs);
+    this.cache.set(key, true, { ttl: ttlMs });
   }
 
   /**
@@ -81,7 +81,7 @@ export class OtpCacheService implements IOtpCacheService {
    */
   clearCooldown(identifier: string, type: OtpCooldownType): void {
     const key = this.buildCooldownKey(identifier, type);
-    this.cache.del(key);
+    this.cache.delete(key);
   }
 
   /**
@@ -103,7 +103,7 @@ export class OtpCacheService implements IOtpCacheService {
     const key = this.buildAttemptsKey(otpId);
     const current = this.getOtpAttempts(otpId);
     const next = current + 1;
-    this.cache.set(key, next, ttlMs);
+    this.cache.set(key, next, { ttl: ttlMs });
     return next;
   }
 
@@ -112,7 +112,7 @@ export class OtpCacheService implements IOtpCacheService {
    */
   clearOtpAttempts(otpId: string): void {
     const key = this.buildAttemptsKey(otpId);
-    this.cache.del(key);
+    this.cache.delete(key);
   }
 
   /**
@@ -127,7 +127,7 @@ export class OtpCacheService implements IOtpCacheService {
    */
   set<T = any>(key: string, value: T, ttlMs?: number): void {
     if (ttlMs !== undefined) {
-      this.cache.set(key, value, ttlMs);
+      this.cache.set(key, value, { ttl: ttlMs });
     } else {
       this.cache.set(key, value);
     }
@@ -137,7 +137,7 @@ export class OtpCacheService implements IOtpCacheService {
    * Generic delete method.
    */
   del(key: string): void {
-    this.cache.del(key);
+    this.cache.delete(key);
   }
 
   /**
