@@ -174,26 +174,6 @@ async function bootstrap() {
     }),
   );
 
-  // Production configuration warnings
-  if (isProduction) {
-    if (
-      !process.env.JWT_ACCESS_SECRET ||
-      process.env.JWT_ACCESS_SECRET === 'kickat_super_secret_access_key_2026'
-    ) {
-      logger.warn(
-        'SECURITY WARNING: JWT_ACCESS_SECRET is using default development secret in production environment.',
-      );
-    }
-    if (
-      !process.env.JWT_REFRESH_SECRET ||
-      process.env.JWT_REFRESH_SECRET === 'kickat_super_secret_refresh_key_2026'
-    ) {
-      logger.warn(
-        'SECURITY WARNING: JWT_REFRESH_SECRET is using default development secret in production environment.',
-      );
-    }
-  }
-
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
   logger.log(`Kickat backend server is running on port ${port} [Environment: ${process.env.NODE_ENV || 'development'}]`);
