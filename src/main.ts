@@ -111,7 +111,7 @@ async function bootstrap() {
     ''
   )
     .split(',')
-    .map((o) => o.trim())
+    .map((o) => o.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 
   const defaultDevOrigins = [
