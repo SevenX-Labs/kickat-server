@@ -130,6 +130,17 @@ export class UsersService {
       );
     }
 
+    if (email !== user.email) {
+      const emailTaken = await this.prisma.user.findFirst({
+        where: { email, NOT: { id: userId } },
+      });
+      if (emailTaken) {
+        throw new BadRequestException(
+          'Email address is already in use by another account',
+        );
+      }
+    }
+
     // 1. 60-second cooldown check (isolated user-email namespace)
     if (this.otpCacheService.isCooldownActive(email, 'user-email')) {
       throw new HttpException(
@@ -195,6 +206,17 @@ export class UsersService {
       throw new BadRequestException(
         'Email address is required for verification',
       );
+    }
+
+    if (targetEmail !== user.email) {
+      const emailTaken = await this.prisma.user.findFirst({
+        where: { email: targetEmail, NOT: { id: userId } },
+      });
+      if (emailTaken) {
+        throw new BadRequestException(
+          'Email address is already in use by another account',
+        );
+      }
     }
 
     // 1. Check hourly verification attempt limit (max 5 / hour)
@@ -315,6 +337,17 @@ export class UsersService {
       );
     }
 
+    if (phone !== user.phone) {
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone, NOT: { id: userId } },
+      });
+      if (phoneTaken) {
+        throw new BadRequestException(
+          'Phone number is already in use by another account',
+        );
+      }
+    }
+
     // 1. 60-second cooldown check (isolated user-phone namespace)
     if (this.otpCacheService.isCooldownActive(phone, 'user-phone')) {
       throw new HttpException(
@@ -377,6 +410,17 @@ export class UsersService {
     const targetPhone = (dto.phone || user.phone)?.trim();
     if (!targetPhone) {
       throw new BadRequestException('Phone number is required for verification');
+    }
+
+    if (targetPhone !== user.phone) {
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone: targetPhone, NOT: { id: userId } },
+      });
+      if (phoneTaken) {
+        throw new BadRequestException(
+          'Phone number is already in use by another account',
+        );
+      }
     }
 
     // 1. Hourly attempt limit check

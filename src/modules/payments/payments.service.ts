@@ -244,6 +244,7 @@ export class PaymentsService {
       where: {
         orderId: dto.orderId,
         razorpayOrderId: dto.razorpayOrderId,
+        userId,
       },
     });
 

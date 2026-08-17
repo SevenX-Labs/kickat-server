@@ -352,6 +352,15 @@ export class AuthService {
 
     // Case 1: Logged-in user linking/verifying their email
     if (currentUser?.id) {
+      const emailTaken = await this.prisma.user.findFirst({
+        where: { email, NOT: { id: currentUser.id } },
+      });
+      if (emailTaken) {
+        throw new BadRequestException(
+          'Email address is already in use by another account',
+        );
+      }
+
       const updatedUser = await this.prisma.user.update({
         where: { id: currentUser.id },
         data: {

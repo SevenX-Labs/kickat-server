@@ -15,7 +15,7 @@ import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { AdminChangePasswordDto } from './dto/admin-change-password.dto';
 import { AdminLogoutDto } from './dto/admin-logout.dto';
 import { AdminSessionParamDto } from './dto/admin-session-param.dto';
-import { Auth, CurrentUser } from '../../../common';
+import { AdminAuth, CurrentUser } from '../../../common';
 import { Admin } from '@prisma/client';
 import { Request } from 'express';
 
@@ -58,7 +58,7 @@ export class AuthController {
   /**
    * POST /api/v1/admin/auth/change-password
    */
-  @Auth()
+  @AdminAuth()
   @Post('change-password')
   async changePassword(
     @CurrentUser() admin: Admin,
@@ -70,7 +70,7 @@ export class AuthController {
   /**
    * POST /api/v1/admin/auth/logout
    */
-  @Auth()
+  @AdminAuth()
   @Post('logout')
   async logout(@Body() dto: AdminLogoutDto) {
     return this.authService.logout(dto);
@@ -79,7 +79,7 @@ export class AuthController {
   /**
    * GET /api/v1/admin/auth/me
    */
-  @Auth()
+  @AdminAuth()
   @Get('me')
   async getMe(@CurrentUser() admin: Admin) {
     return this.authService.getMe(admin);
@@ -88,7 +88,7 @@ export class AuthController {
   /**
    * GET /api/v1/admin/auth/sessions
    */
-  @Auth()
+  @AdminAuth()
   @Get('sessions')
   async getSessions(@CurrentUser() admin: Admin) {
     return this.authService.getSessions(admin);
@@ -97,7 +97,7 @@ export class AuthController {
   /**
    * DELETE /api/v1/admin/auth/sessions/:sessionId
    */
-  @Auth()
+  @AdminAuth()
   @Delete('sessions/:sessionId')
   async deleteSession(
     @CurrentUser() admin: Admin,
