@@ -96,9 +96,24 @@ async function bootstrap() {
   // Response compression
   app.use(compression());
 
-  // Request body resource limits
-  app.use(json({ limit: '2mb' }));
-  app.use(urlencoded({ extended: true, limit: '2mb' }));
+  // Request body resource limits with rawBody buffer capture for webhook HMAC verification
+  app.use(
+    json({
+      limit: '2mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  app.use(
+    urlencoded({
+      extended: true,
+      limit: '2mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
 
   app.setGlobalPrefix('api/v1', {
     exclude: ['/', 'health', 'ready', 'metrics'],
