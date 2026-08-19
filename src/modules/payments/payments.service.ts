@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,6 +18,8 @@ const UUID_V4_REGEX =
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly razorpayService: RazorpayService,
@@ -815,6 +818,14 @@ export class PaymentsService {
               },
             });
           });
+        } else if (eventType === 'refund.failed') {
+          this.logger.warn(
+            `Razorpay refund failed for paymentId=${payment.id}, orderId=${payment.orderId}. Reason: ${
+              refundEntity?.error_description ||
+              refundEntity?.error_reason ||
+              'Unknown error'
+            }`,
+          );
         }
       }
     }
