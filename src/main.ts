@@ -4,7 +4,8 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import compression from 'compression';
-import { json, urlencoded } from 'express';
+import express, { json, urlencoded } from 'express';
+import * as path from 'path';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 function validateEnvironment(logger: Logger, isProduction: boolean) {
@@ -73,6 +74,7 @@ async function bootstrap() {
   // Enable trust proxy when behind reverse proxy (Nginx / ALB / Cloudflare)
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.set('trust proxy', 1);
+  expressApp.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
   // Register HTTP security headers with Helmet
   app.use(

@@ -37,6 +37,7 @@ import { NotificationsModule as AdminNotificationsModule } from './modules/admin
 import { SettingsModule as AdminSettingsModule } from './modules/admin/settings/settings.module';
 import { ShippingModule as AdminShippingModule } from './modules/admin/shipping/shipping.module';
 import { ReportsModule } from './modules/admin/reports/reports.module';
+import { UploadModule as AdminUploadModule } from './modules/admin/upload/upload.module';
 
 @Module({
   imports: [
@@ -108,6 +109,7 @@ import { ReportsModule } from './modules/admin/reports/reports.module';
     AdminSettingsModule,
     AdminShippingModule,
     ReportsModule,
+    AdminUploadModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService, OtpCacheService],
