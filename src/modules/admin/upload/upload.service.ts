@@ -9,6 +9,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { MulterFile } from './dto/upload.dto';
 
 export interface UploadedFileResponse {
   success: boolean;
@@ -71,7 +72,7 @@ export class UploadService {
    * Validate file size and mime type against strict 2MB - 5MB requirements
    */
   validateFile(
-    file: Express.Multer.File,
+    file: MulterFile,
     minSizeMb: number = 2,
     maxSizeMb: number = 5,
   ): void {
@@ -109,7 +110,7 @@ export class UploadService {
    * Single file upload logic targeting Supabase bucket 'upload' with local fallback
    */
   async uploadSingleFile(
-    file: Express.Multer.File,
+    file: MulterFile,
     minSizeMb: number = 2,
     maxSizeMb: number = 5,
   ): Promise<UploadedFileResponse> {
@@ -164,7 +165,7 @@ export class UploadService {
    * Multiple file upload handler
    */
   async uploadMultipleFiles(
-    files: Express.Multer.File[],
+    files: MulterFile[],
     minSizeMb: number = 2,
     maxSizeMb: number = 5,
   ): Promise<{ success: boolean; total: number; files: UploadedFileResponse[] }> {
@@ -189,7 +190,7 @@ export class UploadService {
    * Save file to local uploads directory as a failsafe fallback
    */
   private async saveFileLocally(
-    file: Express.Multer.File,
+    file: MulterFile,
     fileName: string,
     fileSizeMb: string,
   ): Promise<UploadedFileResponse> {

@@ -14,6 +14,7 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminAuth } from '../../../common';
 import { UploadService } from './upload.service';
+import { MulterFile } from './dto/upload.dto';
 
 @ApiTags('Admin Uploads')
 @AdminAuth()
@@ -46,7 +47,7 @@ export class UploadController {
     }),
   )
   async uploadSingleFile(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: MulterFile,
     @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
@@ -73,7 +74,7 @@ export class UploadController {
     }),
   )
   async uploadMultipleFiles(
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFiles() files: MulterFile[],
     @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
