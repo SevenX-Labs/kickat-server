@@ -48,7 +48,9 @@ The backend enforces strict context-aware image size limits:
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/admin/upload/config` | Yes (`Bearer`) | Get upload constraints, active bucket, and size policies |
 | `POST` | `/api/v1/admin/upload` | Yes (`Bearer`) | Upload single image (`file` field, context-aware or defaults to max 4MB) |
-| `POST` | `/api/v1/admin/upload/product` | Yes (`Bearer`) | Upload single product image (Enforces 2MB min, 3MB max) |
+| `POST` | `/api/v1/admin/upload/product` | Yes (`Bearer`) | Upload product image (Stored in `products/`, enforces 2MB–3MB) |
+| `POST` | `/api/v1/admin/upload/category` | Yes (`Bearer`) | Upload category image (Stored in `categories/`, max 4MB) |
+| `POST` | `/api/v1/admin/upload/blog` | Yes (`Bearer`) | Upload blog image (Stored in `blogs/`, max 4MB) |
 | `POST` | `/api/v1/admin/upload/multiple` | Yes (`Bearer`) | Batch upload up to 10 images (`files` field, defaults to max 4MB) |
 | `POST` | `/api/v1/admin/upload/multiple/product` | Yes (`Bearer`) | Batch upload up to 10 product images (Enforces 2MB min, 3MB max per file) |
 | `DELETE` | `/api/v1/admin/upload` | Yes (`Bearer`) | Delete uploaded image file(s) from Supabase or local storage |
