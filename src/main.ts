@@ -122,14 +122,12 @@ async function bootstrap() {
   });
 
   // Environment-aware CORS configuration
-  const envOrigins = (
-    process.env.ALLOWED_ORIGINS ||
-    process.env.CORS_ORIGINS ||
-    ''
-  )
-    .split(',')
+  // Supports comma-separated, newline-separated, and whitespace-separated origins
+  const rawOrigins = `${process.env.ALLOWED_ORIGINS || ''}\n${process.env.CORS_ORIGINS || ''}`;
+  const envOrigins = rawOrigins
+    .split(/[\r\n,]+/)
     .map((o) => o.trim().replace(/\/+$/, ''))
-    .filter(Boolean);
+    .filter((o) => o.length > 0);
 
   const defaultDevOrigins = [
     'http://localhost:3000',
@@ -142,7 +140,9 @@ async function bootstrap() {
     'http://127.0.0.1:8080',
   ];
 
-  const allowedOrigins = envOrigins.length > 0 ? envOrigins : defaultDevOrigins;
+  const allowedOrigins = Array.from(new Set([...defaultDevOrigins, ...envOrigins]));
+
+  logger.log(`[CORS]: Allowed origins configured: ${JSON.stringify(allowedOrigins)}`);
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -150,18 +150,31 @@ async function bootstrap() {
       if (!origin) {
         return callback(null, true);
       }
-      if (!isProduction) {
-        if (
-          allowedOrigins.includes(origin) ||
-          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
-        ) {
-          return callback(null, true);
-        }
-      } else {
-        if (allowedOrigins.includes(origin)) {
-          return callback(null, true);
-        }
+
+      const cleanOrigin = origin.trim().replace(/\/+$/, '');
+
+      // Always allow official KickAt first-party domains
+      const isKickatDomain = /^https?:\/\/([a-zA-Z0-9-]+\.)*kickat\.co\.in(:\d+)?$/i.test(cleanOrigin);
+      if (isKickatDomain) {
+        return callback(null, true);
       }
+
+      // Check configured allowed origins
+      if (allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow localhost and loopback in any environment
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(cleanOrigin)) {
+        return callback(null, true);
+      }
+
+      // Allow preview deployments on Vercel and Render
+      if (/^https?:\/\/[a-zA-Z0-9-]+(-[a-zA-Z0-9]+)*\.(vercel\.app|onrender\.com)$/i.test(cleanOrigin)) {
+        return callback(null, true);
+      }
+
+      logger.warn(`[CORS Blocked]: Origin "${origin}" is not allowed.`);
       return callback(null, false);
     },
     credentials: true,
