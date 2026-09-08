@@ -85,6 +85,7 @@ export class ProductsService {
         { slug: { contains: s, mode: 'insensitive' } },
         { descriptionTitle: { contains: s, mode: 'insensitive' } },
         { description: { contains: s, mode: 'insensitive' } },
+        { materials: { contains: s, mode: 'insensitive' } },
         {
           variants: {
             some: {
@@ -363,6 +364,10 @@ export class ProductsService {
               ? dto.descriptionTitle.trim()
               : null,
           description: dto.description || null,
+          materials:
+            dto.materials && dto.materials.trim().length > 0
+              ? dto.materials.trim()
+              : null,
           price: dto.price,
           discountPrice: dto.discountPrice || null,
           stock: effectiveStock,
@@ -527,6 +532,12 @@ export class ProductsService {
                 : null,
           }),
           ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.materials !== undefined && {
+            materials:
+              dto.materials && dto.materials.trim().length > 0
+                ? dto.materials.trim()
+                : null,
+          }),
           ...(dto.price !== undefined && { price: dto.price }),
           ...(dto.discountPrice !== undefined && { discountPrice: dto.discountPrice }),
           ...(dto.stock !== undefined && { stock: dto.stock }),

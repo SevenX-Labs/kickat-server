@@ -118,6 +118,7 @@ describe('Admin ProductsService', () => {
         slug: 'cat-scratcher',
         descriptionTitle: 'Product Details',
         description: 'Quality sisal cat scratcher',
+        materials: '100% natural sisal and solid wood',
         category: { id: 'cat-2', name: 'Toys' },
         variants: [],
         media: [],
@@ -317,6 +318,49 @@ describe('Admin ProductsService', () => {
       expect(result.success).toBe(true);
       expect(createdData.descriptionTitle).toBeNull();
     });
+
+    it('should persist materials when provided on product create', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+      prisma.product.findUnique.mockResolvedValue(null);
+
+      let createdData: any = null;
+      prisma.product.create.mockImplementation(({ data }: any) => {
+        createdData = data;
+        return { id: 'prod-new', ...data };
+      });
+
+      const dto: CreateProductDto = {
+        name: 'Eco Chew Toy',
+        price: 399,
+        categoryId: 'cat-1',
+        materials: '100% natural food-grade rubber. Free from BPA and phthalates.',
+      };
+
+      const result = await service.createProduct(dto);
+      expect(result.success).toBe(true);
+      expect(createdData.materials).toBe('100% natural food-grade rubber. Free from BPA and phthalates.');
+    });
+
+    it('should set materials to null when omitted on product create', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+      prisma.product.findUnique.mockResolvedValue(null);
+
+      let createdData: any = null;
+      prisma.product.create.mockImplementation(({ data }: any) => {
+        createdData = data;
+        return { id: 'prod-new', ...data };
+      });
+
+      const dto: CreateProductDto = {
+        name: 'Standard Toy',
+        price: 199,
+        categoryId: 'cat-1',
+      };
+
+      const result = await service.createProduct(dto);
+      expect(result.success).toBe(true);
+      expect(createdData.materials).toBeNull();
+    });
   });
 
   describe('updateProduct', () => {
@@ -424,6 +468,62 @@ describe('Admin ProductsService', () => {
       const result = await service.updateProduct('prod-1', dto);
       expect(result.success).toBe(true);
       expect(updatePayload.descriptionTitle).toBeNull();
+    });
+
+    it('should update materials when provided', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Chew Toy',
+        slug: 'chew-toy',
+        deletedAt: null,
+        materials: 'Old materials',
+        variants: [],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', materials: 'Updated materials info' });
+      let updatePayload: any = null;
+      prisma.product.update.mockImplementation(({ data }: any) => {
+        updatePayload = data;
+        return { id: 'prod-1', ...data };
+      });
+
+      const dto: UpdateProductDto = {
+        materials: 'Updated materials info',
+      };
+
+      const result = await service.updateProduct('prod-1', dto);
+      expect(result.success).toBe(true);
+      expect(updatePayload.materials).toBe('Updated materials info');
+    });
+
+    it('should clear materials when provided as empty string', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Chew Toy',
+        slug: 'chew-toy',
+        deletedAt: null,
+        materials: 'Existing materials',
+        variants: [],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', materials: null });
+      let updatePayload: any = null;
+      prisma.product.update.mockImplementation(({ data }: any) => {
+        updatePayload = data;
+        return { id: 'prod-1', ...data };
+      });
+
+      const dto: UpdateProductDto = {
+        materials: '',
+      };
+
+      const result = await service.updateProduct('prod-1', dto);
+      expect(result.success).toBe(true);
+      expect(updatePayload.materials).toBeNull();
     });
   });
 

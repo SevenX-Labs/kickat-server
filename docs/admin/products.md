@@ -341,6 +341,7 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "slug": "kickat-chicken-puppy-food",
     "descriptionTitle": "Why Your Pet Will Love It",
     "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
+  "materials": "100% natural food-grade rubber. Free from BPA, phthalates, and harsh chemical compounds. Sourced sustainably to ensure gentle, non-abrasive contact with your pet's mouth.",
     "price": 3299.0,
     "discountPrice": 2799.0,
     "stock": 50,
@@ -672,6 +673,7 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
     "slug": "kickat-chicken-puppy-food",
     "descriptionTitle": "Why Your Pet Will Love It",
     "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
+  "materials": "100% natural food-grade rubber. Free from BPA, phthalates, and harsh chemical compounds. Sourced sustainably to ensure gentle, non-abrasive contact with your pet's mouth.",
     "price": 3299.0,
     "discountPrice": 2799.0,
     "stock": 50,
@@ -901,6 +903,7 @@ export interface AdminProductItem {
   slug: string;
   descriptionTitle?: string | null;
   description?: string | null;
+  materials?: string | null;
   price: number;
   discountPrice?: number | null;
   stock: number;

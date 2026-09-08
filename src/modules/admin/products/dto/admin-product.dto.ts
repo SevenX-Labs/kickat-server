@@ -313,6 +313,12 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(2000, { message: 'Materials description cannot exceed 2000 characters' })
+  materials?: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -439,6 +445,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(2000, { message: 'Materials description cannot exceed 2000 characters' })
+  materials?: string;
 
   @IsOptional()
   @Type(() => Number)

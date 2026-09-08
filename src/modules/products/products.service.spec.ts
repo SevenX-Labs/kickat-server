@@ -71,7 +71,7 @@ describe('ProductsService', () => {
     );
   });
 
-  it('should return descriptionTitle in public product details', async () => {
+  it('should return descriptionTitle and materials in public product details', async () => {
     const slug = 'rubber-bone-toy';
     mockPrismaService.product.findFirst.mockResolvedValue({
       id: 'p1',
@@ -79,14 +79,16 @@ describe('ProductsService', () => {
       name: 'Rubber Bone Toy',
       descriptionTitle: 'Why Your Pet Will Love It',
       description: 'Durable rubber chew toy',
+      materials: '100% natural food-grade rubber. Free from BPA and phthalates.',
     });
 
     const res = await service.getProductByIdOrSlug(slug);
     expect(res.product.descriptionTitle).toBe('Why Your Pet Will Love It');
     expect(res.product.description).toBe('Durable rubber chew toy');
+    expect(res.product.materials).toBe('100% natural food-grade rubber. Free from BPA and phthalates.');
   });
 
-  it('should work seamlessly for legacy products without descriptionTitle (returns null)', async () => {
+  it('should work seamlessly for legacy products without materials (returns null)', async () => {
     const slug = 'legacy-dog-food';
     mockPrismaService.product.findFirst.mockResolvedValue({
       id: 'p2',
@@ -94,10 +96,12 @@ describe('ProductsService', () => {
       name: 'Legacy Dog Food',
       descriptionTitle: null,
       description: 'Healthy dog food',
+      materials: null,
     });
 
     const res = await service.getProductByIdOrSlug(slug);
     expect(res.product.descriptionTitle).toBeNull();
+    expect(res.product.materials).toBeNull();
     expect(res.product.name).toBe('Legacy Dog Food');
   });
 });
