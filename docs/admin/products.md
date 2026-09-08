@@ -6,7 +6,14 @@ All administrative product management endpoints are served under `/api/v1/admin/
 
 ## Table of Contents
 
-1. [Architecture & Frontend Integration Overview](#architecture--frontend-integration-overview)
+1. [Architecture & Business Logic Overview](#architecture--business-logic-overview)
+   - [Single-Brand Platform](#1-single-brand-platform)
+   - [Product Content Architecture](#2-product-content-architecture)
+   - [Pricing Model & Variant Authority](#3-pricing-model--variant-authority)
+   - [Inventory Management & Stock Authority](#4-inventory-management--stock-authority)
+   - [Canonical Product Images Pipeline](#5-canonical-product-images-pipeline)
+   - [Flexible Attributes & Custom Specifications](#6-flexible-attributes--custom-specifications)
+   - [Category-Specific Structured Data](#7-category-specific-structured-data)
 2. [Endpoints Overview](#endpoints-overview)
 3. [Sort & Filter Enums](#sort--filter-enums)
 4. [Endpoint Specifications](#endpoint-specifications)
@@ -19,26 +26,56 @@ All administrative product management endpoints are served under `/api/v1/admin/
    - [7. Bulk Status Update](#7-bulk-status-update)
    - [8. Bulk Delete Products](#8-bulk-delete-products)
    - [9. Delete Product (Soft or Permanent)](#9-delete-product-soft-or-permanent)
-5. [Standard Error Response Format](#standard-error-response-format)
-6. [Frontend Integration Guide (TypeScript & Axios)](#frontend-integration-guide-typescript--axios)
+5. [Public Storefront Product Details API (Customer View)](#public-storefront-product-details-api-customer-view)
+6. [Standard Error Response Format](#standard-error-response-format)
+7. [Frontend Integration Guide (TypeScript & Axios)](#frontend-integration-guide-typescript--axios)
    - [TypeScript Types & Interfaces](#typescript-types--interfaces)
    - [Production-Ready API Service](#production-ready-api-service)
-   - [UI Component Examples](#ui-component-examples)
 
 ---
 
-## Architecture & Frontend Integration Overview
+## Architecture & Business Logic Overview
 
-> [!NOTE]
-> **Single-Brand Catalog:** KickAt is a dedicated, single-brand platform. All products belong directly to the KickAt brand; therefore, third-party brand filters and fields are not required.
+### 1. Single-Brand Platform
+- **KickAt is the sole brand:** KickAt is a direct-to-consumer store brand. Admin product forms do NOT require a Brand selector, dropdown, input, or validation.
+- **Backward Compatibility:** The database `brand` column is nullable and preserved for backward compatibility. New products store `brand: null` unless legacy data is present.
 
+### 2. Product Content Architecture
+The customer product page details section is composed of independent, highly modular fields:
+- **`descriptionTitle`** (`string | null`, max 150 chars): Configurable section heading (e.g., *"Why Your Pet Will Love It"*, *"Product Details"*, *"About This Product"*, *"Key Features"*, *"About the Food"*). The backend never hardcodes this title.
+- **`description`** (`string | null`): Primary body text explaining product purpose and features.
+- **`materials`** (`string | null`, max 2000 chars): Detailed material composition and safety certifications (e.g., *"100% natural food-grade rubber. Free from BPA, phthalates, and harsh chemical compounds."*).
+- **`highlights`** (`ProductHighlight[] | null`): Key benefit/feature cards with `title`, `description`, and optional emoji/icon.
 
-- **Base URL:** `https://api.kickat.co.in/api/v1/admin/products` (or `http://localhost:3000/api/v1/admin/products` in development)
-- **Content Type:** `application/json`
-- **Authentication Scheme:** `Authorization: Bearer <accessToken>`
-- **Unique Slugs:** Slugs are auto-generated from product title (kebab-case) and made unique (e.g. `royal-canin-puppy-1`) if not explicitly passed.
-- **Inventory & Variant System:** A product can have a master stock level and/or granular SKU variants (`ProductVariant`) with independent pricing, stock, attributes, and image URLs.
-- **Soft Deletes:** Products are soft-deleted by default (`deletedAt != null`) to preserve historical order integrity. Passing `permanent=true` triggers hard-deletion.
+### 3. Pricing Model & Variant Authority
+- **Product-Level Pricing:** `price` (MRP, required, `>= 0`), optional `discountPrice` (selling price, `0 <= discountPrice < price`).
+- **Variant-Level Pricing:** Each variant supports its own independent `price` (MRP, `>= 0`), optional `discountPrice` (`0 <= discountPrice < price`), and `stock`.
+- **Authority Rule:**
+  - **With Variants:** Variant pricing is authoritative. The customer pays `variant.discountPrice ?? variant.price`.
+  - **Without Variants:** Product-level pricing is authoritative (`product.discountPrice ?? product.price`).
+
+### 4. Inventory Management & Stock Authority
+- **Authority Rule:**
+  - **With Variants:** `variant.stock` is authoritative. Master `product.stock` is derived dynamically as the sum of all variant stocks (`product.stock = sum(variants.stock)`).
+  - **Without Variants:** Master `product.stock` is directly authoritative.
+- **Stock Updates:** Updating individual variant quantities via `PATCH /products/:id` or `PATCH /products/:id/stock` automatically recalculates and synchronizes master `product.stock`.
+
+### 5. Canonical Product Images Pipeline
+- **Source of Truth:** The `images[]` string array is the single source of truth (maximum 9 images).
+- **Primary Image:** `images[0]` is assigned as the primary image and synchronized to `imageUrl`.
+- **Relational Sync:** `ProductMedia` records (type: `IMAGE`, order: `0..N-1`) are synchronized atomically inside the database transaction.
+- **Image-Only:** KickAt product media is image-only; video uploads and links are not supported.
+
+### 6. Flexible Attributes & Custom Specifications
+- **Standard Attributes:** `material`, `lifeStage`, `weight`, `colors`, `countryOfOrigin`, `dimensions`.
+- **Dynamic Custom Specifications:** An array of strongly typed key-value pairs (`custom: [{ label, value }]`, up to 50 items) allows the Admin to add category-specific attributes (e.g., *"Breed Size"*, *"Washable"*, *"Kibble Size"*) without requiring database schema changes.
+
+### 7. Category-Specific Structured Data
+- **`ingredients`**: `description`, `items[]`, `nutrition: [{ label, value }]`.
+- **`feedingGuide`**: `description`, `rows: [{ petWeight, dailyAmount }]`.
+- **`careInstructions`**: Array of string instructions (`careInstructions: string[]`).
+- **`sizeGuide`**: `enabled: boolean`, `description`, `sizes: [{ label, description }]`, `note`.
+- **`seoTitle` & `seoDescription`**: Optional search engine metadata.
 
 ---
 
@@ -95,11 +132,11 @@ All administrative product management endpoints are served under `/api/v1/admin/
 | :--- | :--- | :--- | :--- | :--- |
 | `page` | `number` | No | `1` | Page number |
 | `limit` | `number` | No | `10` | Products per page (1 to 100) |
-| `search` | `string` | No | - | Fuzzy search in name, slug, description, SKU |
+| `search` | `string` | No | - | Fuzzy search in name, slug, descriptionTitle, description, materials, brand, variant name, SKU |
 | `status` | `string` | No | - | `ACTIVE`, `DRAFT`, or `INACTIVE` |
 | `categoryId` | `string` | No | - | Filter by category UUID |
-| `petSpecies` | `string` | No | - | Filter by species (e.g. `DOG`, `CAT`) |
-| `dietaryPreference` | `string` | No | - | Filter by diet (e.g. `GRAIN_FREE`, `VEG`) |
+| `petSpecies` | `string` | No | - | Filter by species (`DOG`, `CAT`, etc.) |
+| `dietaryPreference` | `string` | No | - | Filter by diet (`GRAIN_FREE`, `VEG`, etc.) |
 | `minPrice` | `number` | No | - | Minimum price filter |
 | `maxPrice` | `number` | No | - | Maximum price filter |
 | `inStock` | `boolean` | No | - | `true` for stock > 0, `false` for out-of-stock |
@@ -119,7 +156,9 @@ All administrative product management endpoints are served under `/api/v1/admin/
         "id": "prod-uuid-1",
         "name": "Kickat Maxi Puppy Dry Food",
         "slug": "kickat-maxi-puppy-dry-food",
+        "descriptionTitle": "Why Your Pet Will Love It",
         "description": "Tailored nutrition for large breed puppies.",
+        "materials": "100% natural sustainably sourced ingredients.",
         "price": 3250.0,
         "discountPrice": 2999.0,
         "stock": 45,
@@ -127,7 +166,7 @@ All administrative product management endpoints are served under `/api/v1/admin/
         "dietaryPreference": "NON_VEG",
         "categoryId": "cat-uuid-1",
         "imageUrl": "https://cdn.kickat.co.in/products/kickat-maxi-puppy.png",
-        "images": ["https://cdn.kickat.co.in/products/kickat-maxi-puppy-back.png"],
+        "images": ["https://cdn.kickat.co.in/products/kickat-maxi-puppy.png"],
         "status": "ACTIVE",
         "isTrending": true,
         "isBestSeller": true,
@@ -143,7 +182,8 @@ All administrative product management endpoints are served under `/api/v1/admin/
             "name": "4kg Bag",
             "sku": "KKT-MAXI-4KG",
             "price": 3250.0,
-            "stock": 30,
+            "discountPrice": 2999.0,
+            "stock": 45,
             "attributes": { "weight": "4kg" },
             "imageUrl": "https://cdn.kickat.co.in/products/kkt-4kg.png"
           }
@@ -193,8 +233,9 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "id": "prod-uuid-1",
     "name": "Kickat Maxi Puppy Dry Food",
     "slug": "kickat-maxi-puppy-dry-food",
-    "descriptionTitle": "Product Details",
+    "descriptionTitle": "Why Your Pet Will Love It",
     "description": "Tailored nutrition for large breed puppies.",
+    "materials": "100% natural sustainably sourced ingredients.",
     "price": 3250.0,
     "discountPrice": 2999.0,
     "stock": 45,
@@ -202,7 +243,7 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "dietaryPreference": "NON_VEG",
     "categoryId": "cat-uuid-1",
     "imageUrl": "https://cdn.kickat.co.in/products/kickat-maxi-puppy.png",
-    "images": [],
+    "images": ["https://cdn.kickat.co.in/products/kickat-maxi-puppy.png"],
     "status": "ACTIVE",
     "isTrending": true,
     "isBestSeller": true,
@@ -233,24 +274,19 @@ All administrative product management endpoints are served under `/api/v1/admin/
 - **Headers:** `Authorization: Bearer <accessToken>`, `Content-Type: application/json`
 
 #### Request Body
-> [!NOTE]
-> **Canonical Image Pipeline:** Pass up to 9 image URLs in `images[]`. `images[0]` is automatically assigned as the primary `imageUrl`, and relational `ProductMedia` records (type: `IMAGE`, order: 0..N-1) are synchronized atomically. Video is not supported.
-
-> [!TIP]
-> **Configurable Description Section Heading:** `descriptionTitle` is an optional heading (string, max 150 chars, e.g. "Why Your Pet Will Love It", "Product Details", "About This Product", "Key Features", "About the Food"). The backend never hardcodes section headings. `description` contains the main body copy, while `highlights` contains optional feature/benefit cards.
-
 ```json
 {
   "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
   "slug": "kickat-chicken-puppy-food",
   "descriptionTitle": "Why Your Pet Will Love It",
-  "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.
+  "description": "High-protein dry puppy food formulated for healthy muscle development, strong bones, and gentle digestion for growing puppies.",
+  "materials": "100% human-grade, sustainably sourced natural ingredients. Free from BPA packaging, synthetic preservatives, and artificial coloring.",
   "price": 3299.0,
   "discountPrice": 2799.0,
   "stock": 50,
   "petSpecies": "DOG",
   "dietaryPreference": "GRAIN_FREE",
-  "categoryId": "cat-uuid-1",
+  "categoryId": "cat-dog-nutrition-uuid",
   "images": [
     "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
     "https://cdn.kickat.co.in/products/chicken-puppy-back.png",
@@ -267,7 +303,8 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "countryOfOrigin": "India",
     "custom": [
       { "label": "Breed Size", "value": "All Breeds" },
-      { "label": "Flavor", "value": "Real Chicken" }
+      { "label": "Flavor", "value": "Real Deboned Chicken" },
+      { "label": "Kibble Size", "value": "Small (8 mm)" }
     ]
   },
   "highlights": [
@@ -280,10 +317,15 @@ All administrative product management endpoints are served under `/api/v1/admin/
       "title": "DHA & Omega Fatty Acids",
       "description": "Supports cognitive brain & vision development",
       "icon": "🧠"
+    },
+    {
+      "title": "Active Probiotics & Prebiotics",
+      "description": "Promotes healthy digestion and nutrient absorption",
+      "icon": "🌿"
     }
   ],
   "ingredients": {
-    "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed.",
+    "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed, dried chicory root.",
     "items": ["Deboned Chicken", "Brown Rice", "Flaxseed", "Dried Chicory Root"],
     "nutrition": [
       { "label": "Crude Protein (min)", "value": "28.0%" },
@@ -340,8 +382,8 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
     "slug": "kickat-chicken-puppy-food",
     "descriptionTitle": "Why Your Pet Will Love It",
-    "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
-  "materials": "100% natural food-grade rubber. Free from BPA, phthalates, and harsh chemical compounds. Sourced sustainably to ensure gentle, non-abrasive contact with your pet's mouth.",
+    "description": "High-protein dry puppy food formulated for healthy muscle development, strong bones, and gentle digestion for growing puppies.",
+    "materials": "100% human-grade, sustainably sourced natural ingredients. Free from BPA packaging, synthetic preservatives, and artificial coloring.",
     "price": 3299.0,
     "discountPrice": 2799.0,
     "stock": 50,
@@ -363,7 +405,12 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "attributes": {
       "lifeStage": "Puppy",
       "weight": "3 kg",
-      "countryOfOrigin": "India"
+      "countryOfOrigin": "India",
+      "custom": [
+        { "label": "Breed Size", "value": "All Breeds" },
+        { "label": "Flavor", "value": "Real Deboned Chicken" },
+        { "label": "Kibble Size", "value": "Small (8 mm)" }
+      ]
     },
     "highlights": [
       {
@@ -375,10 +422,15 @@ All administrative product management endpoints are served under `/api/v1/admin/
         "title": "DHA & Omega Fatty Acids",
         "description": "Supports cognitive brain & vision development",
         "icon": "🧠"
+      },
+      {
+        "title": "Active Probiotics & Prebiotics",
+        "description": "Promotes healthy digestion and nutrient absorption",
+        "icon": "🌿"
       }
     ],
     "ingredients": {
-      "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed.",
+      "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed, dried chicory root.",
       "items": ["Deboned Chicken", "Brown Rice", "Flaxseed", "Dried Chicory Root"],
       "nutrition": [
         { "label": "Crude Protein (min)", "value": "28.0%" },
@@ -475,13 +527,17 @@ All administrative product management endpoints are served under `/api/v1/admin/
 - **Headers:** `Authorization: Bearer <accessToken>`, `Content-Type: application/json`
 
 #### Request Body
-Accepts any partial subset of fields from Create Product. Passing `variants` or `media` replaces/synchronizes existing lists (existing items identified by `id` are updated, missing IDs are deleted, objects without `id` are created).
+Accepts any partial subset of fields.
+- **Updating `descriptionTitle` or `materials`:** Pass a new string to update. Pass `""` or `null` to clear the field.
+- **Updating `variants`:** Passing `variants` synchronizes the list (items with matching `id` are updated, omitted IDs are deleted, items without `id` are created).
+- **Updating `images`:** Passing `images[]` replaces and synchronizes the canonical images and relational `ProductMedia` atomically.
 
 ```json
 {
-  "price": 4100.0,
-  "discountPrice": 3799.0,
-  "stock": 30,
+  "descriptionTitle": "Key Features & Benefits",
+  "materials": "100% non-toxic premium grade natural rubber.",
+  "price": 3299.0,
+  "discountPrice": 2899.0,
   "isTrending": true
 }
 ```
@@ -493,11 +549,13 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
   "message": "Product updated successfully",
   "data": {
     "id": "prod-uuid-1",
-    "name": "Acana Wild Prairie Dog Food",
-    "price": 4100.0,
-    "discountPrice": 3799.0,
-    "stock": 30,
-    "updatedAt": "2026-09-08T11:00:00.000Z"
+    "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
+    "descriptionTitle": "Key Features & Benefits",
+    "materials": "100% non-toxic premium grade natural rubber.",
+    "price": 3299.0,
+    "discountPrice": 2899.0,
+    "stock": 50,
+    "updatedAt": "2026-09-08T14:00:00.000Z"
   }
 }
 ```
@@ -524,10 +582,10 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
   "message": "Product status updated to INACTIVE",
   "data": {
     "id": "prod-uuid-1",
-    "name": "Acana Wild Prairie Dog Food",
-    "slug": "acana-wild-prairie-dog-food",
+    "name": "Kickat Maxi Puppy Dry Food",
+    "slug": "kickat-maxi-puppy-dry-food",
     "status": "INACTIVE",
-    "updatedAt": "2026-09-08T11:05:00.000Z"
+    "updatedAt": "2026-09-08T14:05:00.000Z"
   }
 }
 ```
@@ -547,11 +605,11 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
   "variantStocks": [
     {
       "variantId": "var-uuid-1",
-      "stock": 25
+      "stock": 30
     },
     {
       "variantId": "var-uuid-2",
-      "stock": 25
+      "stock": 20
     }
   ]
 }
@@ -566,8 +624,8 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
     "id": "prod-uuid-1",
     "stock": 50,
     "variants": [
-      { "id": "var-uuid-1", "stock": 25 },
-      { "id": "var-uuid-2", "stock": 25 }
+      { "id": "var-uuid-1", "stock": 30 },
+      { "id": "var-uuid-2", "stock": 20 }
     ]
   }
 }
@@ -584,11 +642,7 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
 #### Request Body
 ```json
 {
-  "productIds": [
-    "prod-uuid-1",
-    "prod-uuid-2",
-    "prod-uuid-3"
-  ],
+  "productIds": ["prod-uuid-1", "prod-uuid-2"],
   "status": "ACTIVE"
 }
 ```
@@ -597,11 +651,9 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
 ```json
 {
   "success": true,
-  "message": "Successfully updated status to ACTIVE for 3 products",
+  "message": "Successfully updated 2 products to ACTIVE",
   "data": {
-    "updatedCount": 3,
-    "status": "ACTIVE",
-    "productIds": ["prod-uuid-1", "prod-uuid-2", "prod-uuid-3"]
+    "updatedCount": 2
   }
 }
 ```
@@ -617,10 +669,7 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
 #### Request Body
 ```json
 {
-  "productIds": [
-    "prod-uuid-1",
-    "prod-uuid-2"
-  ],
+  "productIds": ["prod-uuid-1", "prod-uuid-2"],
   "permanent": false
 }
 ```
@@ -629,10 +678,9 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
 ```json
 {
   "success": true,
-  "message": "Successfully deleted 2 products",
+  "message": "Successfully soft-deleted 2 products",
   "data": {
-    "deletedCount": 2,
-    "permanent": false
+    "deletedCount": 2
   }
 }
 ```
@@ -642,7 +690,7 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
 ### 9. Delete Product (Soft or Permanent)
 
 - **HTTP Method:** `DELETE`
-- **Endpoint:** `/api/v1/admin/products/:id` (Optional query parameter: `?permanent=true`)
+- **Endpoint:** `/api/v1/admin/products/:id?permanent=false`
 - **Headers:** `Authorization: Bearer <accessToken>`
 
 #### Expected Success Response (`200 OK`)
@@ -652,8 +700,6 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
   "message": "Product soft-deleted successfully"
 }
 ```
-
----
 
 ---
 
@@ -672,19 +718,17 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
     "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
     "slug": "kickat-chicken-puppy-food",
     "descriptionTitle": "Why Your Pet Will Love It",
-    "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
-  "materials": "100% natural food-grade rubber. Free from BPA, phthalates, and harsh chemical compounds. Sourced sustainably to ensure gentle, non-abrasive contact with your pet's mouth.",
+    "description": "High-protein dry puppy food formulated for healthy muscle development, strong bones, and gentle digestion for growing puppies.",
+    "materials": "100% human-grade, sustainably sourced natural ingredients. Free from BPA packaging, synthetic preservatives, and artificial coloring.",
     "price": 3299.0,
     "discountPrice": 2799.0,
     "stock": 50,
-    "rating": 4.5,
-    "reviewsCount": 0,
+    "rating": 4.8,
+    "reviewsCount": 38,
     "brand": null,
     "petSpecies": "DOG",
     "dietaryPreference": "GRAIN_FREE",
     "categoryId": "cat-dog-nutrition-uuid",
-    "isTrending": true,
-    "isBestSeller": true,
     "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
     "images": [
       "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
@@ -692,12 +736,19 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
       "https://cdn.kickat.co.in/products/chicken-puppy-kibble.png"
     ],
     "status": "ACTIVE",
+    "isTrending": true,
+    "isBestSeller": true,
     "seoTitle": "Kickat Natural Chicken & Brown Rice Puppy Food - 100% Pet Safe",
     "seoDescription": "Buy Kickat puppy food with real deboned chicken, brown rice, and probiotics for healthy development.",
     "attributes": {
       "lifeStage": "Puppy",
       "weight": "3 kg",
-      "countryOfOrigin": "India"
+      "countryOfOrigin": "India",
+      "custom": [
+        { "label": "Breed Size", "value": "All Breeds" },
+        { "label": "Flavor", "value": "Real Deboned Chicken" },
+        { "label": "Kibble Size", "value": "Small (8 mm)" }
+      ]
     },
     "highlights": [
       {
@@ -709,10 +760,15 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
         "title": "DHA & Omega Fatty Acids",
         "description": "Supports cognitive brain & vision development",
         "icon": "🧠"
+      },
+      {
+        "title": "Active Probiotics & Prebiotics",
+        "description": "Promotes healthy digestion and nutrient absorption",
+        "icon": "🌿"
       }
     ],
     "ingredients": {
-      "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed.",
+      "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed, dried chicory root.",
       "items": ["Deboned Chicken", "Brown Rice", "Flaxseed", "Dried Chicory Root"],
       "nutrition": [
         { "label": "Crude Protein (min)", "value": "28.0%" },
@@ -736,9 +792,6 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
     "sizeGuide": {
       "enabled": false
     },
-    "deletedAt": null,
-    "createdAt": "2026-09-08T13:25:00.000Z",
-    "updatedAt": "2026-09-08T13:25:00.000Z",
     "category": {
       "id": "cat-dog-nutrition-uuid",
       "name": "Dog Nutrition",
@@ -793,10 +846,15 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
         "thumbnailUrl": null,
         "order": 2
       }
-    ]
+    ],
+    "deletedAt": null,
+    "createdAt": "2026-09-08T13:25:00.000Z",
+    "updatedAt": "2026-09-08T13:25:00.000Z"
   }
 }
 ```
+
+---
 
 ## Standard Error Response Format
 
@@ -880,6 +938,7 @@ export interface ProductSizeGuide {
 
 export interface ProductVariant {
   id?: string;
+  productId?: string;
   name: string;
   sku?: string | null;
   price: number;
@@ -891,6 +950,7 @@ export interface ProductVariant {
 
 export interface ProductMedia {
   id: string;
+  productId?: string;
   type: "IMAGE";
   url: string;
   thumbnailUrl?: string | null;
