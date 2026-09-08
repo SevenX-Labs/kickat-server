@@ -59,7 +59,8 @@ export class UploadService {
     const supabaseKey =
       this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY') ||
       this.configService.get<string>('SUPABASE_ANON_KEY') ||
-      this.configService.get<string>('SUPABASE_KEY');
+      this.configService.get<string>('SUPABASE_KEY') ||
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1zcHFkdXh2cnlwZXhhaGtreGp6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTkzNjEzMiwiZXhwIjoyMTAxNTEyMTMyfQ.e9F0LhNIFfuWMsW9wH0idKDOD4yVKXJEFcjlBIBok4Y';
 
     if (supabaseUrl && supabaseKey) {
       this.supabaseClient = createClient(supabaseUrl, supabaseKey);
@@ -316,14 +317,24 @@ export class UploadService {
     try {
       const cleanUrl = url.trim().split("?")[0].split("#")[0];
 
-      // 1. Supabase URL format: /storage/v1/object/public/<bucket>/<path>
-      const supabaseRegex = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i;
-      const supabaseMatch = cleanUrl.match(supabaseRegex);
-      if (supabaseMatch) {
+      // 1. Supabase URL format: /storage/v1/object/public/<bucket>/<path> OR /storage/v1/object/<bucket>/<path>
+      const supabasePublicRegex = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i;
+      const supabasePublicMatch = cleanUrl.match(supabasePublicRegex);
+      if (supabasePublicMatch) {
         return {
           provider: "supabase",
-          bucket: decodeURIComponent(supabaseMatch[1]),
-          path: decodeURIComponent(supabaseMatch[2]),
+          bucket: decodeURIComponent(supabasePublicMatch[1]),
+          path: decodeURIComponent(supabasePublicMatch[2]),
+        };
+      }
+
+      const supabaseDirectRegex = /\/storage\/v1\/object\/([^/]+)\/(.+)$/i;
+      const supabaseDirectMatch = cleanUrl.match(supabaseDirectRegex);
+      if (supabaseDirectMatch && supabaseDirectMatch[1] !== "public") {
+        return {
+          provider: "supabase",
+          bucket: decodeURIComponent(supabaseDirectMatch[1]),
+          path: decodeURIComponent(supabaseDirectMatch[2]),
         };
       }
 
