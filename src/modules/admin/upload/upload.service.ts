@@ -77,12 +77,26 @@ export class UploadService {
   /**
    * Determine min and max file size limits based on upload type or explicit overrides
    */
+
+  /**
+   * Normalize and resolve storage folder prefix (categories/, products/, blogs/)
+   */
+  resolveFolderPrefix(typeOrFolder?: string): string {
+    if (!typeOrFolder) return "";
+    const normalized = typeOrFolder.trim().toLowerCase();
+    if (normalized === "category" || normalized === "categories") return "categories/";
+    if (normalized === "product" || normalized === "products") return "products/";
+    if (normalized === "blog" || normalized === "blogs") return "blogs/";
+    const clean = normalized.replace(/[^a-z0-9_-]/g, "");
+    return clean ? `${clean}/` : "";
+  }
+
   resolveLimits(
     type?: string,
     minSizeMb?: number,
     maxSizeMb?: number,
   ): { minMb: number; maxMb: number; isProduct: boolean } {
-    const isProduct = type?.trim().toLowerCase() === 'product';
+    const isProduct = type?.trim().toLowerCase() === 'product' || type?.trim().toLowerCase() === 'products';
 
     const defaultMin = isProduct
       ? UploadService.PRODUCT_MIN_SIZE_MB
@@ -157,7 +171,7 @@ export class UploadService {
     const cleanFileName = file.originalname
       .replace(/[^a-zA-Z0-9.-]/g, '_')
       .replace(/\.[^/.]+$/, '');
-    const folderPrefix = type ? `${type.toLowerCase()}/` : '';
+    const folderPrefix = this.resolveFolderPrefix(type);
     const fileName = `${folderPrefix}${Date.now()}-${cleanFileName}-${randomUUID().substring(0, 8)}${ext}`;
     const fileSizeMb = (file.size / (1024 * 1024)).toFixed(2);
 

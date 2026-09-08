@@ -19,6 +19,11 @@ export class UploadQueryDto {
   @IsString()
   type?: string;
 
+  @ApiPropertyOptional({ example: "categories", description: "Target storage folder name" })
+  @IsOptional()
+  @IsString()
+  folder?: string;
+
   @ApiPropertyOptional({ example: 2, description: 'Minimum file size in MB' })
   @IsOptional()
   @Type(() => Number)

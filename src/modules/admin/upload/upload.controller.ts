@@ -60,10 +60,14 @@ export class UploadController {
   async uploadSingleFile(
     @UploadedFile() file: MulterFile,
     @Query('type') type?: string,
+    @Query('folder') folder?: string,
+    @Body('folder') bodyFolder?: string,
+    @Body('type') bodyType?: string,
     @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, type);
+    const effectiveFolder = folder || bodyFolder || type || bodyType;
+    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, effectiveFolder);
   }
 
   /**
@@ -108,10 +112,14 @@ export class UploadController {
   async uploadMultipleFiles(
     @UploadedFiles() files: MulterFile[],
     @Query('type') type?: string,
+    @Query('folder') folder?: string,
+    @Body('folder') bodyFolder?: string,
+    @Body('type') bodyType?: string,
     @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadMultipleFiles(files, minSizeMb, maxSizeMb, type);
+    const effectiveFolder = folder || bodyFolder || type || bodyType;
+    return this.uploadService.uploadMultipleFiles(files, minSizeMb, maxSizeMb, effectiveFolder);
   }
 
   /**
