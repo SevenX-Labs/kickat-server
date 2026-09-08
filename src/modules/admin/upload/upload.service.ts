@@ -73,8 +73,8 @@ export class UploadService {
    */
   validateFile(
     file: MulterFile,
-    minSizeMb: number = 2,
-    maxSizeMb: number = 5,
+    minSizeMb: number = 0,
+    maxSizeMb: number = 10,
   ): void {
     if (!file) {
       throw new BadRequestException('No file provided for upload');
@@ -91,7 +91,7 @@ export class UploadService {
     const maxSizeBytes = maxSizeMb * 1024 * 1024;
 
     // Check file size bounds (2MB to 5MB limit)
-    if (file.size < minSizeBytes) {
+    if (minSizeMb > 0 && file.size < minSizeBytes) {
       const fileSizeMb = (file.size / (1024 * 1024)).toFixed(2);
       throw new BadRequestException(
         `File size (${fileSizeMb} MB) is smaller than the minimum required limit of ${minSizeMb} MB. Please upload an image between ${minSizeMb}MB and ${maxSizeMb}MB.`,
@@ -111,8 +111,8 @@ export class UploadService {
    */
   async uploadSingleFile(
     file: MulterFile,
-    minSizeMb: number = 2,
-    maxSizeMb: number = 5,
+    minSizeMb: number = 0,
+    maxSizeMb: number = 10,
   ): Promise<UploadedFileResponse> {
     this.validateFile(file, minSizeMb, maxSizeMb);
 
@@ -166,8 +166,8 @@ export class UploadService {
    */
   async uploadMultipleFiles(
     files: MulterFile[],
-    minSizeMb: number = 2,
-    maxSizeMb: number = 5,
+    minSizeMb: number = 0,
+    maxSizeMb: number = 10,
   ): Promise<{ success: boolean; total: number; files: UploadedFileResponse[] }> {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files provided for upload');

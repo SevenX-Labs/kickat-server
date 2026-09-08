@@ -53,8 +53,8 @@ export class UploadController {
   ) {
     return this.uploadService.uploadSingleFile(
       file,
-      minSizeMb || 2,
-      maxSizeMb || 5,
+      minSizeMb !== undefined ? minSizeMb : 0,
+      maxSizeMb || 10,
     );
   }
 
@@ -80,8 +80,8 @@ export class UploadController {
   ) {
     return this.uploadService.uploadMultipleFiles(
       files,
-      minSizeMb || 2,
-      maxSizeMb || 5,
+      minSizeMb !== undefined ? minSizeMb : 0,
+      maxSizeMb || 10,
     );
   }
 }
