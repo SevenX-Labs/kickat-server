@@ -34,7 +34,7 @@ export class CartService {
 
     const formattedItems = items.map((item) => {
       const unitPrice = item.variant
-        ? item.variant.price
+        ? item.variant.discountPrice ?? item.variant.price
         : item.product.discountPrice ?? item.product.price;
       const originalUnitPrice = item.variant
         ? item.variant.price
@@ -228,7 +228,7 @@ export class CartService {
         throw new NotFoundException('Product variant not found');
       }
       availableStock = variant.stock;
-      unitPrice = variant.price;
+      unitPrice = variant.discountPrice ?? variant.price;
       variantObj = variant;
     }
 
@@ -323,7 +323,7 @@ export class CartService {
       where: { sessionId },
       include: {
         product: { select: { id: true, name: true, price: true, discountPrice: true, imageUrl: true } },
-        variant: { select: { id: true, name: true, price: true } },
+        variant: { select: { id: true, name: true, price: true, discountPrice: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -331,7 +331,7 @@ export class CartService {
     let subtotal = 0;
     const formattedItems = items.map((item) => {
       const unitPrice = item.variant
-        ? item.variant.price
+        ? item.variant.discountPrice ?? item.variant.price
         : item.product.discountPrice ?? item.product.price;
       const itemTotal = unitPrice * item.quantity;
       subtotal += itemTotal;

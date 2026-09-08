@@ -29,6 +29,10 @@ All administrative product management endpoints are served under `/api/v1/admin/
 
 ## Architecture & Frontend Integration Overview
 
+> [!NOTE]
+> **Single-Brand Catalog:** KickAt is a dedicated, single-brand platform. All products belong directly to the KickAt brand; therefore, third-party brand filters and fields are not required.
+
+
 - **Base URL:** `https://api.kickat.co.in/api/v1/admin/products` (or `http://localhost:3000/api/v1/admin/products` in development)
 - **Content Type:** `application/json`
 - **Authentication Scheme:** `Authorization: Bearer <accessToken>`
@@ -91,12 +95,11 @@ All administrative product management endpoints are served under `/api/v1/admin/
 | :--- | :--- | :--- | :--- | :--- |
 | `page` | `number` | No | `1` | Page number |
 | `limit` | `number` | No | `10` | Products per page (1 to 100) |
-| `search` | `string` | No | - | Fuzzy search in name, brand, slug, description, SKU |
+| `search` | `string` | No | - | Fuzzy search in name, slug, description, SKU |
 | `status` | `string` | No | - | `ACTIVE`, `DRAFT`, or `INACTIVE` |
 | `categoryId` | `string` | No | - | Filter by category UUID |
 | `petSpecies` | `string` | No | - | Filter by species (e.g. `DOG`, `CAT`) |
 | `dietaryPreference` | `string` | No | - | Filter by diet (e.g. `GRAIN_FREE`, `VEG`) |
-| `brand` | `string` | No | - | Filter by brand name (case-insensitive) |
 | `minPrice` | `number` | No | - | Minimum price filter |
 | `maxPrice` | `number` | No | - | Maximum price filter |
 | `inStock` | `boolean` | No | - | `true` for stock > 0, `false` for out-of-stock |
@@ -114,18 +117,17 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "products": [
       {
         "id": "prod-uuid-1",
-        "name": "Royal Canin Maxi Puppy Dry Food",
-        "slug": "royal-canin-maxi-puppy-dry-food",
+        "name": "Kickat Maxi Puppy Dry Food",
+        "slug": "kickat-maxi-puppy-dry-food",
         "description": "Tailored nutrition for large breed puppies.",
         "price": 3250.0,
         "discountPrice": 2999.0,
         "stock": 45,
-        "brand": "Royal Canin",
         "petSpecies": "DOG",
         "dietaryPreference": "NON_VEG",
         "categoryId": "cat-uuid-1",
-        "imageUrl": "https://cdn.kickat.co.in/products/rc-maxi-puppy.png",
-        "images": ["https://cdn.kickat.co.in/products/rc-maxi-puppy-back.png"],
+        "imageUrl": "https://cdn.kickat.co.in/products/kickat-maxi-puppy.png",
+        "images": ["https://cdn.kickat.co.in/products/kickat-maxi-puppy-back.png"],
         "status": "ACTIVE",
         "isTrending": true,
         "isBestSeller": true,
@@ -139,11 +141,11 @@ All administrative product management endpoints are served under `/api/v1/admin/
           {
             "id": "var-uuid-1",
             "name": "4kg Bag",
-            "sku": "RC-MAXI-4KG",
+            "sku": "KKT-MAXI-4KG",
             "price": 3250.0,
             "stock": 30,
             "attributes": { "weight": "4kg" },
-            "imageUrl": "https://cdn.kickat.co.in/products/rc-4kg.png"
+            "imageUrl": "https://cdn.kickat.co.in/products/kkt-4kg.png"
           }
         ],
         "media": [],
@@ -189,17 +191,16 @@ All administrative product management endpoints are served under `/api/v1/admin/
   "success": true,
   "data": {
     "id": "prod-uuid-1",
-    "name": "Royal Canin Maxi Puppy Dry Food",
-    "slug": "royal-canin-maxi-puppy-dry-food",
+    "name": "Kickat Maxi Puppy Dry Food",
+    "slug": "kickat-maxi-puppy-dry-food",
     "description": "Tailored nutrition for large breed puppies.",
     "price": 3250.0,
     "discountPrice": 2999.0,
     "stock": 45,
-    "brand": "Royal Canin",
     "petSpecies": "DOG",
     "dietaryPreference": "NON_VEG",
     "categoryId": "cat-uuid-1",
-    "imageUrl": "https://cdn.kickat.co.in/products/rc-maxi-puppy.png",
+    "imageUrl": "https://cdn.kickat.co.in/products/kickat-maxi-puppy.png",
     "images": [],
     "status": "ACTIVE",
     "isTrending": true,
@@ -231,44 +232,94 @@ All administrative product management endpoints are served under `/api/v1/admin/
 - **Headers:** `Authorization: Bearer <accessToken>`, `Content-Type: application/json`
 
 #### Request Body
+> [!NOTE]
+> **Canonical Image Pipeline:** Pass up to 9 image URLs in `images[]`. `images[0]` is automatically assigned as the primary `imageUrl`, and relational `ProductMedia` records (type: `IMAGE`, order: 0..N-1) are synchronized atomically. Video is not supported.
+
 ```json
 {
-  "name": "Acana Wild Prairie Dog Food",
-  "slug": "acana-wild-prairie-dog-food",
-  "description": "High protein dog food made with free-run chicken and turkey.",
-  "price": 4200.0,
-  "discountPrice": 3900.0,
-  "stock": 25,
-  "brand": "Acana",
+  "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
+  "slug": "kickat-chicken-puppy-food",
+  "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
+  "price": 3299.0,
+  "discountPrice": 2799.0,
+  "stock": 50,
   "petSpecies": "DOG",
   "dietaryPreference": "GRAIN_FREE",
   "categoryId": "cat-uuid-1",
-  "imageUrl": "https://cdn.kickat.co.in/products/acana-wp.png",
-  "images": ["https://cdn.kickat.co.in/products/acana-wp-back.png"],
+  "images": [
+    "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+    "https://cdn.kickat.co.in/products/chicken-puppy-back.png",
+    "https://cdn.kickat.co.in/products/chicken-puppy-kibble.png"
+  ],
   "status": "ACTIVE",
   "isTrending": true,
-  "isBestSeller": false,
-  "variants": [
+  "isBestSeller": true,
+  "seoTitle": "Kickat Natural Chicken & Brown Rice Puppy Food - 100% Pet Safe",
+  "seoDescription": "Buy Kickat puppy food with real deboned chicken, brown rice, and probiotics for healthy development.",
+  "attributes": {
+    "lifeStage": "Puppy",
+    "weight": "3 kg",
+    "countryOfOrigin": "India",
+    "custom": [
+      { "label": "Breed Size", "value": "All Breeds" },
+      { "label": "Flavor", "value": "Real Chicken" }
+    ]
+  },
+  "highlights": [
     {
-      "name": "2kg Bag",
-      "sku": "ACN-WP-2KG",
-      "price": 2200.0,
-      "stock": 15,
-      "attributes": { "weight": "2kg" }
+      "title": "Real Deboned Chicken #1 Ingredient",
+      "description": "Premium quality protein for lean muscle growth",
+      "icon": "🍗"
     },
     {
-      "name": "6kg Bag",
-      "sku": "ACN-WP-6KG",
-      "price": 4200.0,
-      "stock": 10,
-      "attributes": { "weight": "6kg" }
+      "title": "DHA & Omega Fatty Acids",
+      "description": "Supports cognitive brain & vision development",
+      "icon": "🧠"
     }
   ],
-  "media": [
+  "ingredients": {
+    "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed.",
+    "items": ["Deboned Chicken", "Brown Rice", "Flaxseed", "Dried Chicory Root"],
+    "nutrition": [
+      { "label": "Crude Protein (min)", "value": "28.0%" },
+      { "label": "Crude Fat (min)", "value": "16.0%" },
+      { "label": "Crude Fiber (max)", "value": "4.0%" },
+      { "label": "Moisture (max)", "value": "10.0%" }
+    ]
+  },
+  "feedingGuide": {
+    "description": "Feed your puppy 2 to 3 times daily according to expected adult weight.",
+    "rows": [
+      { "petWeight": "Up to 5 kg", "dailyAmount": "50–100 g" },
+      { "petWeight": "5–10 kg", "dailyAmount": "100–180 g" },
+      { "petWeight": "10–20 kg", "dailyAmount": "180–300 g" }
+    ]
+  },
+  "careInstructions": [
+    "Store in a cool, dry place sealed inside an airtight container.",
+    "Always provide fresh, clean drinking water for your pet."
+  ],
+  "sizeGuide": {
+    "enabled": false
+  },
+  "variants": [
     {
-      "type": "IMAGE",
-      "url": "https://cdn.kickat.co.in/products/acana-wp-1.png",
-      "order": 0
+      "name": "1.5 kg",
+      "sku": "KKT-CHK-PUP-1.5KG",
+      "price": 1699.0,
+      "discountPrice": 1499.0,
+      "stock": 30,
+      "attributes": { "weight": "1.5 kg" },
+      "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-1.5kg.png"
+    },
+    {
+      "name": "3 kg",
+      "sku": "KKT-CHK-PUP-3KG",
+      "price": 3299.0,
+      "discountPrice": 2799.0,
+      "stock": 20,
+      "attributes": { "weight": "3 kg" },
+      "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-front.png"
     }
   ]
 }
@@ -280,19 +331,128 @@ All administrative product management endpoints are served under `/api/v1/admin/
   "success": true,
   "message": "Product created successfully",
   "data": {
-    "id": "prod-new-uuid",
-    "name": "Acana Wild Prairie Dog Food",
-    "slug": "acana-wild-prairie-dog-food",
-    "price": 4200.0,
-    "stock": 25,
+    "id": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+    "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
+    "slug": "kickat-chicken-puppy-food",
+    "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
+    "price": 3299.0,
+    "discountPrice": 2799.0,
+    "stock": 50,
+    "rating": 4.5,
+    "reviewsCount": 0,
+    "brand": null,
+    "petSpecies": "DOG",
+    "dietaryPreference": "GRAIN_FREE",
+    "categoryId": "cat-dog-nutrition-uuid",
+    "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+    "images": [
+      "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+      "https://cdn.kickat.co.in/products/chicken-puppy-back.png",
+      "https://cdn.kickat.co.in/products/chicken-puppy-kibble.png"
+    ],
     "status": "ACTIVE",
+    "seoTitle": "Kickat Natural Chicken & Brown Rice Puppy Food - 100% Pet Safe",
+    "seoDescription": "Buy Kickat puppy food with real deboned chicken, brown rice, and probiotics for healthy development.",
+    "attributes": {
+      "lifeStage": "Puppy",
+      "weight": "3 kg",
+      "countryOfOrigin": "India"
+    },
+    "highlights": [
+      {
+        "title": "Real Deboned Chicken #1 Ingredient",
+        "description": "Premium quality protein for lean muscle growth",
+        "icon": "🍗"
+      },
+      {
+        "title": "DHA & Omega Fatty Acids",
+        "description": "Supports cognitive brain & vision development",
+        "icon": "🧠"
+      }
+    ],
+    "ingredients": {
+      "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed.",
+      "items": ["Deboned Chicken", "Brown Rice", "Flaxseed", "Dried Chicory Root"],
+      "nutrition": [
+        { "label": "Crude Protein (min)", "value": "28.0%" },
+        { "label": "Crude Fat (min)", "value": "16.0%" },
+        { "label": "Crude Fiber (max)", "value": "4.0%" },
+        { "label": "Moisture (max)", "value": "10.0%" }
+      ]
+    },
+    "feedingGuide": {
+      "description": "Feed your puppy 2 to 3 times daily according to expected adult weight.",
+      "rows": [
+        { "petWeight": "Up to 5 kg", "dailyAmount": "50–100 g" },
+        { "petWeight": "5–10 kg", "dailyAmount": "100–180 g" },
+        { "petWeight": "10–20 kg", "dailyAmount": "180–300 g" }
+      ]
+    },
+    "careInstructions": [
+      "Store in a cool, dry place sealed inside an airtight container.",
+      "Always provide fresh, clean drinking water for your pet."
+    ],
+    "sizeGuide": {
+      "enabled": false
+    },
+    "isTrending": true,
+    "isBestSeller": true,
+    "deletedAt": null,
+    "createdAt": "2026-09-08T13:25:00.000Z",
+    "updatedAt": "2026-09-08T13:25:00.000Z",
+    "category": {
+      "id": "cat-dog-nutrition-uuid",
+      "name": "Dog Nutrition",
+      "slug": "dog-nutrition"
+    },
     "variants": [
       {
-        "id": "var-new-uuid-1",
-        "name": "2kg Bag",
-        "sku": "ACN-WP-2KG",
-        "price": 2200.0,
-        "stock": 15
+        "id": "var-uuid-1",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "name": "1.5 kg",
+        "sku": "KKT-CHK-PUP-1.5KG",
+        "price": 1699.0,
+        "discountPrice": 1499.0,
+        "stock": 30,
+        "attributes": { "weight": "1.5 kg" },
+        "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-1.5kg.png"
+      },
+      {
+        "id": "var-uuid-2",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "name": "3 kg",
+        "sku": "KKT-CHK-PUP-3KG",
+        "price": 3299.0,
+        "discountPrice": 2799.0,
+        "stock": 20,
+        "attributes": { "weight": "3 kg" },
+        "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-front.png"
+      }
+    ],
+    "media": [
+      {
+        "id": "med-uuid-1",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "type": "IMAGE",
+        "url": "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+        "thumbnailUrl": null,
+        "order": 0
+      },
+      {
+        "id": "med-uuid-2",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "type": "IMAGE",
+        "url": "https://cdn.kickat.co.in/products/chicken-puppy-back.png",
+        "thumbnailUrl": null,
+        "order": 1
+      },
+      {
+        "id": "med-uuid-3",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "type": "IMAGE",
+        "url": "https://cdn.kickat.co.in/products/chicken-puppy-kibble.png",
+        "thumbnailUrl": null,
+        "order": 2
       }
     ]
   }
@@ -488,6 +648,147 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
 
 ---
 
+---
+
+## Public Storefront Product Details API (Customer View)
+
+- **HTTP Method:** `GET`
+- **Endpoint:** `/api/v1/products/:idOrSlug` (public, no authentication required)
+- **Parameters:** `idOrSlug` — Product UUID or URL slug (e.g. `kickat-chicken-puppy-food`)
+
+#### Expected Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "product": {
+    "id": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+    "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
+    "slug": "kickat-chicken-puppy-food",
+    "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
+    "price": 3299.0,
+    "discountPrice": 2799.0,
+    "stock": 50,
+    "rating": 4.5,
+    "reviewsCount": 0,
+    "brand": null,
+    "petSpecies": "DOG",
+    "dietaryPreference": "GRAIN_FREE",
+    "categoryId": "cat-dog-nutrition-uuid",
+    "isTrending": true,
+    "isBestSeller": true,
+    "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+    "images": [
+      "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+      "https://cdn.kickat.co.in/products/chicken-puppy-back.png",
+      "https://cdn.kickat.co.in/products/chicken-puppy-kibble.png"
+    ],
+    "status": "ACTIVE",
+    "seoTitle": "Kickat Natural Chicken & Brown Rice Puppy Food - 100% Pet Safe",
+    "seoDescription": "Buy Kickat puppy food with real deboned chicken, brown rice, and probiotics for healthy development.",
+    "attributes": {
+      "lifeStage": "Puppy",
+      "weight": "3 kg",
+      "countryOfOrigin": "India"
+    },
+    "highlights": [
+      {
+        "title": "Real Deboned Chicken #1 Ingredient",
+        "description": "Premium quality protein for lean muscle growth",
+        "icon": "🍗"
+      },
+      {
+        "title": "DHA & Omega Fatty Acids",
+        "description": "Supports cognitive brain & vision development",
+        "icon": "🧠"
+      }
+    ],
+    "ingredients": {
+      "description": "Deboned chicken, chicken meal, brown rice, oatmeal, barley, chicken fat, flaxseed.",
+      "items": ["Deboned Chicken", "Brown Rice", "Flaxseed", "Dried Chicory Root"],
+      "nutrition": [
+        { "label": "Crude Protein (min)", "value": "28.0%" },
+        { "label": "Crude Fat (min)", "value": "16.0%" },
+        { "label": "Crude Fiber (max)", "value": "4.0%" },
+        { "label": "Moisture (max)", "value": "10.0%" }
+      ]
+    },
+    "feedingGuide": {
+      "description": "Feed your puppy 2 to 3 times daily according to expected adult weight.",
+      "rows": [
+        { "petWeight": "Up to 5 kg", "dailyAmount": "50–100 g" },
+        { "petWeight": "5–10 kg", "dailyAmount": "100–180 g" },
+        { "petWeight": "10–20 kg", "dailyAmount": "180–300 g" }
+      ]
+    },
+    "careInstructions": [
+      "Store in a cool, dry place sealed inside an airtight container.",
+      "Always provide fresh, clean drinking water for your pet."
+    ],
+    "sizeGuide": {
+      "enabled": false
+    },
+    "deletedAt": null,
+    "createdAt": "2026-09-08T13:25:00.000Z",
+    "updatedAt": "2026-09-08T13:25:00.000Z",
+    "category": {
+      "id": "cat-dog-nutrition-uuid",
+      "name": "Dog Nutrition",
+      "slug": "dog-nutrition"
+    },
+    "variants": [
+      {
+        "id": "var-uuid-1",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "name": "1.5 kg",
+        "sku": "KKT-CHK-PUP-1.5KG",
+        "price": 1699.0,
+        "discountPrice": 1499.0,
+        "stock": 30,
+        "attributes": { "weight": "1.5 kg" },
+        "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-1.5kg.png"
+      },
+      {
+        "id": "var-uuid-2",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "name": "3 kg",
+        "sku": "KKT-CHK-PUP-3KG",
+        "price": 3299.0,
+        "discountPrice": 2799.0,
+        "stock": 20,
+        "attributes": { "weight": "3 kg" },
+        "imageUrl": "https://cdn.kickat.co.in/products/chicken-puppy-front.png"
+      }
+    ],
+    "media": [
+      {
+        "id": "med-uuid-1",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "type": "IMAGE",
+        "url": "https://cdn.kickat.co.in/products/chicken-puppy-front.png",
+        "thumbnailUrl": null,
+        "order": 0
+      },
+      {
+        "id": "med-uuid-2",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "type": "IMAGE",
+        "url": "https://cdn.kickat.co.in/products/chicken-puppy-back.png",
+        "thumbnailUrl": null,
+        "order": 1
+      },
+      {
+        "id": "med-uuid-3",
+        "productId": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
+        "type": "IMAGE",
+        "url": "https://cdn.kickat.co.in/products/chicken-puppy-kibble.png",
+        "thumbnailUrl": null,
+        "order": 2
+      }
+    ]
+  }
+}
+```
+
 ## Standard Error Response Format
 
 ```typescript
@@ -514,11 +815,66 @@ export type ProductStatus = "ACTIVE" | "DRAFT" | "INACTIVE";
 export type PetSpecies = "DOG" | "CAT" | "BIRD" | "FISH" | "SMALL_ANIMAL" | "OTHER";
 export type DietaryPreference = "VEG" | "NON_VEG" | "GRAIN_FREE" | "GLUTEN_FREE" | "ORGANIC" | "RAW" | "HYPOALLERGENIC";
 
+export interface CustomProductAttribute {
+  label: string;
+  value: string;
+}
+
+export interface ProductAttributes {
+  material?: string;
+  lifeStage?: string;
+  weight?: string;
+  colors?: string[];
+  countryOfOrigin?: string;
+  dimensions?: string;
+  custom?: CustomProductAttribute[];
+}
+
+export interface ProductHighlight {
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+export interface NutritionItem {
+  label: string;
+  value: string;
+}
+
+export interface ProductIngredients {
+  description?: string;
+  items?: string[];
+  nutrition?: NutritionItem[];
+}
+
+export interface FeedingRow {
+  petWeight: string;
+  dailyAmount: string;
+}
+
+export interface ProductFeedingGuide {
+  description?: string;
+  rows?: FeedingRow[];
+}
+
+export interface SizeItem {
+  label: string;
+  description: string;
+}
+
+export interface ProductSizeGuide {
+  enabled?: boolean;
+  description?: string;
+  sizes?: SizeItem[];
+  note?: string;
+}
+
 export interface ProductVariant {
-  id: string;
+  id?: string;
   name: string;
   sku?: string | null;
   price: number;
+  discountPrice?: number | null;
   stock: number;
   attributes?: Record<string, any>;
   imageUrl?: string | null;
@@ -526,7 +882,7 @@ export interface ProductVariant {
 
 export interface ProductMedia {
   id: string;
-  type: "IMAGE" | "VIDEO";
+  type: "IMAGE";
   url: string;
   thumbnailUrl?: string | null;
   order: number;
@@ -540,13 +896,20 @@ export interface AdminProductItem {
   price: number;
   discountPrice?: number | null;
   stock: number;
-  brand?: string | null;
   petSpecies?: PetSpecies | null;
   dietaryPreference?: DietaryPreference | null;
   categoryId: string;
   imageUrl: string;
   images: string[];
   status: ProductStatus;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  attributes?: ProductAttributes | null;
+  highlights?: ProductHighlight[] | null;
+  ingredients?: ProductIngredients | null;
+  feedingGuide?: ProductFeedingGuide | null;
+  careInstructions?: string[];
+  sizeGuide?: ProductSizeGuide | null;
   isTrending: boolean;
   isBestSeller: boolean;
   rating: number;

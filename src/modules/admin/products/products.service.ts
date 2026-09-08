@@ -196,6 +196,7 @@ export class ProductsService {
               name: true,
               sku: true,
               price: true,
+              discountPrice: true,
               stock: true,
               attributes: true,
               imageUrl: true,
@@ -306,10 +307,51 @@ export class ProductsService {
       throw new BadRequestException('Invalid categoryId: Category not found');
     }
 
-    // 2. Generate unique slug
+    if (dto.discountPrice !== undefined && dto.discountPrice !== null && dto.discountPrice > dto.price) {
+      throw new BadRequestException('Discount price (selling price) cannot exceed regular price (MRP)');
+    }
+
+    // 2. Canonical image normalization (images[] is authoritative)
+    const images = dto.images && dto.images.length > 0 ? dto.images : (dto.imageUrl ? [dto.imageUrl] : []);
+    const primaryImageUrl = dto.imageUrl || images[0] || "";
+
+    if (images.length > 9) {
+      throw new BadRequestException('A maximum of 9 product images is allowed');
+    }
+
+    if (dto.variants && dto.variants.length > 0) {
+      const skus = dto.variants.map((v) => v.sku?.trim().toLowerCase()).filter(Boolean);
+      const duplicate = skus.find((s, idx) => skus.indexOf(s) !== idx);
+      if (duplicate) {
+        throw new BadRequestException(`Duplicate variant SKU found: ${duplicate}`);
+      }
+
+      for (const v of dto.variants) {
+        if (v.price < 0) {
+          throw new BadRequestException(`Variant "${v.name}" price cannot be negative`);
+        }
+        if (v.discountPrice !== undefined && v.discountPrice !== null) {
+          if (v.discountPrice < 0) {
+            throw new BadRequestException(`Variant "${v.name}" discountPrice cannot be negative`);
+          }
+          if (v.discountPrice >= v.price) {
+            throw new BadRequestException(
+              `Variant "${v.name}" discountPrice (${v.discountPrice}) must be less than regular price (${v.price})`,
+            );
+          }
+        }
+      }
+    }
+
+    const hasVariants = dto.variants && dto.variants.length > 0;
+    const effectiveStock = hasVariants
+      ? dto.variants!.reduce((sum, v) => sum + (v.stock ?? 0), 0)
+      : (dto.stock ?? 0);
+
+    // 3. Generate unique slug
     const slug = await this.ensureUniqueSlug(dto.slug || dto.name);
 
-    // 3. Create product in transaction
+    // 4. Create product in transaction
     const createdProduct = await this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
         data: {
@@ -318,14 +360,22 @@ export class ProductsService {
           description: dto.description || null,
           price: dto.price,
           discountPrice: dto.discountPrice || null,
-          stock: dto.stock ?? 0,
+          stock: effectiveStock,
           brand: dto.brand || null,
           petSpecies: dto.petSpecies || null,
           dietaryPreference: dto.dietaryPreference || null,
           categoryId: dto.categoryId,
-          imageUrl: dto.imageUrl,
-          images: dto.images || [],
+          imageUrl: primaryImageUrl,
+          images: images,
           status: dto.status || ProductStatusEnum.ACTIVE,
+          seoTitle: dto.seoTitle || null,
+          seoDescription: dto.seoDescription || null,
+          attributes: (dto.attributes as any) || null,
+          highlights: (dto.highlights as any) || null,
+          ingredients: (dto.ingredients as any) || null,
+          feedingGuide: (dto.feedingGuide as any) || null,
+          careInstructions: dto.careInstructions || [],
+          sizeGuide: (dto.sizeGuide as any) || null,
           isTrending: dto.isTrending ?? false,
           isBestSeller: dto.isBestSeller ?? false,
           ...(dto.variants && dto.variants.length > 0
@@ -335,6 +385,7 @@ export class ProductsService {
                     name: v.name,
                     sku: v.sku || null,
                     price: v.price,
+                    discountPrice: v.discountPrice || null,
                     stock: v.stock ?? 0,
                     attributes: v.attributes || {},
                     imageUrl: v.imageUrl || null,
@@ -342,11 +393,22 @@ export class ProductsService {
                 },
               }
             : {}),
-          ...(dto.media && dto.media.length > 0
+          ...(images.length > 0
+            ? {
+                media: {
+                  create: images.map((url, index) => ({
+                    type: 'IMAGE',
+                    url,
+                    thumbnailUrl: null,
+                    order: index,
+                  })),
+                },
+              }
+            : dto.media && dto.media.length > 0
             ? {
                 media: {
                   create: dto.media.map((m, index) => ({
-                    type: m.type || 'IMAGE',
+                    type: 'IMAGE',
                     url: m.url,
                     thumbnailUrl: m.thumbnailUrl || null,
                     order: m.order ?? index,
@@ -397,6 +459,50 @@ export class ProductsService {
       }
     }
 
+    const effectivePrice = dto.price !== undefined ? dto.price : existing.price;
+    const effectiveDiscountPrice =
+      dto.discountPrice !== undefined ? dto.discountPrice : existing.discountPrice;
+    if (
+      effectiveDiscountPrice !== null &&
+      effectiveDiscountPrice !== undefined &&
+      effectiveDiscountPrice > effectivePrice
+    ) {
+      throw new BadRequestException('Discount price (selling price) cannot exceed regular price (MRP)');
+    }
+
+    if (dto.images && dto.images.length > 9) {
+      throw new BadRequestException('A maximum of 9 product images is allowed');
+    }
+
+    if (dto.variants && dto.variants.length > 0) {
+      const skus = dto.variants.map((v) => v.sku?.trim().toLowerCase()).filter(Boolean);
+      const duplicate = skus.find((s, idx) => skus.indexOf(s) !== idx);
+      if (duplicate) {
+        throw new BadRequestException(`Duplicate variant SKU found: ${duplicate}`);
+      }
+
+      for (const v of dto.variants) {
+        if (v.price < 0) {
+          throw new BadRequestException(`Variant "${v.name}" price cannot be negative`);
+        }
+        if (v.discountPrice !== undefined && v.discountPrice !== null) {
+          if (v.discountPrice < 0) {
+            throw new BadRequestException(`Variant "${v.name}" discountPrice cannot be negative`);
+          }
+          if (v.discountPrice >= v.price) {
+            throw new BadRequestException(
+              `Variant "${v.name}" discountPrice (${v.discountPrice}) must be less than regular price (${v.price})`,
+            );
+          }
+        }
+      }
+    }
+
+    const hasVariants = dto.variants && dto.variants.length > 0;
+    const effectiveStock = hasVariants
+      ? dto.variants!.reduce((sum, v) => sum + (v.stock ?? 0), 0)
+      : (dto.stock ?? 0);
+
     let slug = existing.slug;
     if (dto.slug || (dto.name && dto.name !== existing.name && !dto.slug)) {
       slug = await this.ensureUniqueSlug(dto.slug || dto.name!, id);
@@ -420,12 +526,77 @@ export class ProductsService {
           }),
           ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
-          ...(dto.images !== undefined && { images: dto.images }),
+          ...(dto.images !== undefined && {
+            images: dto.images,
+            ...((!dto.imageUrl && dto.images.length > 0) && { imageUrl: dto.images[0] }),
+          }),
           ...(dto.status !== undefined && { status: dto.status }),
+          ...(dto.seoTitle !== undefined && { seoTitle: dto.seoTitle }),
+          ...(dto.seoDescription !== undefined && { seoDescription: dto.seoDescription }),
+          ...(dto.attributes !== undefined && { attributes: dto.attributes as any }),
+          ...(dto.highlights !== undefined && { highlights: dto.highlights as any }),
+          ...(dto.ingredients !== undefined && { ingredients: dto.ingredients as any }),
+          ...(dto.feedingGuide !== undefined && { feedingGuide: dto.feedingGuide as any }),
+          ...(dto.careInstructions !== undefined && { careInstructions: dto.careInstructions }),
+          ...(dto.sizeGuide !== undefined && { sizeGuide: dto.sizeGuide as any }),
           ...(dto.isTrending !== undefined && { isTrending: dto.isTrending }),
           ...(dto.isBestSeller !== undefined && { isBestSeller: dto.isBestSeller }),
         },
       });
+
+      // Synchronize media: images[] is canonical
+      if (dto.images !== undefined) {
+        await tx.productMedia.deleteMany({
+          where: { productId: id },
+        });
+        for (let i = 0; i < dto.images.length; i++) {
+          await tx.productMedia.create({
+            data: {
+              productId: id,
+              type: 'IMAGE',
+              url: dto.images[i],
+              thumbnailUrl: null,
+              order: i,
+            },
+          });
+        }
+      } else if (dto.media) {
+        const providedMediaIds = dto.media
+          .map((m) => m.id)
+          .filter((mid): mid is string => !!mid);
+
+        await tx.productMedia.deleteMany({
+          where: {
+            productId: id,
+            id: { notIn: providedMediaIds },
+          },
+        });
+
+        for (let i = 0; i < dto.media.length; i++) {
+          const m = dto.media[i];
+          if (m.id) {
+            await tx.productMedia.update({
+              where: { id: m.id },
+              data: {
+                type: 'IMAGE',
+                url: m.url,
+                thumbnailUrl: m.thumbnailUrl || null,
+                order: m.order ?? i,
+              },
+            });
+          } else {
+            await tx.productMedia.create({
+              data: {
+                productId: id,
+                type: 'IMAGE',
+                url: m.url,
+                thumbnailUrl: m.thumbnailUrl || null,
+                order: m.order ?? i,
+              },
+            });
+          }
+        }
+      }
 
       // 2. Update variants if provided
       if (dto.variants) {
@@ -450,6 +621,7 @@ export class ProductsService {
                 name: v.name,
                 sku: v.sku || null,
                 price: v.price,
+                discountPrice: v.discountPrice || null,
                 stock: v.stock ?? 0,
                 attributes: v.attributes || {},
                 imageUrl: v.imageUrl || null,
@@ -462,12 +634,26 @@ export class ProductsService {
                 name: v.name,
                 sku: v.sku || null,
                 price: v.price,
+                discountPrice: v.discountPrice || null,
                 stock: v.stock ?? 0,
                 attributes: v.attributes || {},
                 imageUrl: v.imageUrl || null,
               },
             });
           }
+        }
+
+        // Recalculate derived product stock from variants
+        const activeVariants = await tx.productVariant.findMany({
+          where: { productId: id },
+          select: { stock: true },
+        });
+        if (activeVariants.length > 0) {
+          const totalVariantStock = activeVariants.reduce((sum, v) => sum + v.stock, 0);
+          await tx.product.update({
+            where: { id },
+            data: { stock: totalVariantStock },
+          });
         }
       }
 
@@ -671,13 +857,6 @@ export class ProductsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      if (dto.stock !== undefined) {
-        await tx.product.update({
-          where: { id },
-          data: { stock: dto.stock },
-        });
-      }
-
       if (dto.variantStocks && dto.variantStocks.length > 0) {
         for (const vs of dto.variantStocks) {
           await tx.productVariant.update({
@@ -685,6 +864,27 @@ export class ProductsService {
             data: { stock: vs.stock },
           });
         }
+      }
+
+      // Check current variants
+      const activeVariants = await tx.productVariant.findMany({
+        where: { productId: id },
+        select: { stock: true },
+      });
+
+      if (activeVariants.length > 0) {
+        // Variant stock is authoritative: product stock is derived sum of variants
+        const totalVariantStock = activeVariants.reduce((sum, v) => sum + v.stock, 0);
+        await tx.product.update({
+          where: { id },
+          data: { stock: totalVariantStock },
+        });
+      } else if (dto.stock !== undefined) {
+        // Without variants: product stock is authoritative
+        await tx.product.update({
+          where: { id },
+          data: { stock: dto.stock },
+        });
       }
     });
 

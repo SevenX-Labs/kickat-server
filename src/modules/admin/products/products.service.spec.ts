@@ -30,6 +30,7 @@ describe('Admin ProductsService', () => {
       create: jest.fn(),
       update: jest.fn(),
       deleteMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     productMedia: {
       create: jest.fn(),
@@ -183,6 +184,87 @@ describe('Admin ProductsService', () => {
         price: 100,
         categoryId: 'non-existent-cat',
         imageUrl: 'https://example.com/image.jpg',
+      };
+
+      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if variant discountPrice >= price', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+
+      const dto: CreateProductDto = {
+        name: 'Test Variant Product',
+        price: 1000,
+        categoryId: 'cat-1',
+        images: ['https://example.com/img1.jpg'],
+        variants: [
+          { name: 'Var 1', price: 500, discountPrice: 600, stock: 10 },
+        ],
+      };
+
+      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if duplicate variant SKUs are provided', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+
+      const dto: CreateProductDto = {
+        name: 'Test Duplicate SKU',
+        price: 1000,
+        categoryId: 'cat-1',
+        images: ['https://example.com/img1.jpg'],
+        variants: [
+          { name: 'Var 1', sku: 'SKU-001', price: 500, stock: 10 },
+          { name: 'Var 2', sku: 'SKU-001', price: 600, stock: 15 },
+        ],
+      };
+
+      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should derive product stock as sum of variant stocks and accept custom attributes', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+      prisma.product.findUnique.mockResolvedValue(null);
+
+      let createdData: any = null;
+      prisma.product.create.mockImplementation(({ data }: any) => {
+        createdData = data;
+        return { id: 'prod-new', ...data };
+      });
+
+      const dto: CreateProductDto = {
+        name: 'Flexible Spec Product',
+        price: 2000,
+        categoryId: 'cat-1',
+        images: ['https://example.com/img1.jpg'],
+        attributes: {
+          material: 'Natural Rubber',
+          custom: [
+            { label: 'Suitable For', value: 'Adult Dogs' },
+            { label: 'Washable', value: 'Yes' },
+          ],
+        },
+        variants: [
+          { name: 'Small', price: 1000, discountPrice: 899, stock: 30 },
+          { name: 'Medium', price: 1500, discountPrice: 1299, stock: 20 },
+        ],
+      };
+
+      const result = await service.createProduct(dto);
+      expect(result.success).toBe(true);
+      expect(createdData.stock).toBe(50); // 30 + 20
+      expect(createdData.attributes.custom).toHaveLength(2);
+      expect(createdData.imageUrl).toBe('https://example.com/img1.jpg');
+    });
+
+    it('should reject more than 9 images', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+
+      const dto: CreateProductDto = {
+        name: 'Too Many Images Product',
+        price: 500,
+        categoryId: 'cat-1',
+        images: Array.from({ length: 10 }, (_, i) => `https://example.com/img${i}.jpg`),
       };
 
       await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);

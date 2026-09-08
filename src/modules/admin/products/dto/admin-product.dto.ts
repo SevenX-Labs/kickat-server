@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -11,6 +12,7 @@ import {
   IsUrl,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -50,6 +52,12 @@ export class CreateVariantDto {
 
   @IsOptional()
   @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  discountPrice?: number;
+
+  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   stock?: number = 0;
@@ -80,6 +88,12 @@ export class UpdateVariantDto {
   @IsNumber()
   @Min(0)
   price: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  discountPrice?: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -140,6 +154,146 @@ export class UpdateMediaDto {
   order?: number = 0;
 }
 
+
+export class CustomProductAttributeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  label: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  value: string;
+}
+
+export class ProductAttributesDto {
+  @IsOptional()
+  @IsString()
+  material?: string;
+
+  @IsOptional()
+  @IsString()
+  lifeStage?: string;
+
+  @IsOptional()
+  @IsString()
+  weight?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  colors?: string[];
+
+  @IsOptional()
+  @IsString()
+  countryOfOrigin?: string;
+
+  @IsOptional()
+  @IsString()
+  dimensions?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50, { message: 'Maximum 50 custom attributes allowed' })
+  @ValidateNested({ each: true })
+  @Type(() => CustomProductAttributeDto)
+  custom?: CustomProductAttributeDto[];
+}
+
+export class ProductHighlightDto {
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @IsOptional()
+  @IsString()
+  icon?: string;
+}
+
+export class NutritionItemDto {
+  @IsString()
+  @IsNotEmpty()
+  label: string;
+
+  @IsString()
+  @IsNotEmpty()
+  value: string;
+}
+
+export class ProductIngredientsDto {
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  items?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => NutritionItemDto)
+  nutrition?: NutritionItemDto[];
+}
+
+export class FeedingRowDto {
+  @IsString()
+  @IsNotEmpty()
+  petWeight: string;
+
+  @IsString()
+  @IsNotEmpty()
+  dailyAmount: string;
+}
+
+export class ProductFeedingGuideDto {
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FeedingRowDto)
+  rows?: FeedingRowDto[];
+}
+
+export class SizeItemDto {
+  @IsString()
+  @IsNotEmpty()
+  label: string;
+
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+}
+
+export class ProductSizeGuideDto {
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean = true;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SizeItemDto)
+  sizes?: SizeItemDto[];
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
@@ -186,14 +340,54 @@ export class CreateProductDto {
   @IsNotEmpty()
   categoryId: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  imageUrl: string;
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(9, { message: 'A maximum of 9 product images is allowed' })
+  @IsString({ each: true })
+  images?: string[] = [];
+
+  @IsOptional()
+  @IsString()
+  seoTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  seoDescription?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductAttributesDto)
+  attributes?: ProductAttributesDto;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductHighlightDto)
+  highlights?: ProductHighlightDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductIngredientsDto)
+  ingredients?: ProductIngredientsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFeedingGuideDto)
+  feedingGuide?: ProductFeedingGuideDto;
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  images?: string[] = [];
+  careInstructions?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductSizeGuideDto)
+  sizeGuide?: ProductSizeGuideDto;
 
   @IsOptional()
   @IsEnum(ProductStatusEnum)
@@ -274,8 +468,48 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(9, { message: 'A maximum of 9 product images is allowed' })
   @IsString({ each: true })
   images?: string[];
+
+  @IsOptional()
+  @IsString()
+  seoTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  seoDescription?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductAttributesDto)
+  attributes?: ProductAttributesDto;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductHighlightDto)
+  highlights?: ProductHighlightDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductIngredientsDto)
+  ingredients?: ProductIngredientsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductFeedingGuideDto)
+  feedingGuide?: ProductFeedingGuideDto;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  careInstructions?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductSizeGuideDto)
+  sizeGuide?: ProductSizeGuideDto;
 
   @IsOptional()
   @IsEnum(ProductStatusEnum)

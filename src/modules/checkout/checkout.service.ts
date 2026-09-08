@@ -40,7 +40,7 @@ export class CheckoutService {
     let subtotal = 0;
     for (const item of cartItems) {
       const price = item.variant
-        ? item.variant.price
+        ? item.variant.discountPrice ?? item.variant.price
         : item.product.discountPrice ?? item.product.price;
       subtotal += price * item.quantity;
     }
@@ -245,7 +245,7 @@ export class CheckoutService {
 
     for (const item of cartItems) {
       const price = item.variant
-        ? item.variant.price
+        ? item.variant.discountPrice ?? item.variant.price
         : item.product.discountPrice ?? item.product.price;
       const totalPrice = price * item.quantity;
       subtotal += totalPrice;
