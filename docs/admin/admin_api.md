@@ -19,6 +19,7 @@ Welcome to the Kickat E-Commerce Admin API reference guide. All endpoints are se
 - [11. Editorial Blogs & CMS](#11-editorial-blogs--cms)
 - [12. Reports & Financial Ledgers](#12-reports--financial-ledgers)
 - [13. Store & System Settings](#13-store--system-settings)
+- [14. Media Uploads & File Management](#14-media-uploads--file-management)
 
 ---
 
@@ -74,41 +75,49 @@ Base Path: `/api/v1/admin/auth`
 
 ## 2. Executive Dashboard
 
+📘 Detailed Specification & Frontend Guide: [dashboard.md](dashboard.md)
+
 Base Path: `/api/v1/admin/dashboard`
 
 ### GET `/api/v1/admin/dashboard`
-- **Auth Required**: Admin Auth
-- **Query Params**: `startDate`, `endDate`
-- **Description**: Aggregated executive dashboard summary.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Query Params**: `period` (today, 7d, 30d, etc.), `startDate`, `endDate`, `lowStockThreshold`, `recentOrdersLimit`, `topCategoriesLimit`
+- **Description**: Consolidated dashboard summary returning stats, sales charts, order status breakdown, top categories, recent orders, low stock, and payment methods.
 
 ### GET `/api/v1/admin/dashboard/stats`
-- **Auth Required**: Admin Auth
-- **Description**: KPI cards (revenue, order counts, customer counts, average order value).
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Query Params**: `period`, `startDate`, `endDate`, `lowStockThreshold`
+- **Description**: KPI cards (total revenue, orders, customers, today sales, pending orders, low-stock count, refund requests, and growth % vs previous period).
 
 ### GET `/api/v1/admin/dashboard/sales-chart`
-- **Auth Required**: Admin Auth
-- **Query Params**: `period` (`daily`, `weekly`, `monthly`)
-- **Description**: Sales and revenue time-series chart data.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Query Params**: `period` (`today`, `7d`, `30d`, `this_month`, `this_year`, `12m`, `all`, `custom`), `groupBy` (`hour`, `day`, `week`, `month`), `startDate`, `endDate`
+- **Description**: Time-series chart series (revenue, order counts, items count, AOV) for Recharts / Chart.js.
 
 ### GET `/api/v1/admin/dashboard/recent-orders`
-- **Auth Required**: Admin Auth
-- **Description**: Recent order activity stream.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Query Params**: `limit` (default: 10), `status` (`OrderStatusEnum`)
+- **Description**: Recent orders stream with customer profile, items summary, fulfillment status, and payment details.
 
 ### GET `/api/v1/admin/dashboard/order-status-summary`
-- **Auth Required**: Admin Auth
-- **Description**: Breakdown of orders across all status stages.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Description**: Order count, revenue, and percentage distribution across all 10 order lifecycle statuses.
 
 ### GET `/api/v1/admin/dashboard/top-categories`
-- **Auth Required**: Admin Auth
-- **Description**: Top-performing categories ranked by revenue and units.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Query Params**: `period`, `limit` (default: 5), `startDate`, `endDate`
+- **Description**: Top-selling categories ranked by revenue, units sold, and % share of total store sales.
 
 ### GET `/api/v1/admin/dashboard/low-stock`
-- **Auth Required**: Admin Auth
-- **Description**: Products and variants running low or out of stock.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Query Params**: `threshold` (default: 10), `limit` (default: 20), `page` (default: 1)
+- **Description**: Paginated list of products and SKU variants below the stock threshold, sorted by lowest stock.
 
 ---
 
 ## 3. Business Intelligence & Analytics
+
+📘 Detailed Specification & Frontend Guide: [analytics.md](analytics.md)
 
 Base Path: `/api/v1/admin/analytics`
 
@@ -130,6 +139,8 @@ Base Path: `/api/v1/admin/analytics`
 ---
 
 ## 4. Customer Management
+
+📘 Detailed Specification & Frontend Guide: [customers.md](customers.md)
 
 Base Path: `/api/v1/admin/customers`
 
@@ -156,6 +167,8 @@ Base Path: `/api/v1/admin/customers`
 ---
 
 ## 5. Products & Inventory Management
+
+📘 Detailed Specification & Frontend Guide: [products.md](products.md)
 
 Base Path: `/api/v1/admin/products`
 
@@ -197,6 +210,8 @@ Base Path: `/api/v1/admin/products`
 
 ## 6. Category Hierarchy & Reordering
 
+📘 Detailed Specification & Frontend Guide: [categories.md](categories.md)
+
 Base Path: `/api/v1/admin/categories`
 
 ### GET `/api/v1/admin/categories`
@@ -230,6 +245,8 @@ Base Path: `/api/v1/admin/categories`
 
 ## 7. Order Processing, Invoicing & Refunds
 
+📘 Detailed Specification & Frontend Guide: [orders.md](orders.md)
+
 Base Path: `/api/v1/admin/orders`
 
 ### GET `/api/v1/admin/orders`
@@ -261,6 +278,8 @@ Base Path: `/api/v1/admin/orders`
 
 ## 8. Review Moderation & Store Replies
 
+📘 Detailed Specification & Frontend Guide: [reviews.md](reviews.md)
+
 Base Path: `/api/v1/admin/reviews`
 
 ### GET `/api/v1/admin/reviews`
@@ -286,6 +305,8 @@ Base Path: `/api/v1/admin/reviews`
 
 ## 9. Shipping & Courier Logistics
 
+📘 Detailed Specification & Frontend Guide: [shipping.md](shipping.md)
+
 Base Path: `/api/v1/admin/shipments` (or `/api/v1/admin/shipping`)
 
 ### GET `/api/v1/admin/shipments`
@@ -309,6 +330,8 @@ Base Path: `/api/v1/admin/shipments` (or `/api/v1/admin/shipping`)
 ---
 
 ## 10. Marketing Campaigns & Messaging
+
+📘 Detailed Specification & Frontend Guide: [campaigns.md](campaigns.md)
 
 Base Path: `/api/v1/admin/campaigns`
 
@@ -340,6 +363,8 @@ Base Path: `/api/v1/admin/campaigns`
 ---
 
 ## 11. Editorial Blogs & CMS
+
+📘 Detailed Specification & Frontend Guide: [blogs.md](blogs.md)
 
 Base Paths: `/api/v1/admin/blogs` & `/api/v1/admin/blog-categories`
 
@@ -374,6 +399,8 @@ Base Paths: `/api/v1/admin/blogs` & `/api/v1/admin/blog-categories`
 
 ## 12. Reports & Financial Ledgers
 
+📘 Detailed Specification & Frontend Guide: [reports.md](reports.md)
+
 Base Path: `/api/v1/admin/reports`
 
 ### GET `/api/v1/admin/reports/sales`
@@ -402,6 +429,8 @@ Base Path: `/api/v1/admin/reports`
 
 ## 13. Store & System Settings
 
+📘 Detailed Specification & Frontend Guide: [settings.md](settings.md)
+
 Base Path: `/api/v1/admin/settings`
 
 ### GET `/api/v1/admin/settings`
@@ -424,3 +453,28 @@ Base Path: `/api/v1/admin/settings`
 
 ### GET `/api/v1/admin/settings/delivery` & PATCH
 - **Description**: Free delivery threshold amount, default shipping fees, courier rules.
+
+
+---
+
+## 14. Media Uploads & File Management
+
+📘 Detailed Specification & Frontend Guide: [upload.md](upload.md)
+
+Base Path: `/api/v1/admin/upload`
+
+### GET `/api/v1/admin/upload/config`
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Description**: Returns allowed image MIME types, active Supabase bucket, and size constraints (2MB to 5MB).
+
+### POST `/api/v1/admin/upload`
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Headers**: `Content-Type: multipart/form-data`
+- **Body**: `file` (Binary image file, 2MB–5MB)
+- **Description**: Uploads single image file targeting Supabase Storage with local disk fallback.
+
+### POST `/api/v1/admin/upload/multiple`
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Headers**: `Content-Type: multipart/form-data`
+- **Body**: `files` (Array of binary image files, max 10 files, 2MB–5MB each)
+- **Description**: Batch upload multiple images in a single request.

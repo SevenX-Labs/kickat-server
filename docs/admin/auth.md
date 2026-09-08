@@ -27,7 +27,7 @@ All admin authentication endpoints are served under `/api/v1/admin/auth`.
 ---
 
 ## Architecture & Frontend Integration Overview
-`
+
 - **Base URL:** `https://api.kickat.co.in/api/v1/admin/auth` (or your staging/production API domain + `/api/v1/admin/auth`)
 - **Content Type:** `application/json`
 - **Authentication Scheme:** Standard HTTP Bearer token via `Authorization: Bearer <accessToken>` header.
