@@ -8,6 +8,7 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  Req,
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
@@ -23,6 +24,42 @@ import { DeleteUploadedFilesDto, MulterFile, UploadTypeEnum } from './dto/upload
 @Controller('admin/upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
+
+  /**
+   * Intelligently determine target storage folder:
+   * 1. Explicit folder or type query/body params
+   * 2. Custom header x-upload-folder
+   * 3. Browser Referer URL context (/categories, /products, /blogs)
+   * 4. Default safe folder "general"
+   */
+  private determineContextFolder(
+    req: any,
+    folder?: string,
+    bodyFolder?: string,
+    type?: string,
+    bodyType?: string,
+  ): string {
+    const explicit = folder || bodyFolder || type || bodyType;
+    if (explicit && explicit.trim().length > 0) {
+      return explicit.trim().toLowerCase();
+    }
+
+    const headerFolder = req?.headers?.["x-upload-folder"];
+    if (headerFolder && typeof headerFolder === "string" && headerFolder.trim().length > 0) {
+      return headerFolder.trim().toLowerCase();
+    }
+
+    const referer = req?.headers?.["referer"] || req?.headers?.["referrer"];
+    if (referer && typeof referer === "string") {
+      const lower = referer.toLowerCase();
+      if (lower.includes("/categor")) return "categories";
+      if (lower.includes("/product")) return "products";
+      if (lower.includes("/blog")) return "blogs";
+    }
+
+    return "general";
+  }
+
 
   /**
    * GET /api/v1/admin/upload/config
@@ -59,6 +96,7 @@ export class UploadController {
   )
   async uploadSingleFile(
     @UploadedFile() file: MulterFile,
+    @Req() req: any,
     @Query('type') type?: string,
     @Query('folder') folder?: string,
     @Body('folder') bodyFolder?: string,
@@ -66,7 +104,7 @@ export class UploadController {
     @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
-    const effectiveFolder = folder || bodyFolder || type || bodyType;
+    const effectiveFolder = this.determineContextFolder(req, folder, bodyFolder, type, bodyType);
     return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, effectiveFolder);
   }
 
@@ -97,6 +135,97 @@ export class UploadController {
    * POST /api/v1/admin/upload/multiple
    * Multiple file upload endpoint (Max 10 files per request)
    */
+  
+  /**
+   * POST /api/v1/admin/upload/category
+   * Explicit convenience endpoint for category images (Stores inside categories/ folder)
+   */
+  @Post("category")
+  @HttpCode(HttpStatus.OK)
+  @ApiConsumes("multipart/form-data")
+  @ApiOperation({
+    summary: "Upload category image (Stored inside categories/ folder, max 4MB)",
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadCategoryFile(
+    @UploadedFile() file: MulterFile,
+    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
+    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+  ) {
+    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "categories");
+  }
+
+  /**
+   * POST /api/v1/admin/upload/categories (plural alias)
+   */
+  @Post("categories")
+  @HttpCode(HttpStatus.OK)
+  @ApiConsumes("multipart/form-data")
+  @ApiOperation({
+    summary: "Upload category image alias (Stored inside categories/ folder)",
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadCategoriesFile(
+    @UploadedFile() file: MulterFile,
+    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
+    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+  ) {
+    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "categories");
+  }
+
+  /**
+   * POST /api/v1/admin/upload/blog
+   * Explicit convenience endpoint for blog images (Stored inside blogs/ folder)
+   */
+  @Post("blog")
+  @HttpCode(HttpStatus.OK)
+  @ApiConsumes("multipart/form-data")
+  @ApiOperation({
+    summary: "Upload blog image (Stored inside blogs/ folder, max 4MB)",
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadBlogFile(
+    @UploadedFile() file: MulterFile,
+    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
+    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+  ) {
+    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "blogs");
+  }
+
+  /**
+   * POST /api/v1/admin/upload/blogs (plural alias)
+   */
+  @Post("blogs")
+  @HttpCode(HttpStatus.OK)
+  @ApiConsumes("multipart/form-data")
+  @ApiOperation({
+    summary: "Upload blog image alias (Stored inside blogs/ folder)",
+  })
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadBlogsFile(
+    @UploadedFile() file: MulterFile,
+    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
+    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+  ) {
+    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "blogs");
+  }
+
   @Post('multiple')
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
@@ -111,6 +240,7 @@ export class UploadController {
   )
   async uploadMultipleFiles(
     @UploadedFiles() files: MulterFile[],
+    @Req() req: any,
     @Query('type') type?: string,
     @Query('folder') folder?: string,
     @Body('folder') bodyFolder?: string,
@@ -118,7 +248,7 @@ export class UploadController {
     @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
-    const effectiveFolder = folder || bodyFolder || type || bodyType;
+    const effectiveFolder = this.determineContextFolder(req, folder, bodyFolder, type, bodyType);
     return this.uploadService.uploadMultipleFiles(files, minSizeMb, maxSizeMb, effectiveFolder);
   }
 

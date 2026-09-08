@@ -67,4 +67,23 @@ describe('UploadController', () => {
     expect(res.deletedCount).toBe(0);
     expect(service.deleteFilesByUrls).not.toHaveBeenCalled();
   });
+
+  it("should delegate uploadCategoryFile with categories folder", async () => {
+    const mockFile: any = { originalname: "cat.png" };
+    await controller.uploadCategoryFile(mockFile, undefined, undefined);
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, "categories");
+  });
+
+  it("should delegate uploadBlogFile with blogs folder", async () => {
+    const mockFile: any = { originalname: "blog.png" };
+    await controller.uploadBlogFile(mockFile, undefined, undefined);
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, "blogs");
+  });
+
+  it("should infer folder from referer header if not explicitly provided", async () => {
+    const mockFile: any = { originalname: "cat.png" };
+    const mockReq: any = { headers: { referer: "https://admin.kickat.co.in/admin/dashboard/categories" } };
+    await controller.uploadSingleFile(mockFile, mockReq, undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, "categories");
+  });
 });

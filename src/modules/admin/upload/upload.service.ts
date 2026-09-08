@@ -82,13 +82,13 @@ export class UploadService {
    * Normalize and resolve storage folder prefix (categories/, products/, blogs/)
    */
   resolveFolderPrefix(typeOrFolder?: string): string {
-    if (!typeOrFolder) return "";
+    if (!typeOrFolder) return "general/";
     const normalized = typeOrFolder.trim().toLowerCase();
     if (normalized === "category" || normalized === "categories") return "categories/";
     if (normalized === "product" || normalized === "products") return "products/";
     if (normalized === "blog" || normalized === "blogs") return "blogs/";
     const clean = normalized.replace(/[^a-z0-9_-]/g, "");
-    return clean ? `${clean}/` : "";
+    return clean ? `${clean}/` : "general/";
   }
 
   resolveLimits(
