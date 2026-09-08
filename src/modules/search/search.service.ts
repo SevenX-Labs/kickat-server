@@ -35,6 +35,7 @@ export class SearchService {
     const whereCondition: any = {
       OR: [
         { name: { contains: searchKeyword, mode: 'insensitive' } },
+        { descriptionTitle: { contains: searchKeyword, mode: 'insensitive' } },
         { description: { contains: searchKeyword, mode: 'insensitive' } },
         { brand: { contains: searchKeyword, mode: 'insensitive' } },
       ],

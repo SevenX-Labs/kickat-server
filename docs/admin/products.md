@@ -193,6 +193,7 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "id": "prod-uuid-1",
     "name": "Kickat Maxi Puppy Dry Food",
     "slug": "kickat-maxi-puppy-dry-food",
+    "descriptionTitle": "Product Details",
     "description": "Tailored nutrition for large breed puppies.",
     "price": 3250.0,
     "discountPrice": 2999.0,
@@ -235,11 +236,15 @@ All administrative product management endpoints are served under `/api/v1/admin/
 > [!NOTE]
 > **Canonical Image Pipeline:** Pass up to 9 image URLs in `images[]`. `images[0]` is automatically assigned as the primary `imageUrl`, and relational `ProductMedia` records (type: `IMAGE`, order: 0..N-1) are synchronized atomically. Video is not supported.
 
+> [!TIP]
+> **Configurable Description Section Heading:** `descriptionTitle` is an optional heading (string, max 150 chars, e.g. "Why Your Pet Will Love It", "Product Details", "About This Product", "Key Features", "About the Food"). The backend never hardcodes section headings. `description` contains the main body copy, while `highlights` contains optional feature/benefit cards.
+
 ```json
 {
   "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
   "slug": "kickat-chicken-puppy-food",
-  "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
+  "descriptionTitle": "Why Your Pet Will Love It",
+  "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.
   "price": 3299.0,
   "discountPrice": 2799.0,
   "stock": 50,
@@ -334,6 +339,7 @@ All administrative product management endpoints are served under `/api/v1/admin/
     "id": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
     "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
     "slug": "kickat-chicken-puppy-food",
+    "descriptionTitle": "Why Your Pet Will Love It",
     "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
     "price": 3299.0,
     "discountPrice": 2799.0,
@@ -664,6 +670,7 @@ Accepts any partial subset of fields from Create Product. Passing `variants` or 
     "id": "d3b07384-d113-4a62-9e96-a9e99e4b7a12",
     "name": "Kickat Natural Chicken & Brown Rice Puppy Dog Food",
     "slug": "kickat-chicken-puppy-food",
+    "descriptionTitle": "Why Your Pet Will Love It",
     "description": "High-protein dry puppy food formulated for healthy muscle development and gentle digestion.",
     "price": 3299.0,
     "discountPrice": 2799.0,
@@ -892,6 +899,7 @@ export interface AdminProductItem {
   id: string;
   name: string;
   slug: string;
+  descriptionTitle?: string | null;
   description?: string | null;
   price: number;
   discountPrice?: number | null;

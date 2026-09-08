@@ -111,11 +111,13 @@ describe('Admin ProductsService', () => {
   });
 
   describe('getProductById', () => {
-    it('should return single product by UUID', async () => {
+    it('should return single product by UUID including descriptionTitle', async () => {
       const mockProduct = {
         id: '11111111-1111-4111-a111-111111111111',
         name: 'Cat Scratcher',
         slug: 'cat-scratcher',
+        descriptionTitle: 'Product Details',
+        description: 'Quality sisal cat scratcher',
         category: { id: 'cat-2', name: 'Toys' },
         variants: [],
         media: [],
@@ -269,6 +271,52 @@ describe('Admin ProductsService', () => {
 
       await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
     });
+
+    it('should persist descriptionTitle when provided on product create', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+      prisma.product.findUnique.mockResolvedValue(null);
+
+      let createdData: any = null;
+      prisma.product.create.mockImplementation(({ data }: any) => {
+        createdData = data;
+        return { id: 'prod-new', ...data };
+      });
+
+      const dto: CreateProductDto = {
+        name: 'Chew Toy',
+        price: 299,
+        categoryId: 'cat-1',
+        descriptionTitle: 'Why Your Pet Will Love It',
+        description: 'Natural rubber chew toy',
+      };
+
+      const result = await service.createProduct(dto);
+      expect(result.success).toBe(true);
+      expect(createdData.descriptionTitle).toBe('Why Your Pet Will Love It');
+      expect(createdData.description).toBe('Natural rubber chew toy');
+    });
+
+    it('should set descriptionTitle to null when omitted or empty on product create', async () => {
+      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
+      prisma.product.findUnique.mockResolvedValue(null);
+
+      let createdData: any = null;
+      prisma.product.create.mockImplementation(({ data }: any) => {
+        createdData = data;
+        return { id: 'prod-new', ...data };
+      });
+
+      const dto: CreateProductDto = {
+        name: 'Chew Toy Without Title',
+        price: 299,
+        categoryId: 'cat-1',
+        description: 'Natural rubber chew toy',
+      };
+
+      const result = await service.createProduct(dto);
+      expect(result.success).toBe(true);
+      expect(createdData.descriptionTitle).toBeNull();
+    });
   });
 
   describe('updateProduct', () => {
@@ -320,6 +368,62 @@ describe('Admin ProductsService', () => {
       await expect(
         service.updateProduct('invalid-id', { name: 'New Name' }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should update descriptionTitle when provided', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Chew Toy',
+        slug: 'chew-toy',
+        deletedAt: null,
+        descriptionTitle: 'Old Title',
+        variants: [],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', descriptionTitle: 'Key Features' });
+      let updatePayload: any = null;
+      prisma.product.update.mockImplementation(({ data }: any) => {
+        updatePayload = data;
+        return { id: 'prod-1', ...data };
+      });
+
+      const dto: UpdateProductDto = {
+        descriptionTitle: 'Key Features',
+      };
+
+      const result = await service.updateProduct('prod-1', dto);
+      expect(result.success).toBe(true);
+      expect(updatePayload.descriptionTitle).toBe('Key Features');
+    });
+
+    it('should clear descriptionTitle when provided as empty string', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Chew Toy',
+        slug: 'chew-toy',
+        deletedAt: null,
+        descriptionTitle: 'Existing Title',
+        variants: [],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', descriptionTitle: null });
+      let updatePayload: any = null;
+      prisma.product.update.mockImplementation(({ data }: any) => {
+        updatePayload = data;
+        return { id: 'prod-1', ...data };
+      });
+
+      const dto: UpdateProductDto = {
+        descriptionTitle: '',
+      };
+
+      const result = await service.updateProduct('prod-1', dto);
+      expect(result.success).toBe(true);
+      expect(updatePayload.descriptionTitle).toBeNull();
     });
   });
 

@@ -83,6 +83,7 @@ export class ProductsService {
         { name: { contains: s, mode: 'insensitive' } },
         { brand: { contains: s, mode: 'insensitive' } },
         { slug: { contains: s, mode: 'insensitive' } },
+        { descriptionTitle: { contains: s, mode: 'insensitive' } },
         { description: { contains: s, mode: 'insensitive' } },
         {
           variants: {
@@ -357,6 +358,10 @@ export class ProductsService {
         data: {
           name: dto.name,
           slug,
+          descriptionTitle:
+            dto.descriptionTitle && dto.descriptionTitle.trim().length > 0
+              ? dto.descriptionTitle.trim()
+              : null,
           description: dto.description || null,
           price: dto.price,
           discountPrice: dto.discountPrice || null,
@@ -515,6 +520,12 @@ export class ProductsService {
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(slug !== existing.slug && { slug }),
+          ...(dto.descriptionTitle !== undefined && {
+            descriptionTitle:
+              dto.descriptionTitle && dto.descriptionTitle.trim().length > 0
+                ? dto.descriptionTitle.trim()
+                : null,
+          }),
           ...(dto.description !== undefined && { description: dto.description }),
           ...(dto.price !== undefined && { price: dto.price }),
           ...(dto.discountPrice !== undefined && { discountPrice: dto.discountPrice }),

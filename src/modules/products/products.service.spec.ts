@@ -70,4 +70,34 @@ describe('ProductsService', () => {
       NotFoundException,
     );
   });
+
+  it('should return descriptionTitle in public product details', async () => {
+    const slug = 'rubber-bone-toy';
+    mockPrismaService.product.findFirst.mockResolvedValue({
+      id: 'p1',
+      slug,
+      name: 'Rubber Bone Toy',
+      descriptionTitle: 'Why Your Pet Will Love It',
+      description: 'Durable rubber chew toy',
+    });
+
+    const res = await service.getProductByIdOrSlug(slug);
+    expect(res.product.descriptionTitle).toBe('Why Your Pet Will Love It');
+    expect(res.product.description).toBe('Durable rubber chew toy');
+  });
+
+  it('should work seamlessly for legacy products without descriptionTitle (returns null)', async () => {
+    const slug = 'legacy-dog-food';
+    mockPrismaService.product.findFirst.mockResolvedValue({
+      id: 'p2',
+      slug,
+      name: 'Legacy Dog Food',
+      descriptionTitle: null,
+      description: 'Healthy dog food',
+    });
+
+    const res = await service.getProductByIdOrSlug(slug);
+    expect(res.product.descriptionTitle).toBeNull();
+    expect(res.product.name).toBe('Legacy Dog Food');
+  });
 });

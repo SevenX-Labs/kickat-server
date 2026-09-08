@@ -16,7 +16,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   DietaryPreference,
   MediaType,
@@ -304,6 +304,12 @@ export class CreateProductDto {
   slug?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(150, { message: 'Description title cannot exceed 150 characters' })
+  descriptionTitle?: string;
+
+  @IsOptional()
   @IsString()
   description?: string;
 
@@ -423,6 +429,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   slug?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(150, { message: 'Description title cannot exceed 150 characters' })
+  descriptionTitle?: string;
 
   @IsOptional()
   @IsString()
