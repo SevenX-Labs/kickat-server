@@ -300,4 +300,183 @@ export class UploadService {
       },
     };
   }
+
+  /**
+   * Parse storage path and provider from an image URL or path.
+   * Handles:
+   * 1. Supabase public URLs: .../storage/v1/object/public/<bucketName>/<filePath>
+   * 2. Local uploads URLs: .../uploads/<filePath>
+   * 3. Relative filePath if within upload folders
+   */
+  extractStoragePath(
+    url: string,
+  ): { provider: "supabase" | "local"; path: string; bucket?: string } | null {
+    if (!url || typeof url !== "string") return null;
+
+    try {
+      const cleanUrl = url.trim().split("?")[0].split("#")[0];
+
+      // 1. Supabase URL format: /storage/v1/object/public/<bucket>/<path>
+      const supabaseRegex = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i;
+      const supabaseMatch = cleanUrl.match(supabaseRegex);
+      if (supabaseMatch) {
+        return {
+          provider: "supabase",
+          bucket: decodeURIComponent(supabaseMatch[1]),
+          path: decodeURIComponent(supabaseMatch[2]),
+        };
+      }
+
+      // 2. Local upload format: .../uploads/<path>
+      const localRegex = /\/uploads\/(.+)$/i;
+      const localMatch = cleanUrl.match(localRegex);
+      if (localMatch) {
+        return {
+          provider: "local",
+          path: decodeURIComponent(localMatch[1]),
+        };
+      }
+
+      // 3. Relative path format (e.g. "product/123.jpg" or "123.jpg")
+      if (
+        !cleanUrl.startsWith("http://") &&
+        !cleanUrl.startsWith("https://") &&
+        !cleanUrl.startsWith("data:")
+      ) {
+        const relativePath = cleanUrl.replace(/^\/+/, "");
+        if (relativePath.length > 0) {
+          return {
+            provider: this.supabaseClient ? "supabase" : "local",
+            bucket: this.bucketName,
+            path: relativePath,
+          };
+        }
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Delete a single file from physical storage (Supabase or local disk) by its URL.
+   */
+  async deleteFileByUrl(url?: string | null): Promise<boolean> {
+    if (!url) return false;
+
+    const parsed = this.extractStoragePath(url);
+    if (!parsed) {
+      this.logger.debug(`Skipping file deletion: URL "${url}" is not a managed storage file`);
+      return false;
+    }
+
+    try {
+      if (parsed.provider === "supabase" && this.supabaseClient) {
+        const bucket = parsed.bucket || this.bucketName;
+        const { error } = await this.supabaseClient.storage
+          .from(bucket)
+          .remove([parsed.path]);
+
+        if (error) {
+          this.logger.warn(`Failed to delete Supabase file "${parsed.path}": ${error.message}`);
+          return false;
+        }
+        this.logger.log(`Deleted file from Supabase storage: bucket "${bucket}", path "${parsed.path}"`);
+        return true;
+      }
+
+      // Local fallback file deletion
+      const uploadDir = path.resolve(process.cwd(), "uploads");
+      const localFilePath = path.resolve(uploadDir, parsed.path);
+
+      // Prevent directory traversal
+      if (!localFilePath.startsWith(uploadDir)) {
+        this.logger.warn(`Security warning: Attempted path traversal in delete: ${parsed.path}`);
+        return false;
+      }
+
+      if (fs.existsSync(localFilePath)) {
+        await fs.promises.unlink(localFilePath);
+        this.logger.log(`Deleted file from local storage: ${localFilePath}`);
+        return true;
+      }
+
+      return false;
+    } catch (err: any) {
+      this.logger.warn(`Error during file deletion for "${url}": ${err?.message || err}`);
+      return false;
+    }
+  }
+
+  /**
+   * Batch delete multiple files from physical storage by their URLs.
+   * Deduplicates URLs and batches Supabase removal calls for high performance.
+   */
+  async deleteFilesByUrls(urls: (string | null | undefined)[]): Promise<number> {
+    if (!urls || urls.length === 0) return 0;
+
+    const validUrls = Array.from(
+      new Set(urls.filter((u): u is string => typeof u === "string" && u.trim().length > 0)),
+    );
+
+    if (validUrls.length === 0) return 0;
+
+    const supabaseBatches: Record<string, string[]> = {};
+    const localPaths: string[] = [];
+
+    for (const url of validUrls) {
+      const parsed = this.extractStoragePath(url);
+      if (!parsed) continue;
+
+      if (parsed.provider === "supabase" && this.supabaseClient) {
+        const bucket = parsed.bucket || this.bucketName;
+        if (!supabaseBatches[bucket]) {
+          supabaseBatches[bucket] = [];
+        }
+        supabaseBatches[bucket].push(parsed.path);
+      } else {
+        localPaths.push(parsed.path);
+      }
+    }
+
+    let deletedCount = 0;
+
+    // 1. Delete from Supabase in bucket batches
+    if (this.supabaseClient) {
+      for (const [bucket, paths] of Object.entries(supabaseBatches)) {
+        try {
+          const { error } = await this.supabaseClient.storage
+            .from(bucket)
+            .remove(paths);
+
+          if (error) {
+            this.logger.warn(`Batch delete error in Supabase bucket "${bucket}": ${error.message}`);
+          } else {
+            deletedCount += paths.length;
+            this.logger.log(`Batch deleted ${paths.length} files from Supabase bucket "${bucket}"`);
+          }
+        } catch (err: any) {
+          this.logger.warn(`Exception during Supabase batch removal: ${err?.message || err}`);
+        }
+      }
+    }
+
+    // 2. Delete from local storage
+    const uploadDir = path.resolve(process.cwd(), "uploads");
+    for (const relativePath of localPaths) {
+      try {
+        const localFilePath = path.resolve(uploadDir, relativePath);
+        if (localFilePath.startsWith(uploadDir) && fs.existsSync(localFilePath)) {
+          await fs.promises.unlink(localFilePath);
+          deletedCount++;
+          this.logger.log(`Deleted local file: ${localFilePath}`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to delete local file "${relativePath}": ${err?.message || err}`);
+      }
+    }
+
+    return deletedCount;
+  }
 }

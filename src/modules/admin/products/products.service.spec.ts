@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsService } from './products.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   AdminProductSortEnum,
@@ -13,6 +14,12 @@ import { ProductStatusEnum } from '@prisma/client';
 describe('Admin ProductsService', () => {
   let service: ProductsService;
   let prisma: any;
+  let uploadService: any;
+
+  const mockUploadService = {
+    deleteFilesByUrls: jest.fn().mockResolvedValue(0),
+    deleteFileByUrl: jest.fn().mockResolvedValue(true),
+  };
 
   const mockPrismaService = {
     product: {
@@ -51,11 +58,16 @@ describe('Admin ProductsService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        {
+          provide: UploadService,
+          useValue: mockUploadService,
+        },
       ],
     }).compile();
 
     service = module.get<ProductsService>(ProductsService);
     prisma = module.get<PrismaService>(PrismaService);
+    uploadService = module.get<UploadService>(UploadService);
     jest.clearAllMocks();
   });
 
@@ -528,8 +540,15 @@ describe('Admin ProductsService', () => {
   });
 
   describe('deleteProduct', () => {
-    it('should soft-delete product by setting deletedAt timestamp', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', deletedAt: null });
+    it('should soft-delete product and clean up associated images', async () => {
+      prisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        deletedAt: null,
+        imageUrl: 'https://supabase/upload/product/main.png',
+        images: ['https://supabase/upload/product/g1.png'],
+        media: [{ url: 'https://supabase/upload/product/m1.png', thumbnailUrl: null }],
+        variants: [{ imageUrl: 'https://supabase/upload/product/v1.png' }],
+      });
       prisma.product.update.mockResolvedValue({});
 
       const result = await service.deleteProduct('prod-1', false);
@@ -540,10 +559,23 @@ describe('Admin ProductsService', () => {
         where: { id: 'prod-1' },
         data: { deletedAt: expect.any(Date) },
       });
+      expect(uploadService.deleteFilesByUrls).toHaveBeenCalledWith([
+        'https://supabase/upload/product/main.png',
+        'https://supabase/upload/product/g1.png',
+        'https://supabase/upload/product/m1.png',
+        'https://supabase/upload/product/v1.png',
+      ]);
     });
 
-    it('should permanently delete product if permanent is true', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', deletedAt: null });
+    it('should permanently delete product and clean up associated images', async () => {
+      prisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        deletedAt: null,
+        imageUrl: 'https://supabase/upload/product/main.png',
+        images: [],
+        media: [],
+        variants: [],
+      });
       prisma.product.delete.mockResolvedValue({});
 
       const result = await service.deleteProduct('prod-1', true);
@@ -553,6 +585,9 @@ describe('Admin ProductsService', () => {
       expect(prisma.product.delete).toHaveBeenCalledWith({
         where: { id: 'prod-1' },
       });
+      expect(uploadService.deleteFilesByUrls).toHaveBeenCalledWith([
+        'https://supabase/upload/product/main.png',
+      ]);
     });
   });
 

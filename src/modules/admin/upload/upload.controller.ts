@@ -1,5 +1,7 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -14,7 +16,7 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AdminAuth } from '../../../common';
 import { UploadService } from './upload.service';
-import { MulterFile, UploadTypeEnum } from './dto/upload.dto';
+import { DeleteUploadedFilesDto, MulterFile, UploadTypeEnum } from './dto/upload.dto';
 
 @ApiTags('Admin Uploads')
 @AdminAuth()
@@ -133,5 +135,52 @@ export class UploadController {
     @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
   ) {
     return this.uploadService.uploadMultipleFiles(files, minSizeMb, maxSizeMb, 'product');
+  }
+
+  /**
+   * DELETE /api/v1/admin/upload
+   * Delete uploaded image file(s) from storage by URL
+   */
+  @Delete()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Delete uploaded file(s) from storage by URL",
+  })
+  async deleteFile(
+    @Query("url") queryUrl?: string,
+    @Body() bodyDto?: DeleteUploadedFilesDto,
+  ) {
+    const urls: string[] = [];
+    if (queryUrl) urls.push(queryUrl);
+    if (bodyDto?.url) urls.push(bodyDto.url);
+    if (bodyDto?.urls && Array.isArray(bodyDto.urls)) urls.push(...bodyDto.urls);
+
+    if (urls.length === 0) {
+      return {
+        success: true,
+        message: "No URLs provided for deletion",
+        deletedCount: 0,
+      };
+    }
+
+    const deletedCount = await this.uploadService.deleteFilesByUrls(urls);
+    return {
+      success: true,
+      message: `Successfully deleted ${deletedCount} file(s) from storage`,
+      deletedCount,
+    };
+  }
+
+  /**
+   * POST /api/v1/admin/upload/delete
+   * Convenience POST endpoint for environments where DELETE with body is restricted
+   */
+  @Post("delete")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Delete uploaded file(s) from storage by URL (POST alternative)",
+  })
+  async deleteFilePost(@Body() bodyDto: DeleteUploadedFilesDto) {
+    return this.deleteFile(undefined, bodyDto);
   }
 }

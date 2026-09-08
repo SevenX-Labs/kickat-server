@@ -129,4 +129,50 @@ describe('UploadService', () => {
       expect(res.config.allElse.maxFileSizeMb).toBe(4);
     });
   });
+
+  describe("File Deletion Methods", () => {
+    it("should extract storage path from Supabase URL", () => {
+      const url = "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/123-test.png";
+      const parsed = service.extractStoragePath(url);
+      expect(parsed).toEqual({
+        provider: "supabase",
+        bucket: "upload",
+        path: "product/123-test.png",
+      });
+    });
+
+    it("should extract storage path from local uploads URL", () => {
+      const url = "http://localhost:3000/uploads/product/456-test.png";
+      const parsed = service.extractStoragePath(url);
+      expect(parsed).toEqual({
+        provider: "local",
+        path: "product/456-test.png",
+      });
+    });
+
+    it("should return null for external unmanaged URLs", () => {
+      const url = "https://images.unsplash.com/photo-123456";
+      const parsed = service.extractStoragePath(url);
+      expect(parsed).toBeNull();
+    });
+
+    it("should gracefully handle null or invalid URLs in deleteFileByUrl", async () => {
+      expect(await service.deleteFileByUrl(null)).toBe(false);
+      expect(await service.deleteFileByUrl("")).toBe(false);
+      expect(await service.deleteFileByUrl("https://external.com/pic.jpg")).toBe(false);
+    });
+
+    it("should handle batch deletion with deleteFilesByUrls", async () => {
+      const urls = [
+        "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/test-1.png",
+        "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/test-2.png",
+        "https://external.com/pic.jpg", // ignored
+        null,
+      ];
+
+      // In unit test environment without supabaseClient, these fall to local check
+      const count = await service.deleteFilesByUrls(urls as any);
+      expect(typeof count).toBe("number");
+    });
+  });
 });

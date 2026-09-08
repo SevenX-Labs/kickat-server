@@ -1,12 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CategoriesService } from './categories.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/admin-category.dto';
 
 describe('Admin CategoriesService', () => {
   let service: CategoriesService;
   let prisma: any;
+  let uploadService: any;
+
+  const mockUploadService = {
+    deleteFileByUrl: jest.fn().mockResolvedValue(true),
+    deleteFilesByUrls: jest.fn().mockResolvedValue(1),
+  };
 
   const mockPrismaService = {
     category: {
@@ -32,12 +39,19 @@ describe('Admin CategoriesService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        {
+          provide: UploadService,
+          useValue: mockUploadService,
+        },
       ],
     }).compile();
 
     service = module.get<CategoriesService>(CategoriesService);
     prisma = module.get<PrismaService>(PrismaService);
+    uploadService = module.get<UploadService>(UploadService);
     jest.clearAllMocks();
+    prisma.category.findUnique.mockReset();
+    prisma.category.findFirst.mockReset();
   });
 
   it('should be defined', () => {
@@ -286,7 +300,7 @@ describe('Admin CategoriesService', () => {
     });
 
     it('should soft-delete category if no dependencies exist', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null, imageUrl: 'https://supabase/upload/category/cat-1.png' });
       prisma.product.count.mockResolvedValue(0);
       prisma.category.count.mockResolvedValue(0);
       prisma.category.update.mockResolvedValue({});
@@ -299,6 +313,7 @@ describe('Admin CategoriesService', () => {
         where: { id: 'cat-1' },
         data: { deletedAt: expect.any(Date) },
       });
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith('https://supabase/upload/category/cat-1.png');
     });
 
     it('should permanently delete category if permanent is true and no dependencies', async () => {

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import {
   AdminProductSortEnum,
   AdminProductsQueryDto,
@@ -24,7 +25,10 @@ const UUID_V4_REGEX =
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   /**
    * Helper to generate a URL-safe kebab-case slug
@@ -744,10 +748,29 @@ export class ProductsService {
   async deleteProduct(id: string, permanent: boolean = false) {
     const existing = await this.prisma.product.findUnique({
       where: { id },
+      include: {
+        variants: true,
+        media: true,
+      },
     });
 
     if (!existing || (!permanent && existing.deletedAt !== null)) {
       throw new NotFoundException('Product not found');
+    }
+
+    const imageUrls: string[] = [];
+    if (existing.imageUrl) imageUrls.push(existing.imageUrl);
+    if (Array.isArray(existing.images)) imageUrls.push(...existing.images);
+    if (Array.isArray(existing.media)) {
+      for (const m of existing.media) {
+        if (m.url) imageUrls.push(m.url);
+        if (m.thumbnailUrl) imageUrls.push(m.thumbnailUrl);
+      }
+    }
+    if (Array.isArray(existing.variants)) {
+      for (const v of existing.variants) {
+        if (v.imageUrl) imageUrls.push(v.imageUrl);
+      }
     }
 
     if (permanent) {
@@ -759,6 +782,10 @@ export class ProductsService {
         where: { id },
         data: { deletedAt: new Date() },
       });
+    }
+
+    if (imageUrls.length > 0) {
+      await this.uploadService.deleteFilesByUrls(imageUrls);
     }
 
     return {
@@ -840,6 +867,31 @@ export class ProductsService {
       throw new BadRequestException('productIds array cannot be empty');
     }
 
+    const productsToDelete = await this.prisma.product.findMany({
+      where: { id: { in: dto.productIds } },
+      include: {
+        variants: true,
+        media: true,
+      },
+    });
+
+    const imageUrls: string[] = [];
+    for (const prod of productsToDelete) {
+      if (prod.imageUrl) imageUrls.push(prod.imageUrl);
+      if (Array.isArray(prod.images)) imageUrls.push(...prod.images);
+      if (Array.isArray(prod.media)) {
+        for (const m of prod.media) {
+          if (m.url) imageUrls.push(m.url);
+          if (m.thumbnailUrl) imageUrls.push(m.thumbnailUrl);
+        }
+      }
+      if (Array.isArray(prod.variants)) {
+        for (const v of prod.variants) {
+          if (v.imageUrl) imageUrls.push(v.imageUrl);
+        }
+      }
+    }
+
     let deletedCount = 0;
     if (dto.permanent) {
       const res = await this.prisma.product.deleteMany({
@@ -852,6 +904,10 @@ export class ProductsService {
         data: { deletedAt: new Date() },
       });
       deletedCount = res.count;
+    }
+
+    if (imageUrls.length > 0) {
+      await this.uploadService.deleteFilesByUrls(imageUrls);
     }
 
     return {

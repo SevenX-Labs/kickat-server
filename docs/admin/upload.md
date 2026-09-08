@@ -51,6 +51,8 @@ The backend enforces strict context-aware image size limits:
 | `POST` | `/api/v1/admin/upload/product` | Yes (`Bearer`) | Upload single product image (Enforces 2MB min, 3MB max) |
 | `POST` | `/api/v1/admin/upload/multiple` | Yes (`Bearer`) | Batch upload up to 10 images (`files` field, defaults to max 4MB) |
 | `POST` | `/api/v1/admin/upload/multiple/product` | Yes (`Bearer`) | Batch upload up to 10 product images (Enforces 2MB min, 3MB max per file) |
+| `DELETE` | `/api/v1/admin/upload` | Yes (`Bearer`) | Delete uploaded image file(s) from Supabase or local storage |
+| `POST` | `/api/v1/admin/upload/delete` | Yes (`Bearer`) | POST alternative to delete uploaded image file(s) by URL |
 
 ---
 
@@ -222,6 +224,36 @@ The backend enforces strict context-aware image size limits:
 
 ---
 
+
+---
+
+### 4. Delete Uploaded Image File(s)
+
+Deletes uploaded image files from Supabase Storage (bucket `upload`) or local disk. Used when an admin removes an image from a draft or when standalone image removal is needed.
+
+- **HTTP Method:** `DELETE` (or `POST /api/v1/admin/upload/delete`)
+- **Endpoint:** `/api/v1/admin/upload`
+- **Headers:** `Authorization: Bearer <accessToken>`
+- **Optional Query Parameter:** `url` (Single URL)
+- **Request Body (Optional / JSON):**
+  ```json
+  {
+    "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/1725798000-img1.png",
+    "urls": [
+      "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/1725798000-img2.png"
+    ]
+  }
+  ```
+
+#### Expected Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Successfully deleted 2 file(s) from storage",
+  "deletedCount": 2
+}
+```
+
 ## Frontend Integration Guide (TypeScript & Axios)
 
 ```typescript
@@ -286,6 +318,19 @@ export const AdminUploadService = {
     const res = await uploadApi.post("/multiple/product", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     });
+    return res.data;
+  },
+
+  /**
+   * Delete uploaded file(s) by URL
+   */
+  async deleteFile(url: string) {
+    const res = await uploadApi.delete("", { data: { url } });
+    return res.data;
+  },
+
+  async deleteFiles(urls: string[]) {
+    const res = await uploadApi.delete("", { data: { urls } });
     return res.data;
   },
 };

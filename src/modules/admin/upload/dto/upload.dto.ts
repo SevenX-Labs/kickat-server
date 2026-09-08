@@ -63,3 +63,20 @@ export interface MulterFile {
   filename?: string;
   path?: string;
 }
+
+export class DeleteUploadedFilesDto {
+  @ApiPropertyOptional({
+    description: "Single URL or file path to delete",
+    example: "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/123.jpg",
+  })
+  @IsOptional()
+  @IsString()
+  url?: string;
+
+  @ApiPropertyOptional({
+    description: "Array of URLs or file paths to delete",
+    type: [String],
+  })
+  @IsOptional()
+  urls?: string[];
+}

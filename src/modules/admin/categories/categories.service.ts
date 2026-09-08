@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import {
   AdminCategoriesQueryDto,
   AdminCategorySortEnum,
@@ -21,7 +22,10 @@ const UUID_V4_REGEX =
 export class CategoriesService {
   private readonly logger = new Logger(CategoriesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   /**
    * Helper to generate a URL-safe kebab-case slug
@@ -423,10 +427,10 @@ export class CategoriesService {
    */
   async deleteCategory(id: string, permanent: boolean = false) {
     const category = await this.prisma.category.findFirst({
-      where: { id, deletedAt: null },
+      where: { id },
     });
 
-    if (!category) {
+    if (!category || (!permanent && Boolean(category.deletedAt))) {
       throw new NotFoundException('Category not found');
     }
 
@@ -468,6 +472,11 @@ export class CategoriesService {
         where: { id },
         data: { deletedAt: new Date() },
       });
+    }
+
+    // 4. Delete associated image from storage
+    if (category.imageUrl) {
+      await this.uploadService.deleteFileByUrl(category.imageUrl);
     }
 
     return {

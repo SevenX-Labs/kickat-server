@@ -1,12 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BlogsService } from './blogs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminBlogSortEnum, CreateBlogCategoryDto, CreateBlogPostDto } from './dto/admin-blog.dto';
 
 describe('Admin BlogsService', () => {
   let service: BlogsService;
   let prisma: any;
+  let uploadService: any;
+
+  const mockUploadService = {
+    deleteFileByUrl: jest.fn().mockResolvedValue(true),
+    deleteFilesByUrls: jest.fn().mockResolvedValue(1),
+  };
 
   const mockPrismaService = {
     blogPost: {
@@ -38,11 +45,16 @@ describe('Admin BlogsService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        {
+          provide: UploadService,
+          useValue: mockUploadService,
+        },
       ],
     }).compile();
 
     service = module.get<BlogsService>(BlogsService);
     prisma = module.get<PrismaService>(PrismaService);
+    uploadService = module.get<UploadService>(UploadService);
     jest.clearAllMocks();
   });
 
@@ -157,7 +169,7 @@ describe('Admin BlogsService', () => {
     });
 
     it('deleteBlogPost should soft-delete post by default', async () => {
-      prisma.blogPost.findFirst.mockResolvedValue({ id: 'post-1' });
+      prisma.blogPost.findFirst.mockResolvedValue({ id: 'post-1', coverImage: 'https://supabase/upload/blog/cover.png' });
       prisma.blogPost.update.mockResolvedValue({ id: 'post-1', deletedAt: new Date() });
 
       const result = await service.deleteBlogPost('post-1', false);
@@ -168,6 +180,7 @@ describe('Admin BlogsService', () => {
           data: expect.objectContaining({ deletedAt: expect.any(Date) }),
         }),
       );
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith('https://supabase/upload/blog/cover.png');
     });
 
     it('deleteBlogPost should permanently delete post if permanent is true', async () => {
@@ -232,11 +245,12 @@ describe('Admin BlogsService', () => {
     });
 
     it('deleteBlogCategory should detach posts and soft-delete category', async () => {
-      prisma.blogCategory.findFirst.mockResolvedValue({ id: 'cat-1' });
+      prisma.blogCategory.findFirst.mockResolvedValue({ id: 'cat-1', imageUrl: 'https://supabase/upload/category/blogcat.png' });
       prisma.blogPost.updateMany.mockResolvedValue({ count: 2 });
       prisma.blogCategory.update.mockResolvedValue({ id: 'cat-1', deletedAt: new Date() });
 
       const result = await service.deleteBlogCategory('cat-1');
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith('https://supabase/upload/category/blogcat.png');
 
       expect(result.success).toBe(true);
       expect(prisma.blogPost.updateMany).toHaveBeenCalledWith({

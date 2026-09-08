@@ -56,7 +56,13 @@ export class BlogCategoriesController {
    * Delete blog category
    */
   @Delete(':id')
-  async deleteBlogCategory(@Param('id') id: string) {
+  async deleteBlogCategory(
+    @Param('id') id: string,
+    @Query('permanent') permanent?: string,
+  ) {
+    if (permanent !== undefined) {
+      return this.blogsService.deleteBlogCategory(id, permanent === 'true');
+    }
     return this.blogsService.deleteBlogCategory(id);
   }
 }

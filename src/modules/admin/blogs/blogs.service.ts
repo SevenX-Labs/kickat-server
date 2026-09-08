@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import {
   AdminBlogSortEnum,
   AdminBlogsQueryDto,
@@ -23,7 +24,10 @@ const UUID_V4_REGEX =
 export class BlogsService {
   private readonly logger = new Logger(BlogsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   /**
    * Generates a clean URL slug from title
@@ -351,20 +355,22 @@ export class BlogsService {
       await this.prisma.blogPost.delete({
         where: { id: existing.id },
       });
-      return {
-        success: true,
-        message: 'Blog post permanently deleted',
-      };
+    } else {
+      await this.prisma.blogPost.update({
+        where: { id: existing.id },
+        data: { deletedAt: new Date() },
+      });
     }
 
-    await this.prisma.blogPost.update({
-      where: { id: existing.id },
-      data: { deletedAt: new Date() },
-    });
+    if (existing.coverImage) {
+      await this.uploadService.deleteFileByUrl(existing.coverImage);
+    }
 
     return {
       success: true,
-      message: 'Blog post deleted successfully',
+      message: permanent
+        ? 'Blog post permanently deleted'
+        : 'Blog post deleted successfully',
     };
   }
 
@@ -529,7 +535,7 @@ export class BlogsService {
    * DELETE /api/v1/admin/blog-categories/:id
    * Delete blog category
    */
-  async deleteBlogCategory(id: string) {
+  async deleteBlogCategory(id: string, permanent = false) {
     const isUuid = UUID_V4_REGEX.test(id);
     const existing = await this.prisma.blogCategory.findFirst({
       where: isUuid ? { id } : { slug: id },
@@ -539,22 +545,33 @@ export class BlogsService {
       throw new NotFoundException('Blog category not found');
     }
 
-    // Soft-delete category and detach posts
     await this.prisma.$transaction(async (tx) => {
       await tx.blogPost.updateMany({
         where: { categoryId: existing.id },
         data: { categoryId: null },
       });
 
-      await tx.blogCategory.update({
-        where: { id: existing.id },
-        data: { deletedAt: new Date() },
-      });
+      if (permanent) {
+        await tx.blogCategory.delete({
+          where: { id: existing.id },
+        });
+      } else {
+        await tx.blogCategory.update({
+          where: { id: existing.id },
+          data: { deletedAt: new Date() },
+        });
+      }
     });
+
+    if (existing.imageUrl) {
+      await this.uploadService.deleteFileByUrl(existing.imageUrl);
+    }
 
     return {
       success: true,
-      message: 'Blog category deleted successfully and posts detached',
+      message: permanent
+        ? 'Blog category permanently deleted and posts detached'
+        : 'Blog category deleted successfully and posts detached',
     };
   }
 }

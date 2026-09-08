@@ -691,8 +691,11 @@ Accepts any partial subset of fields.
 ### 9. Delete Product (Soft or Permanent)
 
 - **HTTP Method:** `DELETE`
-- **Endpoint:** `/api/v1/admin/products/:id?permanent=false`
+- **Endpoint:** `/api/v1/admin/products/:id?permanent=false` (or `?permanent=true`)
 - **Headers:** `Authorization: Bearer <accessToken>`
+
+> [!TIP]
+> **Automatic Physical Image & Content Cleanup**: When a product is deleted (individually or via bulk delete), all associated images (`imageUrl`, `images[]`, `media[].url`, `media[].thumbnailUrl`, and `variants[].imageUrl`) are automatically purged from Supabase Storage (bucket `upload`) or local disk. If `permanent=true`, all child `ProductMedia` and `ProductVariant` records are permanently removed from the database as well.
 
 #### Expected Success Response (`200 OK`)
 ```json

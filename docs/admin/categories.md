@@ -334,6 +334,9 @@ All administrative category management endpoints are served under `/api/v1/admin
 
 ### 8. Delete Category (with Integrity Protections)
 
+> [!TIP]
+> **Automatic Image Cleanup**: When a category is deleted, its associated `imageUrl` is automatically removed from physical storage (Supabase / local disk).
+
 - **HTTP Method:** `DELETE`
 - **Endpoint:** `/api/v1/admin/categories/:id`
 - **Headers:** `Authorization: Bearer <accessToken>`
