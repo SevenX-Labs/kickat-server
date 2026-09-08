@@ -24,49 +24,51 @@ Welcome to the Kickat E-Commerce Admin API reference guide. All endpoints are se
 
 ## 1. Admin Authentication & Session Management
 
+📘 Detailed Specification & Frontend Guide: [auth.md](auth.md)
+
 Base Path: `/api/v1/admin/auth`
 
 ### POST `/api/v1/admin/auth/login`
 - **Auth Required**: No
-- **Request Body**: `{ "email": "admin@kickat.com", "password": "SecurePassword123" }`
-- **Description**: Admin login returning JWT token and session ID.
+- **Request Body**: `{ "adminId": "kickat2021", "password": "SecurePassword123" }`
+- **Description**: Admin login returning JWT `accessToken`, `refreshToken`, and admin profile details.
 
 ### POST `/api/v1/admin/auth/forgot-password`
 - **Auth Required**: No
-- **Request Body**: `{ "email": "admin@kickat.com" }`
-- **Description**: Sends password reset OTP to admin email.
+- **Request Body**: `{ "adminId": "kickat2021" }`
+- **Description**: Sends 6-digit password reset OTP to admin registered email (Max 3/hr).
 
 ### POST `/api/v1/admin/auth/verify-reset-otp`
 - **Auth Required**: No
-- **Request Body**: `{ "email": "admin@kickat.com", "otp": "123456" }`
-- **Description**: Verifies password reset OTP.
+- **Request Body**: `{ "adminId": "kickat2021", "otp": "123456" }`
+- **Description**: Verifies OTP and returns temporary UUID `resetToken` valid for 10 minutes.
 
 ### POST `/api/v1/admin/auth/reset-password`
 - **Auth Required**: No
-- **Request Body**: `{ "email": "admin@kickat.com", "otp": "123456", "newPassword": "NewSecurePassword123" }`
-- **Description**: Resets admin password.
+- **Request Body**: `{ "resetToken": "UUID_V4", "newPassword": "NewSecurePassword@123", "confirmPassword": "NewSecurePassword@123" }`
+- **Description**: Resets admin password using verified `resetToken`.
 
 ### POST `/api/v1/admin/auth/change-password`
-- **Auth Required**: Admin Auth
-- **Request Body**: `{ "currentPassword": "OldPassword123", "newPassword": "NewPassword123" }`
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Request Body**: `{ "currentPassword": "OldPassword@123", "newPassword": "NewPassword@123", "confirmPassword": "NewPassword@123" }`
 - **Description**: Changes logged-in admin password.
 
 ### POST `/api/v1/admin/auth/logout`
-- **Auth Required**: Admin Auth
-- **Request Body**: `{ "sessionId": "UUID" }`
-- **Description**: Logs out current admin session.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Request Body**: `{ "refreshToken": "eyJhbGciOi..." }`
+- **Description**: Invalidate refresh token and revoke active database session.
 
 ### GET `/api/v1/admin/auth/me`
-- **Auth Required**: Admin Auth
-- **Description**: Retrieves current admin profile and role.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Description**: Retrieves current logged-in admin profile, role, and permissions.
 
 ### GET `/api/v1/admin/auth/sessions`
-- **Auth Required**: Admin Auth
-- **Description**: Returns all active login sessions for admin.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Description**: Returns all active login sessions and devices for the admin.
 
 ### DELETE `/api/v1/admin/auth/sessions/:sessionId`
-- **Auth Required**: Admin Auth
-- **Description**: Revokes specific active admin login session.
+- **Auth Required**: Admin Auth (`Bearer <token>`)
+- **Description**: Revokes a specific active admin session by session UUID.
 
 ---
 
