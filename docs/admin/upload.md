@@ -6,28 +6,39 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
 
 ## Table of Contents
 
-1. [Architecture & Frontend Integration Overview](#architecture--frontend-integration-overview)
-2. [Endpoints Overview](#endpoints-overview)
-3. [File Constraints & Allowed MIME Types](#file-constraints--allowed-mime-types)
-4. [Endpoint Specifications](#endpoint-specifications)
+1. [Architecture & Overview](#architecture--overview)
+2. [Upload Size Policies](#upload-size-policies)
+3. [Endpoints Overview](#endpoints-overview)
+4. [Allowed MIME Types](#allowed-mime-types)
+5. [Endpoint Specifications](#endpoint-specifications)
    - [1. Get Upload Configuration & Limits (`GET /api/v1/admin/upload/config`)](#1-get-upload-configuration--limits)
-   - [2. Upload Single Image (`POST /api/v1/admin/upload`)](#2-upload-single-image)
-   - [3. Upload Multiple Images (`POST /api/v1/admin/upload/multiple`)](#3-upload-multiple-images)
-5. [Standard Error Response Format](#standard-error-response-format)
-6. [Frontend Integration Guide (TypeScript & Axios)](#frontend-integration-guide-typescript--axios)
+   - [2. Upload Single Image (`POST /api/v1/admin/upload` or `/admin/upload/product`)](#2-upload-single-image)
+   - [3. Upload Multiple Images (`POST /api/v1/admin/upload/multiple` or `/admin/upload/multiple/product`)](#3-upload-multiple-images)
+6. [Standard Error Response Format](#standard-error-response-format)
+7. [Frontend Integration Guide (TypeScript & Axios)](#frontend-integration-guide-typescript--axios)
 
 ---
 
-## Architecture & Frontend Integration Overview
+## Architecture & Overview
 
 - **Base URL:** `https://api.kickat.co.in/api/v1/admin/upload` (or `http://localhost:3000/api/v1/admin/upload` in development)
 - **Content Type:** `multipart/form-data`
 - **Authentication Scheme:** `Authorization: Bearer <accessToken>`
 - **Storage Target:** Uploads target Supabase Storage (bucket `upload`) with automatic public CDN URL generation. In environments where Supabase credentials are not provided, it falls back seamlessly to local disk storage (`/uploads`).
-- **File Size Policy:**
-  - **Minimum Size:** 2 MB
-  - **Maximum Size:** 5 MB
-  - *(Can be customized via optional query parameters `?minSizeMb=1&maxSizeMb=10`)*
+
+---
+
+## Upload Size Policies
+
+The backend enforces strict context-aware image size limits:
+
+| Category / Context | Type Parameter | Minimum Size | Maximum Size | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Product Images** | `type=product` | **2 MB** | **3 MB** | High-resolution ecommerce gallery images for products |
+| **All Other Images** | `type=category`, `type=blog`, default | **0 MB** (none) | **4 MB** | Category icons, hero banners, blog covers, avatars |
+
+> [!NOTE]
+> Custom limits can still be explicitly requested via query parameters `?minSizeMb=<min>&maxSizeMb=<max>` if needed.
 
 ---
 
@@ -35,13 +46,15 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
 
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/admin/upload/config` | Yes (`Bearer`) | Get upload constraints, allowed MIME types, and active bucket |
-| `POST` | `/api/v1/admin/upload` | Yes (`Bearer`) | Upload single image (`file` field, 2MB–5MB size constraint) |
-| `POST` | `/api/v1/admin/upload/multiple` | Yes (`Bearer`) | Upload up to 10 images in batch (`files` field, 2MB–5MB per file) |
+| `GET` | `/api/v1/admin/upload/config` | Yes (`Bearer`) | Get upload constraints, active bucket, and size policies |
+| `POST` | `/api/v1/admin/upload` | Yes (`Bearer`) | Upload single image (`file` field, context-aware or defaults to max 4MB) |
+| `POST` | `/api/v1/admin/upload/product` | Yes (`Bearer`) | Upload single product image (Enforces 2MB min, 3MB max) |
+| `POST` | `/api/v1/admin/upload/multiple` | Yes (`Bearer`) | Batch upload up to 10 images (`files` field, defaults to max 4MB) |
+| `POST` | `/api/v1/admin/upload/multiple/product` | Yes (`Bearer`) | Batch upload up to 10 product images (Enforces 2MB min, 3MB max per file) |
 
 ---
 
-## File Constraints & Allowed MIME Types
+## Allowed MIME Types
 
 - `image/jpeg`
 - `image/jpg`
@@ -58,6 +71,7 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
 
 - **HTTP Method:** `GET`
 - **Endpoint:** `/api/v1/admin/upload/config`
+- **Query Parameters:** `type` (optional, e.g. `product`, `category`, `blog`)
 - **Headers:** `Authorization: Bearer <accessToken>`
 
 #### Expected Success Response (`200 OK`)
@@ -66,8 +80,23 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
   "success": true,
   "config": {
     "bucket": "upload",
+    "current": {
+      "context": "product",
+      "minFileSizeMb": 2,
+      "maxFileSizeMb": 3
+    },
+    "product": {
+      "minFileSizeMb": 2,
+      "maxFileSizeMb": 3,
+      "description": "Product images must be between 2MB and 3MB"
+    },
+    "allElse": {
+      "minFileSizeMb": 0,
+      "maxFileSizeMb": 4,
+      "description": "All other images (categories, blogs, avatars, etc.) allow up to 4MB"
+    },
     "minFileSizeMb": 2,
-    "maxFileSizeMb": 5,
+    "maxFileSizeMb": 3,
     "allowedMimeTypes": [
       "image/jpeg",
       "image/jpg",
@@ -86,22 +115,25 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
 ### 2. Upload Single Image
 
 - **HTTP Method:** `POST`
-- **Endpoint:** `/api/v1/admin/upload`
+- **Endpoint:** `/api/v1/admin/upload` (or `/api/v1/admin/upload/product`)
 - **Headers:**
   ```http
   Authorization: Bearer <accessToken>
   Content-Type: multipart/form-data
   ```
-- **Form Data Field:** `file` (Binary image file, 2MB to 5MB)
-- **Optional Query Parameters:** `minSizeMb`, `maxSizeMb`
+- **Form Data Field:** `file` (Binary image file)
+- **Optional Query Parameters:**
+  - `type`: `'product'` (2MB min, 3MB max) or `'category'` / `'blog'` / `'general'` (max 4MB)
+  - `minSizeMb`: Explicit minimum override in MB
+  - `maxSizeMb`: Explicit maximum override in MB
 
 #### Expected Success Response (`200 OK`)
 ```json
 {
   "success": true,
   "message": "File uploaded successfully to Supabase Storage",
-  "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/1725798000-puppy-food-a819b2.png",
-  "filename": "1725798000-puppy-food-a819b2.png",
+  "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/1725798000-puppy-food-a819b2.png",
+  "filename": "product/1725798000-puppy-food-a819b2.png",
   "size": 2621440,
   "sizeMb": "2.50 MB",
   "mimetype": "image/png",
@@ -111,15 +143,36 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
 ```
 
 #### Error Responses
-- **`400 Bad Request`** (File too small or exceeds size limit):
+- **`400 Bad Request` — Product file too small (< 2 MB):**
   ```json
   {
     "success": false,
     "statusCode": 400,
-    "message": "File size (1.20 MB) is smaller than the minimum required limit of 2 MB. Please upload an image between 2MB and 5MB.",
+    "message": "File size (1.20 MB) is smaller than the minimum required limit of 2 MB for product images. Please upload an image between 2MB and 3MB.",
     "path": "/api/v1/admin/upload",
-    "timestamp": "2026-09-08T11:55:00.000Z",
-    "errors": []
+    "timestamp": "2026-09-08T16:00:00.000Z"
+  }
+  ```
+
+- **`400 Bad Request` — Product file too large (> 3 MB):**
+  ```json
+  {
+    "success": false,
+    "statusCode": 400,
+    "message": "File size (3.50 MB) exceeds the maximum allowed limit of 3 MB for product images. Please upload an image between 2MB and 3MB.",
+    "path": "/api/v1/admin/upload",
+    "timestamp": "2026-09-08T16:00:00.000Z"
+  }
+  ```
+
+- **`400 Bad Request` — General image too large (> 4 MB):**
+  ```json
+  {
+    "success": false,
+    "statusCode": 400,
+    "message": "File size (4.80 MB) exceeds the maximum allowed limit of 4 MB. Please upload an image up to 4MB.",
+    "path": "/api/v1/admin/upload",
+    "timestamp": "2026-09-08T16:00:00.000Z"
   }
   ```
 
@@ -128,13 +181,14 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
 ### 3. Upload Multiple Images
 
 - **HTTP Method:** `POST`
-- **Endpoint:** `/api/v1/admin/upload/multiple`
+- **Endpoint:** `/api/v1/admin/upload/multiple` (or `/api/v1/admin/upload/multiple/product`)
 - **Headers:**
   ```http
   Authorization: Bearer <accessToken>
   Content-Type: multipart/form-data
   ```
-- **Form Data Field:** `files` (Array of binary image files, max 10 files)
+- **Form Data Field:** `files` (Array of binary image files, up to 10 files)
+- **Optional Query Parameters:** `type`, `minSizeMb`, `maxSizeMb`
 
 #### Expected Success Response (`200 OK`)
 ```json
@@ -145,8 +199,8 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
     {
       "success": true,
       "message": "File uploaded successfully to Supabase Storage",
-      "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/1725798000-img1.png",
-      "filename": "1725798000-img1.png",
+      "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/1725798000-img1.png",
+      "filename": "product/1725798000-img1.png",
       "size": 2621440,
       "sizeMb": "2.50 MB",
       "mimetype": "image/png",
@@ -155,10 +209,10 @@ All file upload endpoints are served under `/api/v1/admin/upload` and require Ad
     {
       "success": true,
       "message": "File uploaded successfully to Supabase Storage",
-      "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/1725798000-img2.png",
-      "filename": "1725798000-img2.png",
-      "size": 3145728,
-      "sizeMb": "3.00 MB",
+      "url": "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/1725798000-img2.png",
+      "filename": "product/1725798000-img2.png",
+      "size": 2883584,
+      "sizeMb": "2.75 MB",
       "mimetype": "image/png",
       "storageProvider": "supabase"
     }
@@ -190,28 +244,46 @@ uploadApi.interceptors.request.use((config) => {
 });
 
 export const AdminUploadService = {
-  async getConfig() {
-    const res = await uploadApi.get("/config");
+  async getConfig(type?: "product" | "category" | "blog" | "general") {
+    const res = await uploadApi.get("/config", { params: { type } });
     return res.data;
   },
 
-  async uploadSingle(file: File, options?: { minSizeMb?: number; maxSizeMb?: number }) {
+  /**
+   * Upload Product Image (Enforces 2MB min, 3MB max)
+   */
+  async uploadProductImage(file: File) {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await uploadApi.post("", formData, {
-      params: options,
+    const res = await uploadApi.post("/product", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     });
     return res.data;
   },
 
-  async uploadMultiple(files: File[], options?: { minSizeMb?: number; maxSizeMb?: number }) {
+  /**
+   * Upload General Image (Category, Blog, Avatar, etc. - max 4MB)
+   */
+  async uploadGeneralImage(file: File, type: "category" | "blog" | "general" = "general") {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await uploadApi.post("", formData, {
+      params: { type },
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return res.data;
+  },
+
+  /**
+   * Batch Upload Product Images (Enforces 2MB min, 3MB max per file)
+   */
+  async uploadMultipleProductImages(files: File[]) {
     const formData = new FormData();
     files.forEach((f) => formData.append("files", f));
 
-    const res = await uploadApi.post("/multiple", formData, {
-      params: options,
+    const res = await uploadApi.post("/multiple/product", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     });
     return res.data;

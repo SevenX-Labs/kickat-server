@@ -65,6 +65,7 @@ The customer product page details section is composed of independent, highly mod
 - **Primary Image:** `images[0]` is assigned as the primary image and synchronized to `imageUrl`.
 - **Relational Sync:** `ProductMedia` records (type: `IMAGE`, order: `0..N-1`) are synchronized atomically inside the database transaction.
 - **Image-Only:** KickAt product media is image-only; video uploads and links are not supported.
+- **Upload File Size Policy:** Product images enforce a minimum file size of **2 MB** and a maximum file size of **3 MB** (`POST /api/v1/admin/upload?type=product` or `POST /api/v1/admin/upload/product`). All other non-product images (categories, blogs, avatars, etc.) allow up to **4 MB**.
 
 ### 6. Flexible Attributes & Custom Specifications
 - **Standard Attributes:** `material`, `lifeStage`, `weight`, `colors`, `countryOfOrigin`, `dimensions`.
