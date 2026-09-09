@@ -61,7 +61,7 @@ export class UpdateCategoryDto {
 
   @IsOptional()
   @IsString()
-  imageUrl?: string;
+  imageUrl?: string | null;
 
   @IsOptional()
   @IsUUID()

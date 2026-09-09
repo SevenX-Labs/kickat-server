@@ -399,12 +399,20 @@ export class CategoriesService {
       slug = await this.ensureUniqueSlug(dto.slug || dto.name!, id);
     }
 
+    // Determine image changes and normalize empty strings to null
+    const isImageSpecified = dto.imageUrl !== undefined;
+    const normalizedImageUrl = isImageSpecified
+      ? (typeof dto.imageUrl === 'string' && dto.imageUrl.trim() === '' ? null : dto.imageUrl)
+      : undefined;
+    const isImageChanged =
+      isImageSpecified && normalizedImageUrl !== (existing.imageUrl ?? null);
+
     const updated = await this.prisma.category.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(slug !== existing.slug && { slug }),
-        ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+        ...(isImageSpecified && { imageUrl: normalizedImageUrl }),
         ...(dto.parentId !== undefined && { parentId: dto.parentId }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         ...(dto.order !== undefined && { order: dto.order }),
@@ -413,6 +421,17 @@ export class CategoriesService {
         parent: true,
       },
     });
+
+    // Safely delete old physical image if it was replaced or removed
+    if (isImageChanged && existing.imageUrl) {
+      try {
+        await this.uploadService.deleteFileByUrl(existing.imageUrl);
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to cleanup old category image "${existing.imageUrl}" for category "${id}": ${err?.message || err}`,
+        );
+      }
+    }
 
     return {
       success: true,

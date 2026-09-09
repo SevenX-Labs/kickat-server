@@ -275,6 +275,201 @@ describe('Admin CategoriesService', () => {
         BadRequestException,
       );
     });
+
+    it('TEST 1: should preserve existing image when imageUrl is omitted', async () => {
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg',
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { name: 'Updated Name' };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.not.objectContaining({ imageUrl: expect.anything() }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).not.toHaveBeenCalled();
+    });
+
+    it('TEST 2: should remove existing image and call deleteFileByUrl when imageUrl is null', async () => {
+      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: oldUrl,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { imageUrl: null };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({ imageUrl: null }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(oldUrl);
+    });
+
+    it('TEST 3: should replace image and delete old physical image when imageUrl is a new URL', async () => {
+      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: oldUrl,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { imageUrl: newUrl };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({ imageUrl: newUrl }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(oldUrl);
+    });
+
+    it('TEST 4: should NOT delete image when imageUrl is unchanged', async () => {
+      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: oldUrl,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { imageUrl: oldUrl };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({ imageUrl: oldUrl }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).not.toHaveBeenCalled();
+    });
+
+    it('TEST 5: should normalize empty string imageUrl to null and delete old image', async () => {
+      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: oldUrl,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { imageUrl: '' };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({ imageUrl: null }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(oldUrl);
+    });
+
+    it('TEST 6: should NOT call deleteFileByUrl when replacing if existing category had no image', async () => {
+      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: null,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { imageUrl: newUrl };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({ imageUrl: newUrl }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).not.toHaveBeenCalled();
+    });
+
+    it('TEST 7: should call deleteFileByUrl with external URL so uploadService safety protects it', async () => {
+      const externalUrl = 'https://images.unsplash.com/photo-1543466835-00a7907e9de1';
+      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: externalUrl,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+
+      const dto: UpdateCategoryDto = { imageUrl: newUrl };
+      const result = await service.updateCategory('cat-1', dto);
+
+      expect(result.success).toBe(true);
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({ imageUrl: newUrl }),
+        }),
+      );
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(externalUrl);
+    });
+
+    it('should NOT delete old image if database update fails', async () => {
+      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: oldUrl,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockRejectedValue(new Error('Database error'));
+
+      const dto: UpdateCategoryDto = { imageUrl: newUrl };
+      await expect(service.updateCategory('cat-1', dto)).rejects.toThrow('Database error');
+
+      expect(uploadService.deleteFileByUrl).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteCategory', () => {
