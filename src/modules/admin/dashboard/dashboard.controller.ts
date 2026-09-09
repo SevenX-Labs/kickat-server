@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { AdminAuth } from '../../../common';
 import {
@@ -7,6 +7,7 @@ import {
   RecentOrdersQueryDto,
   SalesChartQueryDto,
   TopCategoriesQueryDto,
+  UpdateSalesTargetsDto,
 } from './dto/dashboard-query.dto';
 
 @AdminAuth()
@@ -75,5 +76,22 @@ export class DashboardController {
   @Get('low-stock')
   async getLowStock(@Query() query: LowStockQueryDto) {
     return this.dashboardService.getLowStockProducts(query);
+  }
+  /**
+   * GET /api/v1/admin/dashboard/targets
+   * Current monthly revenue and orders targets with actual progress
+   */
+  @Get('targets')
+  async getSalesTargets() {
+    return this.dashboardService.getSalesTargets();
+  }
+
+  /**
+   * PATCH /api/v1/admin/dashboard/targets
+   * Update monthly revenue and orders targets
+   */
+  @Patch('targets')
+  async updateSalesTargets(@Body() dto: UpdateSalesTargetsDto) {
+    return this.dashboardService.updateSalesTargets(dto);
   }
 }

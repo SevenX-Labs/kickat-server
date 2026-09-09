@@ -9,7 +9,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private readonly pool: Pool;
 
   constructor() {
-    const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
+    const connectionString = process.env.DATABASE_URL || process.env.DIRECT_URL;
     const pool = new Pool({
       connectionString,
       max: Number(process.env.DB_POOL_MAX || 20),

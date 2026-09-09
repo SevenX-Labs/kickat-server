@@ -9,6 +9,7 @@ import {
   RecentOrdersQueryDto,
   SalesChartQueryDto,
   TopCategoriesQueryDto,
+  UpdateSalesTargetsDto,
 } from './dto/dashboard-query.dto';
 
 export interface DateRange {
@@ -133,6 +134,7 @@ export class DashboardService {
       recentOrders,
       lowStockProducts,
       paymentMethodSummary,
+      salesTargets,
     ] = await Promise.all([
       this.getStats(query),
       this.getSalesChartData({
@@ -150,6 +152,7 @@ export class DashboardService {
       this.getRecentOrders({ limit: recentOrdersLimit }),
       this.getLowStockProducts({ threshold: lowStockThreshold, limit: 10 }),
       this.getPaymentMethodSummary(query),
+      this.getSalesTargets(),
     ]);
 
     return {
@@ -162,6 +165,7 @@ export class DashboardService {
         recentOrders,
         lowStockProducts,
         paymentMethodSummary,
+        salesTargets,
       },
     };
   }
@@ -985,5 +989,102 @@ export class DashboardService {
       default:
         return status;
     }
+  }
+  /**
+   * 8. Sales Targets & Progress (GET /api/v1/admin/dashboard/targets)
+   */
+  async getSalesTargets() {
+    const defaultTargets = {
+      monthlyRevenueTarget: 2000000,
+      monthlyOrdersTarget: 500,
+    };
+
+    let configuredTargets = { ...defaultTargets };
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'dashboard_sales_targets' },
+      });
+      if (setting && setting.value && typeof setting.value === 'object') {
+        configuredTargets = {
+          ...defaultTargets,
+          ...(setting.value as any),
+        };
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to read dashboard_sales_targets: ${e}`);
+    }
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const [monthRevenueAgg, monthOrdersCount] = await Promise.all([
+      this.prisma.order.aggregate({
+        _sum: { grandTotal: true },
+        where: {
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+          orderStatus: { not: OrderStatusEnum.CANCELLED },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          createdAt: { gte: startOfMonth, lte: endOfMonth },
+        },
+      }),
+    ]);
+
+    const currentRevenue = Number((monthRevenueAgg._sum.grandTotal ?? 0).toFixed(2));
+    const currentOrders = monthOrdersCount;
+    const revTarget = configuredTargets.monthlyRevenueTarget || defaultTargets.monthlyRevenueTarget;
+    const ordTarget = configuredTargets.monthlyOrdersTarget || defaultTargets.monthlyOrdersTarget;
+
+    const revenueProgressPercentage =
+      revTarget > 0 ? Number(((currentRevenue / revTarget) * 100).toFixed(2)) : 0;
+    const ordersProgressPercentage =
+      ordTarget > 0 ? Number(((currentOrders / ordTarget) * 100).toFixed(2)) : 0;
+
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+
+    return {
+      monthlyRevenueTarget: revTarget,
+      monthlyOrdersTarget: ordTarget,
+      currentRevenue,
+      currentOrders,
+      revenueProgressPercentage: Math.min(100, revenueProgressPercentage),
+      ordersProgressPercentage: Math.min(100, ordersProgressPercentage),
+      month: monthNames[now.getMonth()],
+      year: now.getFullYear(),
+    };
+  }
+
+  /**
+   * Update Sales Targets (PATCH /api/v1/admin/dashboard/targets)
+   */
+  async updateSalesTargets(dto: UpdateSalesTargetsDto) {
+    const existing = await this.getSalesTargets();
+    const updated = {
+      monthlyRevenueTarget: dto.monthlyRevenueTarget ?? existing.monthlyRevenueTarget,
+      monthlyOrdersTarget: dto.monthlyOrdersTarget ?? existing.monthlyOrdersTarget,
+    };
+
+    await this.prisma.systemSetting.upsert({
+      where: { key: 'dashboard_sales_targets' },
+      update: {
+        value: updated,
+        group: 'dashboard',
+        isSecret: false,
+      },
+      create: {
+        key: 'dashboard_sales_targets',
+        group: 'dashboard',
+        value: updated,
+        isSecret: false,
+      },
+    });
+
+    return this.getSalesTargets();
   }
 }

@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsISO8601, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsISO8601, IsNumber, IsOptional, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { OrderStatusEnum } from '@prisma/client';
 
@@ -128,4 +128,19 @@ export class LowStockQueryDto {
   @IsInt()
   @Min(1)
   page?: number = 1;
+}
+
+
+export class UpdateSalesTargetsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  monthlyRevenueTarget?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  monthlyOrdersTarget?: number;
 }
