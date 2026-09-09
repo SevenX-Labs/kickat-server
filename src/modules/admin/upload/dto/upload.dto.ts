@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum UploadTypeEnum {
@@ -13,13 +13,17 @@ export class UploadQueryDto {
   @ApiPropertyOptional({
     enum: UploadTypeEnum,
     example: 'product',
-    description: 'Context of upload. Product images enforce 2MB–3MB. All other images enforce max 4MB.',
+    description:
+      'Context of upload. Product images enforce 2MB–3MB. All other images enforce max 4MB.',
   })
   @IsOptional()
   @IsString()
   type?: string;
 
-  @ApiPropertyOptional({ example: "categories", description: "Target storage folder name" })
+  @ApiPropertyOptional({
+    example: 'categories',
+    description: 'Target storage folder name',
+  })
   @IsOptional()
   @IsString()
   folder?: string;
@@ -71,15 +75,16 @@ export interface MulterFile {
 
 export class DeleteUploadedFilesDto {
   @ApiPropertyOptional({
-    description: "Single URL or file path to delete",
-    example: "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/123.jpg",
+    description: 'Single URL or file path to delete',
+    example:
+      'https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/123.jpg',
   })
   @IsOptional()
   @IsString()
   url?: string;
 
   @ApiPropertyOptional({
-    description: "Array of URLs or file paths to delete",
+    description: 'Array of URLs or file paths to delete',
     type: [String],
   })
   @IsOptional()

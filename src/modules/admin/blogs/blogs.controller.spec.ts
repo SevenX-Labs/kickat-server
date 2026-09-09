@@ -40,7 +40,9 @@ describe('Admin BlogsController & BlogCategoriesController', () => {
     }).compile();
 
     blogsController = module.get<BlogsController>(BlogsController);
-    categoriesController = module.get<BlogCategoriesController>(BlogCategoriesController);
+    categoriesController = module.get<BlogCategoriesController>(
+      BlogCategoriesController,
+    );
     service = module.get<BlogsService>(BlogsService);
     jest.clearAllMocks();
   });
@@ -69,14 +71,19 @@ describe('Admin BlogsController & BlogCategoriesController', () => {
       const result = await blogsController.getBlogPostById('sample-slug');
 
       expect(result).toBe(expected);
-      expect(mockBlogsService.getBlogPostById).toHaveBeenCalledWith('sample-slug');
+      expect(mockBlogsService.getBlogPostById).toHaveBeenCalledWith(
+        'sample-slug',
+      );
     });
 
     it('createBlogPost should delegate to service', async () => {
       const expected = { success: true, data: {} };
       mockBlogsService.createBlogPost.mockResolvedValue(expected);
 
-      const dto: CreateBlogPostDto = { title: 'New Post', content: 'Some content' };
+      const dto: CreateBlogPostDto = {
+        title: 'New Post',
+        content: 'Some content',
+      };
       const result = await blogsController.createBlogPost(dto);
 
       expect(result).toBe(expected);
@@ -91,7 +98,10 @@ describe('Admin BlogsController & BlogCategoriesController', () => {
       const result = await blogsController.updateBlogPost('post-1', dto);
 
       expect(result).toBe(expected);
-      expect(mockBlogsService.updateBlogPost).toHaveBeenCalledWith('post-1', dto);
+      expect(mockBlogsService.updateBlogPost).toHaveBeenCalledWith(
+        'post-1',
+        dto,
+      );
     });
 
     it('deleteBlogPost should delegate to service', async () => {
@@ -101,7 +111,10 @@ describe('Admin BlogsController & BlogCategoriesController', () => {
       const result = await blogsController.deleteBlogPost('post-1', 'false');
 
       expect(result).toBe(expected);
-      expect(mockBlogsService.deleteBlogPost).toHaveBeenCalledWith('post-1', false);
+      expect(mockBlogsService.deleteBlogPost).toHaveBeenCalledWith(
+        'post-1',
+        false,
+      );
     });
   });
 
@@ -133,10 +146,16 @@ describe('Admin BlogsController & BlogCategoriesController', () => {
       mockBlogsService.updateBlogCategory.mockResolvedValue(expected);
 
       const dto: UpdateBlogCategoryDto = { name: 'New Dog Care' };
-      const result = await categoriesController.updateBlogCategory('cat-1', dto);
+      const result = await categoriesController.updateBlogCategory(
+        'cat-1',
+        dto,
+      );
 
       expect(result).toBe(expected);
-      expect(mockBlogsService.updateBlogCategory).toHaveBeenCalledWith('cat-1', dto);
+      expect(mockBlogsService.updateBlogCategory).toHaveBeenCalledWith(
+        'cat-1',
+        dto,
+      );
     });
 
     it('deleteBlogCategory should delegate to service', async () => {

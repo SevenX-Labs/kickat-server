@@ -94,7 +94,10 @@ describe('Admin CategoriesController', () => {
     const result = await controller.updateCategory('cat-1', dto);
 
     expect(result).toBe(expected);
-    expect(mockCategoriesService.updateCategory).toHaveBeenCalledWith('cat-1', dto);
+    expect(mockCategoriesService.updateCategory).toHaveBeenCalledWith(
+      'cat-1',
+      dto,
+    );
   });
 
   it('deleteCategory should delegate to service', async () => {
@@ -104,7 +107,10 @@ describe('Admin CategoriesController', () => {
     const result = await controller.deleteCategory('cat-1', false);
 
     expect(result).toBe(expected);
-    expect(mockCategoriesService.deleteCategory).toHaveBeenCalledWith('cat-1', false);
+    expect(mockCategoriesService.deleteCategory).toHaveBeenCalledWith(
+      'cat-1',
+      false,
+    );
   });
 
   it('updateStatus should delegate to service', async () => {
@@ -115,7 +121,10 @@ describe('Admin CategoriesController', () => {
     const result = await controller.updateStatus('cat-1', dto);
 
     expect(result).toBe(expected);
-    expect(mockCategoriesService.updateStatus).toHaveBeenCalledWith('cat-1', dto);
+    expect(mockCategoriesService.updateStatus).toHaveBeenCalledWith(
+      'cat-1',
+      dto,
+    );
   });
 
   it('reorderCategories should delegate to service', async () => {

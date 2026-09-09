@@ -220,9 +220,15 @@ export class ProductsService {
         },
       }),
       this.prisma.product.count({ where }),
-      this.prisma.product.count({ where: { deletedAt: null, status: ProductStatusEnum.ACTIVE } }),
-      this.prisma.product.count({ where: { deletedAt: null, status: ProductStatusEnum.DRAFT } }),
-      this.prisma.product.count({ where: { deletedAt: null, status: ProductStatusEnum.INACTIVE } }),
+      this.prisma.product.count({
+        where: { deletedAt: null, status: ProductStatusEnum.ACTIVE },
+      }),
+      this.prisma.product.count({
+        where: { deletedAt: null, status: ProductStatusEnum.DRAFT },
+      }),
+      this.prisma.product.count({
+        where: { deletedAt: null, status: ProductStatusEnum.INACTIVE },
+      }),
       this.prisma.product.count({
         where: { deletedAt: null, stock: { gt: 0, lte: threshold } },
       }),
@@ -313,32 +319,63 @@ export class ProductsService {
       throw new BadRequestException('Invalid categoryId: Category not found');
     }
 
-    if (dto.discountPrice !== undefined && dto.discountPrice !== null && dto.discountPrice > dto.price) {
-      throw new BadRequestException('Discount price (selling price) cannot exceed regular price (MRP)');
+    if (
+      dto.discountPrice !== undefined &&
+      dto.discountPrice !== null &&
+      dto.discountPrice > dto.price
+    ) {
+      throw new BadRequestException(
+        'Discount price (selling price) cannot exceed regular price (MRP)',
+      );
     }
 
-    // 2. Canonical image normalization (images[] is authoritative)
-    const images = dto.images && dto.images.length > 0 ? dto.images : (dto.imageUrl ? [dto.imageUrl] : []);
-    const primaryImageUrl = dto.imageUrl || images[0] || "";
+    // 2. Canonical image normalization & products namespace relocation
+    const rawImages =
+      dto.images && dto.images.length > 0
+        ? dto.images
+        : dto.imageUrl
+          ? [dto.imageUrl]
+          : [];
+    const images = await this.uploadService.relocateMultipleToNamespace(
+      rawImages,
+      'products',
+    );
+    let primaryImageUrl = dto.imageUrl
+      ? (await this.uploadService.relocateToNamespace(
+          dto.imageUrl,
+          'products',
+        )) || dto.imageUrl
+      : images[0] || '';
+    if (!primaryImageUrl && images.length > 0) {
+      primaryImageUrl = images[0];
+    }
 
     if (images.length > 9) {
       throw new BadRequestException('A maximum of 9 product images is allowed');
     }
 
     if (dto.variants && dto.variants.length > 0) {
-      const skus = dto.variants.map((v) => v.sku?.trim().toLowerCase()).filter(Boolean);
+      const skus = dto.variants
+        .map((v) => v.sku?.trim().toLowerCase())
+        .filter(Boolean);
       const duplicate = skus.find((s, idx) => skus.indexOf(s) !== idx);
       if (duplicate) {
-        throw new BadRequestException(`Duplicate variant SKU found: ${duplicate}`);
+        throw new BadRequestException(
+          `Duplicate variant SKU found: ${duplicate}`,
+        );
       }
 
       for (const v of dto.variants) {
         if (v.price < 0) {
-          throw new BadRequestException(`Variant "${v.name}" price cannot be negative`);
+          throw new BadRequestException(
+            `Variant "${v.name}" price cannot be negative`,
+          );
         }
         if (v.discountPrice !== undefined && v.discountPrice !== null) {
           if (v.discountPrice < 0) {
-            throw new BadRequestException(`Variant "${v.name}" discountPrice cannot be negative`);
+            throw new BadRequestException(
+              `Variant "${v.name}" discountPrice cannot be negative`,
+            );
           }
           if (v.discountPrice >= v.price) {
             throw new BadRequestException(
@@ -395,15 +432,22 @@ export class ProductsService {
           ...(dto.variants && dto.variants.length > 0
             ? {
                 variants: {
-                  create: dto.variants.map((v) => ({
-                    name: v.name,
-                    sku: v.sku || null,
-                    price: v.price,
-                    discountPrice: v.discountPrice || null,
-                    stock: v.stock ?? 0,
-                    attributes: v.attributes || {},
-                    imageUrl: v.imageUrl || null,
-                  })),
+                  create: await Promise.all(
+                    dto.variants.map(async (v) => ({
+                      name: v.name,
+                      sku: v.sku || null,
+                      price: v.price,
+                      discountPrice: v.discountPrice || null,
+                      stock: v.stock ?? 0,
+                      attributes: v.attributes || {},
+                      imageUrl: v.imageUrl
+                        ? (await this.uploadService.relocateToNamespace(
+                            v.imageUrl,
+                            'products',
+                          )) || v.imageUrl
+                        : null,
+                    })),
+                  ),
                 },
               }
             : {}),
@@ -419,17 +463,17 @@ export class ProductsService {
                 },
               }
             : dto.media && dto.media.length > 0
-            ? {
-                media: {
-                  create: dto.media.map((m, index) => ({
-                    type: 'IMAGE',
-                    url: m.url,
-                    thumbnailUrl: m.thumbnailUrl || null,
-                    order: m.order ?? index,
-                  })),
-                },
-              }
-            : {}),
+              ? {
+                  media: {
+                    create: dto.media.map((m, index) => ({
+                      type: 'IMAGE',
+                      url: m.url,
+                      thumbnailUrl: m.thumbnailUrl || null,
+                      order: m.order ?? index,
+                    })),
+                  },
+                }
+              : {}),
         },
         include: {
           category: true,
@@ -475,13 +519,17 @@ export class ProductsService {
 
     const effectivePrice = dto.price !== undefined ? dto.price : existing.price;
     const effectiveDiscountPrice =
-      dto.discountPrice !== undefined ? dto.discountPrice : existing.discountPrice;
+      dto.discountPrice !== undefined
+        ? dto.discountPrice
+        : existing.discountPrice;
     if (
       effectiveDiscountPrice !== null &&
       effectiveDiscountPrice !== undefined &&
       effectiveDiscountPrice > effectivePrice
     ) {
-      throw new BadRequestException('Discount price (selling price) cannot exceed regular price (MRP)');
+      throw new BadRequestException(
+        'Discount price (selling price) cannot exceed regular price (MRP)',
+      );
     }
 
     if (dto.images && dto.images.length > 9) {
@@ -489,19 +537,27 @@ export class ProductsService {
     }
 
     if (dto.variants && dto.variants.length > 0) {
-      const skus = dto.variants.map((v) => v.sku?.trim().toLowerCase()).filter(Boolean);
+      const skus = dto.variants
+        .map((v) => v.sku?.trim().toLowerCase())
+        .filter(Boolean);
       const duplicate = skus.find((s, idx) => skus.indexOf(s) !== idx);
       if (duplicate) {
-        throw new BadRequestException(`Duplicate variant SKU found: ${duplicate}`);
+        throw new BadRequestException(
+          `Duplicate variant SKU found: ${duplicate}`,
+        );
       }
 
       for (const v of dto.variants) {
         if (v.price < 0) {
-          throw new BadRequestException(`Variant "${v.name}" price cannot be negative`);
+          throw new BadRequestException(
+            `Variant "${v.name}" price cannot be negative`,
+          );
         }
         if (v.discountPrice !== undefined && v.discountPrice !== null) {
           if (v.discountPrice < 0) {
-            throw new BadRequestException(`Variant "${v.name}" discountPrice cannot be negative`);
+            throw new BadRequestException(
+              `Variant "${v.name}" discountPrice cannot be negative`,
+            );
           }
           if (v.discountPrice >= v.price) {
             throw new BadRequestException(
@@ -522,6 +578,63 @@ export class ProductsService {
       slug = await this.ensureUniqueSlug(dto.slug || dto.name!, id);
     }
 
+    // Relocate product images and variant images to 'products' namespace
+    const relocatedImages =
+      dto.images !== undefined
+        ? await this.uploadService.relocateMultipleToNamespace(
+            dto.images,
+            'products',
+          )
+        : undefined;
+    let relocatedImageUrl: string | undefined = undefined;
+    if (dto.imageUrl) {
+      relocatedImageUrl =
+        (await this.uploadService.relocateToNamespace(
+          dto.imageUrl,
+          'products',
+        )) || dto.imageUrl;
+    }
+
+    const relocatedVariants = dto.variants
+      ? await Promise.all(
+          dto.variants.map(async (v) => ({
+            ...v,
+            imageUrl: v.imageUrl
+              ? (await this.uploadService.relocateToNamespace(
+                  v.imageUrl,
+                  'products',
+                )) || v.imageUrl
+              : v.imageUrl,
+          })),
+        )
+      : undefined;
+
+    // Gallery diff cleanup calculation
+    let imagesToDelete: string[] = [];
+    if (relocatedImages !== undefined) {
+      const existingImages = existing.images || [];
+      const newImagesSet = new Set(relocatedImages);
+      const removedImages = existingImages.filter(
+        (oldImg) => !newImagesSet.has(oldImg),
+      );
+
+      // Do NOT delete image if still referenced by any remaining variant
+      const remainingVariantImages = new Set<string>();
+      if (relocatedVariants) {
+        for (const v of relocatedVariants) {
+          if (v.imageUrl) remainingVariantImages.add(v.imageUrl);
+        }
+      } else if (existing.variants) {
+        for (const v of existing.variants) {
+          if (v.imageUrl) remainingVariantImages.add(v.imageUrl);
+        }
+      }
+
+      imagesToDelete = removedImages.filter(
+        (img) => !remainingVariantImages.has(img),
+      );
+    }
+
     const updatedProduct = await this.prisma.$transaction(async (tx) => {
       // 1. Update main product fields
       await tx.product.update({
@@ -535,7 +648,9 @@ export class ProductsService {
                 ? dto.descriptionTitle.trim()
                 : null,
           }),
-          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.description !== undefined && {
+            description: dto.description,
+          }),
           ...(dto.materials !== undefined && {
             materials:
               dto.materials && dto.materials.trim().length > 0
@@ -543,7 +658,9 @@ export class ProductsService {
                 : null,
           }),
           ...(dto.price !== undefined && { price: dto.price }),
-          ...(dto.discountPrice !== undefined && { discountPrice: dto.discountPrice }),
+          ...(dto.discountPrice !== undefined && {
+            discountPrice: dto.discountPrice,
+          }),
           ...(dto.stock !== undefined && { stock: dto.stock }),
           ...(dto.brand !== undefined && { brand: dto.brand }),
           ...(dto.petSpecies !== undefined && { petSpecies: dto.petSpecies }),
@@ -551,36 +668,56 @@ export class ProductsService {
             dietaryPreference: dto.dietaryPreference,
           }),
           ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
-          ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
-          ...(dto.images !== undefined && {
-            images: dto.images,
-            ...((!dto.imageUrl && dto.images.length > 0) && { imageUrl: dto.images[0] }),
+          ...(relocatedImageUrl !== undefined && {
+            imageUrl: relocatedImageUrl,
+          }),
+          ...(relocatedImages !== undefined && {
+            images: relocatedImages,
+            ...(!relocatedImageUrl &&
+              !dto.imageUrl &&
+              relocatedImages.length > 0 && { imageUrl: relocatedImages[0] }),
           }),
           ...(dto.status !== undefined && { status: dto.status }),
           ...(dto.seoTitle !== undefined && { seoTitle: dto.seoTitle }),
-          ...(dto.seoDescription !== undefined && { seoDescription: dto.seoDescription }),
-          ...(dto.attributes !== undefined && { attributes: dto.attributes as any }),
-          ...(dto.highlights !== undefined && { highlights: dto.highlights as any }),
-          ...(dto.ingredients !== undefined && { ingredients: dto.ingredients as any }),
-          ...(dto.feedingGuide !== undefined && { feedingGuide: dto.feedingGuide as any }),
-          ...(dto.careInstructions !== undefined && { careInstructions: dto.careInstructions }),
-          ...(dto.sizeGuide !== undefined && { sizeGuide: dto.sizeGuide as any }),
+          ...(dto.seoDescription !== undefined && {
+            seoDescription: dto.seoDescription,
+          }),
+          ...(dto.attributes !== undefined && {
+            attributes: dto.attributes as any,
+          }),
+          ...(dto.highlights !== undefined && {
+            highlights: dto.highlights as any,
+          }),
+          ...(dto.ingredients !== undefined && {
+            ingredients: dto.ingredients as any,
+          }),
+          ...(dto.feedingGuide !== undefined && {
+            feedingGuide: dto.feedingGuide as any,
+          }),
+          ...(dto.careInstructions !== undefined && {
+            careInstructions: dto.careInstructions,
+          }),
+          ...(dto.sizeGuide !== undefined && {
+            sizeGuide: dto.sizeGuide as any,
+          }),
           ...(dto.isTrending !== undefined && { isTrending: dto.isTrending }),
-          ...(dto.isBestSeller !== undefined && { isBestSeller: dto.isBestSeller }),
+          ...(dto.isBestSeller !== undefined && {
+            isBestSeller: dto.isBestSeller,
+          }),
         },
       });
 
       // Synchronize media: images[] is canonical
-      if (dto.images !== undefined) {
+      if (relocatedImages !== undefined) {
         await tx.productMedia.deleteMany({
           where: { productId: id },
         });
-        for (let i = 0; i < dto.images.length; i++) {
+        for (let i = 0; i < relocatedImages.length; i++) {
           await tx.productMedia.create({
             data: {
               productId: id,
               type: 'IMAGE',
-              url: dto.images[i],
+              url: relocatedImages[i],
               thumbnailUrl: null,
               order: i,
             },
@@ -625,8 +762,8 @@ export class ProductsService {
       }
 
       // 2. Update variants if provided
-      if (dto.variants) {
-        const providedVariantIds = dto.variants
+      if (relocatedVariants) {
+        const providedVariantIds = relocatedVariants
           .map((v) => v.id)
           .filter((vid): vid is string => !!vid);
 
@@ -639,7 +776,7 @@ export class ProductsService {
         });
 
         // Upsert variants
-        for (const v of dto.variants) {
+        for (const v of relocatedVariants) {
           if (v.id) {
             await tx.productVariant.update({
               where: { id: v.id },
@@ -675,7 +812,10 @@ export class ProductsService {
           select: { stock: true },
         });
         if (activeVariants.length > 0) {
-          const totalVariantStock = activeVariants.reduce((sum, v) => sum + v.stock, 0);
+          const totalVariantStock = activeVariants.reduce(
+            (sum, v) => sum + v.stock,
+            0,
+          );
           await tx.product.update({
             where: { id },
             data: { stock: totalVariantStock },
@@ -733,6 +873,17 @@ export class ProductsService {
         },
       });
     });
+
+    // Physically delete removed images that are not shared by remaining variants
+    if (imagesToDelete.length > 0) {
+      try {
+        await this.uploadService.deleteFilesByUrls(imagesToDelete);
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to cleanup removed product images for product "${id}": ${err?.message || err}`,
+        );
+      }
+    }
 
     return {
       success: true,
@@ -952,7 +1103,10 @@ export class ProductsService {
 
       if (activeVariants.length > 0) {
         // Variant stock is authoritative: product stock is derived sum of variants
-        const totalVariantStock = activeVariants.reduce((sum, v) => sum + v.stock, 0);
+        const totalVariantStock = activeVariants.reduce(
+          (sum, v) => sum + v.stock,
+          0,
+        );
         await tx.product.update({
           where: { id },
           data: { stock: totalVariantStock },

@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import {
   Body,
   Controller,
@@ -16,8 +17,12 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AdminAuth } from '../../../common';
-import { UploadService } from './upload.service';
-import { DeleteUploadedFilesDto, MulterFile, UploadTypeEnum } from './dto/upload.dto';
+import { UploadService, StorageNamespace } from './upload.service';
+import {
+  DeleteUploadedFilesDto,
+  MulterFile,
+  UploadTypeEnum,
+} from './dto/upload.dto';
 
 @ApiTags('Admin Uploads')
 @AdminAuth()
@@ -33,33 +38,32 @@ export class UploadController {
    * 4. Default safe folder "general"
    */
   private determineContextFolder(
-    req: any,
+    req?: Request,
     folder?: string,
     bodyFolder?: string,
     type?: string,
     bodyType?: string,
-  ): string {
-    const explicit = folder || bodyFolder || type || bodyType;
-    if (explicit && explicit.trim().length > 0) {
-      return explicit.trim().toLowerCase();
-    }
+  ): StorageNamespace {
+    const headerFolder = req?.headers?.['x-upload-folder'];
+    const headerStr = typeof headerFolder === 'string' ? headerFolder : '';
+    const raw = (folder || bodyFolder || type || bodyType || headerStr)
+      .trim()
+      .toLowerCase();
 
-    const headerFolder = req?.headers?.["x-upload-folder"];
-    if (headerFolder && typeof headerFolder === "string" && headerFolder.trim().length > 0) {
-      return headerFolder.trim().toLowerCase();
-    }
+    if (raw === 'product' || raw === 'products') return 'products';
+    if (raw === 'blog' || raw === 'blogs') return 'blogs';
+    if (raw === 'category' || raw === 'categories') return 'categories';
 
-    const referer = req?.headers?.["referer"] || req?.headers?.["referrer"];
-    if (referer && typeof referer === "string") {
+    const referer = req?.headers?.['referer'] || req?.headers?.['referrer'];
+    if (referer && typeof referer === 'string') {
       const lower = referer.toLowerCase();
-      if (lower.includes("/categor")) return "categories";
-      if (lower.includes("/product")) return "products";
-      if (lower.includes("/blog")) return "blogs";
+      if (lower.includes('/product')) return 'products';
+      if (lower.includes('/blog')) return 'blogs';
+      if (lower.includes('/categor')) return 'categories';
     }
 
-    return "general";
+    return 'categories';
   }
-
 
   /**
    * GET /api/v1/admin/upload/config
@@ -69,7 +73,8 @@ export class UploadController {
    */
   @Get('config')
   @ApiOperation({
-    summary: 'Get upload constraints and size limits (Product: 2MB–3MB, All else: max 4MB)',
+    summary:
+      'Get upload constraints and size limits (Product: 2MB–3MB, All else: max 4MB)',
   })
   @ApiQuery({ name: 'type', required: false, enum: UploadTypeEnum })
   getUploadConfig(@Query('type') type?: string) {
@@ -96,16 +101,29 @@ export class UploadController {
   )
   async uploadSingleFile(
     @UploadedFile() file: MulterFile,
-    @Req() req: any,
+    @Req() req?: Request,
     @Query('type') type?: string,
     @Query('folder') folder?: string,
     @Body('folder') bodyFolder?: string,
     @Body('type') bodyType?: string,
-    @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    const effectiveFolder = this.determineContextFolder(req, folder, bodyFolder, type, bodyType);
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, effectiveFolder);
+    const effectiveFolder = this.determineContextFolder(
+      req,
+      folder,
+      bodyFolder,
+      type,
+      bodyType,
+    );
+    return this.uploadService.uploadSingleFile(
+      file,
+      minSizeMb,
+      maxSizeMb,
+      effectiveFolder,
+    );
   }
 
   /**
@@ -125,112 +143,149 @@ export class UploadController {
   )
   async uploadProductFile(
     @UploadedFile() file: MulterFile,
-    @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, 'product');
+    return this.uploadService.uploadSingleFile(
+      file,
+      minSizeMb,
+      maxSizeMb,
+      'product',
+    );
   }
 
   /**
    * POST /api/v1/admin/upload/multiple
    * Multiple file upload endpoint (Max 10 files per request)
    */
-  
+
   /**
    * POST /api/v1/admin/upload/category
    * Explicit convenience endpoint for category images (Stores inside categories/ folder)
    */
-  @Post("category")
+  @Post('category')
   @HttpCode(HttpStatus.OK)
-  @ApiConsumes("multipart/form-data")
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: "Upload category image (Stored inside categories/ folder, max 4MB)",
+    summary:
+      'Upload category image (Stored inside categories/ folder, max 4MB)',
   })
   @UseInterceptors(
-    FileInterceptor("file", {
+    FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
   async uploadCategoryFile(
     @UploadedFile() file: MulterFile,
-    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "categories");
+    return this.uploadService.uploadSingleFile(
+      file,
+      minSizeMb,
+      maxSizeMb,
+      'categories',
+    );
   }
 
   /**
    * POST /api/v1/admin/upload/categories (plural alias)
    */
-  @Post("categories")
+  @Post('categories')
   @HttpCode(HttpStatus.OK)
-  @ApiConsumes("multipart/form-data")
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: "Upload category image alias (Stored inside categories/ folder)",
+    summary: 'Upload category image alias (Stored inside categories/ folder)',
   })
   @UseInterceptors(
-    FileInterceptor("file", {
+    FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
   async uploadCategoriesFile(
     @UploadedFile() file: MulterFile,
-    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "categories");
+    return this.uploadService.uploadSingleFile(
+      file,
+      minSizeMb,
+      maxSizeMb,
+      'categories',
+    );
   }
 
   /**
    * POST /api/v1/admin/upload/blog
    * Explicit convenience endpoint for blog images (Stored inside blogs/ folder)
    */
-  @Post("blog")
+  @Post('blog')
   @HttpCode(HttpStatus.OK)
-  @ApiConsumes("multipart/form-data")
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: "Upload blog image (Stored inside blogs/ folder, max 4MB)",
+    summary: 'Upload blog image (Stored inside blogs/ folder, max 4MB)',
   })
   @UseInterceptors(
-    FileInterceptor("file", {
+    FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
   async uploadBlogFile(
     @UploadedFile() file: MulterFile,
-    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "blogs");
+    return this.uploadService.uploadSingleFile(
+      file,
+      minSizeMb,
+      maxSizeMb,
+      'blogs',
+    );
   }
 
   /**
    * POST /api/v1/admin/upload/blogs (plural alias)
    */
-  @Post("blogs")
+  @Post('blogs')
   @HttpCode(HttpStatus.OK)
-  @ApiConsumes("multipart/form-data")
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: "Upload blog image alias (Stored inside blogs/ folder)",
+    summary: 'Upload blog image alias (Stored inside blogs/ folder)',
   })
   @UseInterceptors(
-    FileInterceptor("file", {
+    FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
   async uploadBlogsFile(
     @UploadedFile() file: MulterFile,
-    @Query("minSizeMb", new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query("maxSizeMb", new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadSingleFile(file, minSizeMb, maxSizeMb, "blogs");
+    return this.uploadService.uploadSingleFile(
+      file,
+      minSizeMb,
+      maxSizeMb,
+      'blogs',
+    );
   }
 
   @Post('multiple')
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload multiple images in batch (Product: 2MB–3MB, All else: max 4MB)',
+    summary:
+      'Upload multiple images in batch (Product: 2MB–3MB, All else: max 4MB)',
   })
   @ApiQuery({ name: 'type', required: false, enum: UploadTypeEnum })
   @UseInterceptors(
@@ -240,16 +295,29 @@ export class UploadController {
   )
   async uploadMultipleFiles(
     @UploadedFiles() files: MulterFile[],
-    @Req() req: any,
+    @Req() req?: Request,
     @Query('type') type?: string,
     @Query('folder') folder?: string,
     @Body('folder') bodyFolder?: string,
     @Body('type') bodyType?: string,
-    @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    const effectiveFolder = this.determineContextFolder(req, folder, bodyFolder, type, bodyType);
-    return this.uploadService.uploadMultipleFiles(files, minSizeMb, maxSizeMb, effectiveFolder);
+    const effectiveFolder = this.determineContextFolder(
+      req,
+      folder,
+      bodyFolder,
+      type,
+      bodyType,
+    );
+    return this.uploadService.uploadMultipleFiles(
+      files,
+      minSizeMb,
+      maxSizeMb,
+      effectiveFolder,
+    );
   }
 
   /**
@@ -260,7 +328,8 @@ export class UploadController {
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload multiple product images in batch (Enforces 2MB min, 3MB max per file)',
+    summary:
+      'Upload multiple product images in batch (Enforces 2MB min, 3MB max per file)',
   })
   @UseInterceptors(
     FilesInterceptor('files', 10, {
@@ -269,10 +338,17 @@ export class UploadController {
   )
   async uploadMultipleProductFiles(
     @UploadedFiles() files: MulterFile[],
-    @Query('minSizeMb', new ParseIntPipe({ optional: true })) minSizeMb?: number,
-    @Query('maxSizeMb', new ParseIntPipe({ optional: true })) maxSizeMb?: number,
+    @Query('minSizeMb', new ParseIntPipe({ optional: true }))
+    minSizeMb?: number,
+    @Query('maxSizeMb', new ParseIntPipe({ optional: true }))
+    maxSizeMb?: number,
   ) {
-    return this.uploadService.uploadMultipleFiles(files, minSizeMb, maxSizeMb, 'product');
+    return this.uploadService.uploadMultipleFiles(
+      files,
+      minSizeMb,
+      maxSizeMb,
+      'product',
+    );
   }
 
   /**
@@ -282,21 +358,22 @@ export class UploadController {
   @Delete()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Delete uploaded file(s) from storage by URL",
+    summary: 'Delete uploaded file(s) from storage by URL',
   })
   async deleteFile(
-    @Query("url") queryUrl?: string,
+    @Query('url') queryUrl?: string,
     @Body() bodyDto?: DeleteUploadedFilesDto,
   ) {
     const urls: string[] = [];
     if (queryUrl) urls.push(queryUrl);
     if (bodyDto?.url) urls.push(bodyDto.url);
-    if (bodyDto?.urls && Array.isArray(bodyDto.urls)) urls.push(...bodyDto.urls);
+    if (bodyDto?.urls && Array.isArray(bodyDto.urls))
+      urls.push(...bodyDto.urls);
 
     if (urls.length === 0) {
       return {
         success: true,
-        message: "No URLs provided for deletion",
+        message: 'No URLs provided for deletion',
         deletedCount: 0,
       };
     }
@@ -313,10 +390,10 @@ export class UploadController {
    * POST /api/v1/admin/upload/delete
    * Convenience POST endpoint for environments where DELETE with body is restricted
    */
-  @Post("delete")
+  @Post('delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Delete uploaded file(s) from storage by URL (POST alternative)",
+    summary: 'Delete uploaded file(s) from storage by URL (POST alternative)',
   })
   async deleteFilePost(@Body() bodyDto: DeleteUploadedFilesDto) {
     return this.deleteFile(undefined, bodyDto);

@@ -154,7 +154,6 @@ export class UpdateMediaDto {
   order?: number = 0;
 }
 
-
 export class CustomProductAttributeDto {
   @IsString()
   @IsNotEmpty()
@@ -316,7 +315,9 @@ export class CreateProductDto {
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  @MaxLength(2000, { message: 'Materials description cannot exceed 2000 characters' })
+  @MaxLength(2000, {
+    message: 'Materials description cannot exceed 2000 characters',
+  })
   materials?: string;
 
   @Type(() => Number)
@@ -449,7 +450,9 @@ export class UpdateProductDto {
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  @MaxLength(2000, { message: 'Materials description cannot exceed 2000 characters' })
+  @MaxLength(2000, {
+    message: 'Materials description cannot exceed 2000 characters',
+  })
   materials?: string;
 
   @IsOptional()

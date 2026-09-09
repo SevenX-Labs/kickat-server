@@ -3,7 +3,11 @@ import { BlogsService } from './blogs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { AdminBlogSortEnum, CreateBlogCategoryDto, CreateBlogPostDto } from './dto/admin-blog.dto';
+import {
+  AdminBlogSortEnum,
+  CreateBlogCategoryDto,
+  CreateBlogPostDto,
+} from './dto/admin-blog.dto';
 
 describe('Admin BlogsService', () => {
   let service: BlogsService;
@@ -13,6 +17,8 @@ describe('Admin BlogsService', () => {
   const mockUploadService = {
     deleteFileByUrl: jest.fn().mockResolvedValue(true),
     deleteFilesByUrls: jest.fn().mockResolvedValue(1),
+    relocateToNamespace: jest.fn((url) => Promise.resolve(url)),
+    relocateMultipleToNamespace: jest.fn((urls) => Promise.resolve(urls || [])),
   };
 
   const mockPrismaService = {
@@ -168,9 +174,71 @@ describe('Admin BlogsService', () => {
       expect(result.data.title).toBe('Updated Title');
     });
 
+    it('createBlogPost should relocate cover image to blogs namespace', async () => {
+      prisma.blogPost.findUnique.mockResolvedValue(null);
+      prisma.blogPost.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'post-new', ...data }),
+      );
+      uploadService.relocateToNamespace.mockResolvedValueOnce(
+        'https://supabase/upload/blogs/dog-health.png',
+      );
+
+      const dto = {
+        title: 'Dog Health',
+        content: 'Content about dog health',
+        coverImage: 'https://supabase/upload/general/dog-health.png',
+      };
+
+      const result = await service.createBlogPost(dto);
+      expect(result.success).toBe(true);
+      expect(uploadService.relocateToNamespace).toHaveBeenCalledWith(
+        'https://supabase/upload/general/dog-health.png',
+        'blogs',
+      );
+      expect(result.data.coverImage).toBe(
+        'https://supabase/upload/blogs/dog-health.png',
+      );
+    });
+
+    it('updateBlogPost should replace cover image, relocate to blogs namespace, and delete old cover image', async () => {
+      const existing = {
+        id: 'post-1',
+        title: 'Dog Health',
+        slug: 'dog-health',
+        coverImage: 'https://supabase/upload/blogs/old-cover.png',
+        readTimeMinutes: 2,
+      };
+      prisma.blogPost.findFirst.mockResolvedValue(existing);
+      prisma.blogPost.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'post-1', ...data }),
+      );
+      uploadService.relocateToNamespace.mockResolvedValueOnce(
+        'https://supabase/upload/blogs/new-cover.png',
+      );
+
+      const result = await service.updateBlogPost('post-1', {
+        coverImage: 'https://supabase/upload/general/new-cover.png',
+      });
+
+      expect(result.success).toBe(true);
+      expect(uploadService.relocateToNamespace).toHaveBeenCalledWith(
+        'https://supabase/upload/general/new-cover.png',
+        'blogs',
+      );
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(
+        'https://supabase/upload/blogs/old-cover.png',
+      );
+    });
+
     it('deleteBlogPost should soft-delete post by default', async () => {
-      prisma.blogPost.findFirst.mockResolvedValue({ id: 'post-1', coverImage: 'https://supabase/upload/blog/cover.png' });
-      prisma.blogPost.update.mockResolvedValue({ id: 'post-1', deletedAt: new Date() });
+      prisma.blogPost.findFirst.mockResolvedValue({
+        id: 'post-1',
+        coverImage: 'https://supabase/upload/blog/cover.png',
+      });
+      prisma.blogPost.update.mockResolvedValue({
+        id: 'post-1',
+        deletedAt: new Date(),
+      });
 
       const result = await service.deleteBlogPost('post-1', false);
 
@@ -180,7 +248,9 @@ describe('Admin BlogsService', () => {
           data: expect.objectContaining({ deletedAt: expect.any(Date) }),
         }),
       );
-      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith('https://supabase/upload/blog/cover.png');
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(
+        'https://supabase/upload/blog/cover.png',
+      );
     });
 
     it('deleteBlogPost should permanently delete post if permanent is true', async () => {
@@ -190,7 +260,9 @@ describe('Admin BlogsService', () => {
       const result = await service.deleteBlogPost('post-1', true);
 
       expect(result.success).toBe(true);
-      expect(prisma.blogPost.delete).toHaveBeenCalledWith({ where: { id: 'post-1' } });
+      expect(prisma.blogPost.delete).toHaveBeenCalledWith({
+        where: { id: 'post-1' },
+      });
     });
   });
 
@@ -237,7 +309,10 @@ describe('Admin BlogsService', () => {
     });
 
     it('createBlogCategory should throw ConflictException if category exists', async () => {
-      prisma.blogCategory.findFirst.mockResolvedValue({ id: 'cat-1', name: 'Nutrition' });
+      prisma.blogCategory.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Nutrition',
+      });
 
       await expect(
         service.createBlogCategory({ name: 'Nutrition' }),
@@ -245,12 +320,20 @@ describe('Admin BlogsService', () => {
     });
 
     it('deleteBlogCategory should detach posts and soft-delete category', async () => {
-      prisma.blogCategory.findFirst.mockResolvedValue({ id: 'cat-1', imageUrl: 'https://supabase/upload/category/blogcat.png' });
+      prisma.blogCategory.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        imageUrl: 'https://supabase/upload/category/blogcat.png',
+      });
       prisma.blogPost.updateMany.mockResolvedValue({ count: 2 });
-      prisma.blogCategory.update.mockResolvedValue({ id: 'cat-1', deletedAt: new Date() });
+      prisma.blogCategory.update.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: new Date(),
+      });
 
       const result = await service.deleteBlogCategory('cat-1');
-      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith('https://supabase/upload/category/blogcat.png');
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(
+        'https://supabase/upload/category/blogcat.png',
+      );
 
       expect(result.success).toBe(true);
       expect(prisma.blogPost.updateMany).toHaveBeenCalledWith({

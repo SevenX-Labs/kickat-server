@@ -99,10 +99,7 @@ export class ProductsController {
    * Update product fields, variants, and media
    */
   @Patch(':id')
-  async updateProduct(
-    @Param('id') id: string,
-    @Body() dto: UpdateProductDto,
-  ) {
+  async updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.productsService.updateProduct(id, dto);
   }
 

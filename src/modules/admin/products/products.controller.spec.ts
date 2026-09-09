@@ -93,7 +93,10 @@ describe('Admin ProductsController', () => {
     const result = await controller.updateProduct('prod-1', dto);
 
     expect(result).toBe(expected);
-    expect(mockProductsService.updateProduct).toHaveBeenCalledWith('prod-1', dto);
+    expect(mockProductsService.updateProduct).toHaveBeenCalledWith(
+      'prod-1',
+      dto,
+    );
   });
 
   it('deleteProduct should delegate to service', async () => {
@@ -103,18 +106,27 @@ describe('Admin ProductsController', () => {
     const result = await controller.deleteProduct('prod-1', false);
 
     expect(result).toBe(expected);
-    expect(mockProductsService.deleteProduct).toHaveBeenCalledWith('prod-1', false);
+    expect(mockProductsService.deleteProduct).toHaveBeenCalledWith(
+      'prod-1',
+      false,
+    );
   });
 
   it('updateProductStatus should delegate to service', async () => {
-    const expected = { success: true, data: { status: ProductStatusEnum.INACTIVE } };
+    const expected = {
+      success: true,
+      data: { status: ProductStatusEnum.INACTIVE },
+    };
     mockProductsService.updateProductStatus.mockResolvedValue(expected);
 
     const dto: UpdateProductStatusDto = { status: ProductStatusEnum.INACTIVE };
     const result = await controller.updateProductStatus('prod-1', dto);
 
     expect(result).toBe(expected);
-    expect(mockProductsService.updateProductStatus).toHaveBeenCalledWith('prod-1', dto);
+    expect(mockProductsService.updateProductStatus).toHaveBeenCalledWith(
+      'prod-1',
+      dto,
+    );
   });
 
   it('bulkUpdateStatus should delegate to service', async () => {

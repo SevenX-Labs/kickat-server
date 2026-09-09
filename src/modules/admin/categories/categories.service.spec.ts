@@ -13,6 +13,8 @@ describe('Admin CategoriesService', () => {
   const mockUploadService = {
     deleteFileByUrl: jest.fn().mockResolvedValue(true),
     deleteFilesByUrls: jest.fn().mockResolvedValue(1),
+    relocateToNamespace: jest.fn((url) => Promise.resolve(url)),
+    relocateMultipleToNamespace: jest.fn((urls) => Promise.resolve(urls || [])),
   };
 
   const mockPrismaService = {
@@ -157,7 +159,9 @@ describe('Admin CategoriesService', () => {
 
       prisma.category.findFirst.mockResolvedValue(mockCategory);
 
-      const result = await service.getCategoryById('11111111-1111-4111-a111-111111111111');
+      const result = await service.getCategoryById(
+        '11111111-1111-4111-a111-111111111111',
+      );
 
       expect(result.success).toBe(true);
       expect(result.data.name).toBe('Cats');
@@ -198,7 +202,10 @@ describe('Admin CategoriesService', () => {
     });
 
     it('should create subcategory when valid parentId is given', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'parent-cat', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'parent-cat',
+        deletedAt: null,
+      });
       prisma.category.findUnique.mockResolvedValue(null);
 
       const createdMock = {
@@ -231,13 +238,44 @@ describe('Admin CategoriesService', () => {
         parentId: 'non-existent-parent',
       };
 
-      await expect(service.createCategory(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createCategory(dto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should relocate image to categories namespace on category create', async () => {
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-new', ...data }),
+      );
+      uploadService.relocateToNamespace.mockResolvedValueOnce(
+        'https://supabase/upload/categories/fish.png',
+      );
+
+      const dto: CreateCategoryDto = {
+        name: 'Fish',
+        imageUrl: 'https://supabase/upload/general/fish.png',
+      };
+
+      const result = await service.createCategory(dto);
+
+      expect(uploadService.relocateToNamespace).toHaveBeenCalledWith(
+        'https://supabase/upload/general/fish.png',
+        'categories',
+      );
+      expect(result.data.imageUrl).toBe(
+        'https://supabase/upload/categories/fish.png',
+      );
     });
   });
 
   describe('updateCategory', () => {
     it('should update category fields', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', slug: 'old-slug', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        slug: 'old-slug',
+        deletedAt: null,
+      });
       prisma.category.findUnique.mockResolvedValue(null);
       const updatedMock = {
         id: 'cat-1',
@@ -255,7 +293,10 @@ describe('Admin CategoriesService', () => {
     });
 
     it('should reject setting category as its own parent', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: null,
+      });
 
       const dto: UpdateCategoryDto = { parentId: 'cat-1' };
       await expect(service.updateCategory('cat-1', dto)).rejects.toThrow(
@@ -266,7 +307,11 @@ describe('Admin CategoriesService', () => {
     it('should reject circular parent hierarchy', async () => {
       prisma.category.findFirst
         .mockResolvedValueOnce({ id: 'cat-A', deletedAt: null }) // existing cat-A
-        .mockResolvedValueOnce({ id: 'cat-B', parentId: 'cat-A', deletedAt: null }); // parent cat-B has cat-A as parent
+        .mockResolvedValueOnce({
+          id: 'cat-B',
+          parentId: 'cat-A',
+          deletedAt: null,
+        }); // parent cat-B has cat-A as parent
 
       prisma.category.findUnique.mockResolvedValue({ parentId: 'cat-A' });
 
@@ -281,11 +326,14 @@ describe('Admin CategoriesService', () => {
         id: 'cat-1',
         name: 'Dogs',
         slug: 'dogs',
-        imageUrl: 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg',
+        imageUrl:
+          'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg',
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { name: 'Updated Name' };
       const result = await service.updateCategory('cat-1', dto);
@@ -301,7 +349,8 @@ describe('Admin CategoriesService', () => {
     });
 
     it('TEST 2: should remove existing image and call deleteFileByUrl when imageUrl is null', async () => {
-      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const oldUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -310,7 +359,9 @@ describe('Admin CategoriesService', () => {
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { imageUrl: null };
       const result = await service.updateCategory('cat-1', dto);
@@ -326,8 +377,10 @@ describe('Admin CategoriesService', () => {
     });
 
     it('TEST 3: should replace image and delete old physical image when imageUrl is a new URL', async () => {
-      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
-      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      const oldUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const newUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -336,7 +389,9 @@ describe('Admin CategoriesService', () => {
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { imageUrl: newUrl };
       const result = await service.updateCategory('cat-1', dto);
@@ -352,7 +407,8 @@ describe('Admin CategoriesService', () => {
     });
 
     it('TEST 4: should NOT delete image when imageUrl is unchanged', async () => {
-      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const oldUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -361,7 +417,9 @@ describe('Admin CategoriesService', () => {
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { imageUrl: oldUrl };
       const result = await service.updateCategory('cat-1', dto);
@@ -377,7 +435,8 @@ describe('Admin CategoriesService', () => {
     });
 
     it('TEST 5: should normalize empty string imageUrl to null and delete old image', async () => {
-      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const oldUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -386,7 +445,9 @@ describe('Admin CategoriesService', () => {
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { imageUrl: '' };
       const result = await service.updateCategory('cat-1', dto);
@@ -402,7 +463,8 @@ describe('Admin CategoriesService', () => {
     });
 
     it('TEST 6: should NOT call deleteFileByUrl when replacing if existing category had no image', async () => {
-      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      const newUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -411,7 +473,9 @@ describe('Admin CategoriesService', () => {
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { imageUrl: newUrl };
       const result = await service.updateCategory('cat-1', dto);
@@ -427,8 +491,10 @@ describe('Admin CategoriesService', () => {
     });
 
     it('TEST 7: should call deleteFileByUrl with external URL so uploadService safety protects it', async () => {
-      const externalUrl = 'https://images.unsplash.com/photo-1543466835-00a7907e9de1';
-      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      const externalUrl =
+        'https://images.unsplash.com/photo-1543466835-00a7907e9de1';
+      const newUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -437,7 +503,9 @@ describe('Admin CategoriesService', () => {
         deletedAt: null,
       });
       prisma.category.findUnique.mockResolvedValue(null);
-      prisma.category.update.mockImplementation(({ data }) => Promise.resolve({ id: 'cat-1', ...data }));
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
 
       const dto: UpdateCategoryDto = { imageUrl: newUrl };
       const result = await service.updateCategory('cat-1', dto);
@@ -452,9 +520,47 @@ describe('Admin CategoriesService', () => {
       expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(externalUrl);
     });
 
+    it('should relocate image to categories namespace on category update', async () => {
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dogs',
+        slug: 'dogs',
+        imageUrl: null,
+        deletedAt: null,
+      });
+      prisma.category.findUnique.mockResolvedValue(null);
+      prisma.category.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cat-1', ...data }),
+      );
+      uploadService.relocateToNamespace.mockResolvedValueOnce(
+        'https://supabase/upload/categories/new-dog.png',
+      );
+
+      const dto: UpdateCategoryDto = {
+        imageUrl: 'https://supabase/upload/general/new-dog.png',
+      };
+
+      await service.updateCategory('cat-1', dto);
+
+      expect(uploadService.relocateToNamespace).toHaveBeenCalledWith(
+        'https://supabase/upload/general/new-dog.png',
+        'categories',
+      );
+      expect(prisma.category.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cat-1' },
+          data: expect.objectContaining({
+            imageUrl: 'https://supabase/upload/categories/new-dog.png',
+          }),
+        }),
+      );
+    });
+
     it('should NOT delete old image if database update fails', async () => {
-      const oldUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
-      const newUrl = 'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
+      const oldUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/old.jpg';
+      const newUrl =
+        'https://supabase.co/storage/v1/object/public/upload/categories/new.jpg';
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',
@@ -466,7 +572,9 @@ describe('Admin CategoriesService', () => {
       prisma.category.update.mockRejectedValue(new Error('Database error'));
 
       const dto: UpdateCategoryDto = { imageUrl: newUrl };
-      await expect(service.updateCategory('cat-1', dto)).rejects.toThrow('Database error');
+      await expect(service.updateCategory('cat-1', dto)).rejects.toThrow(
+        'Database error',
+      );
 
       expect(uploadService.deleteFileByUrl).not.toHaveBeenCalled();
     });
@@ -474,7 +582,10 @@ describe('Admin CategoriesService', () => {
 
   describe('deleteCategory', () => {
     it('should prevent deletion if products depend on the category', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: null,
+      });
       prisma.product.count.mockResolvedValue(5); // 5 dependent products
 
       await expect(service.deleteCategory('cat-1', false)).rejects.toThrow(
@@ -485,7 +596,10 @@ describe('Admin CategoriesService', () => {
     });
 
     it('should prevent deletion if subcategories exist under the category', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: null,
+      });
       prisma.product.count.mockResolvedValue(0); // 0 products
       prisma.category.count.mockResolvedValue(2); // 2 subcategories
 
@@ -495,7 +609,11 @@ describe('Admin CategoriesService', () => {
     });
 
     it('should soft-delete category if no dependencies exist', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null, imageUrl: 'https://supabase/upload/category/cat-1.png' });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: null,
+        imageUrl: 'https://supabase/upload/category/cat-1.png',
+      });
       prisma.product.count.mockResolvedValue(0);
       prisma.category.count.mockResolvedValue(0);
       prisma.category.update.mockResolvedValue({});
@@ -508,11 +626,16 @@ describe('Admin CategoriesService', () => {
         where: { id: 'cat-1' },
         data: { deletedAt: expect.any(Date) },
       });
-      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith('https://supabase/upload/category/cat-1.png');
+      expect(uploadService.deleteFileByUrl).toHaveBeenCalledWith(
+        'https://supabase/upload/category/cat-1.png',
+      );
     });
 
     it('should permanently delete category if permanent is true and no dependencies', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: null,
+      });
       prisma.product.count.mockResolvedValue(0);
       prisma.category.count.mockResolvedValue(0);
       prisma.category.delete.mockResolvedValue({});
@@ -529,7 +652,10 @@ describe('Admin CategoriesService', () => {
 
   describe('updateStatus', () => {
     it('should activate/deactivate category', async () => {
-      prisma.category.findFirst.mockResolvedValue({ id: 'cat-1', deletedAt: null });
+      prisma.category.findFirst.mockResolvedValue({
+        id: 'cat-1',
+        deletedAt: null,
+      });
       prisma.category.update.mockResolvedValue({
         id: 'cat-1',
         name: 'Dogs',

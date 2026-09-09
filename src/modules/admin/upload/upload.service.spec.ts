@@ -15,7 +15,10 @@ describe('UploadService', () => {
     }),
   };
 
-  const createMockFile = (sizeInMb: number, mimetype: string = 'image/png'): MulterFile => ({
+  const createMockFile = (
+    sizeInMb: number,
+    mimetype: string = 'image/png',
+  ): MulterFile => ({
     fieldname: 'file',
     originalname: 'test-image.png',
     encoding: '7bit',
@@ -42,51 +45,63 @@ describe('UploadService', () => {
   describe('Product Image Size Limits (2MB min, 3MB max)', () => {
     it('should reject a product image smaller than 2MB', () => {
       const file = createMockFile(1.5);
-      expect(() => service.validateFile(file, undefined, undefined, 'product')).toThrow(
-        BadRequestException,
-      );
-      expect(() => service.validateFile(file, undefined, undefined, 'product')).toThrow(
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'product'),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'product'),
+      ).toThrow(
         /smaller than the minimum required limit of 2 MB for product images/,
       );
     });
 
     it('should accept a product image between 2MB and 3MB', () => {
       const file = createMockFile(2.5);
-      expect(() => service.validateFile(file, undefined, undefined, 'product')).not.toThrow();
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'product'),
+      ).not.toThrow();
     });
 
     it('should reject a product image larger than 3MB', () => {
       const file = createMockFile(3.5);
-      expect(() => service.validateFile(file, undefined, undefined, 'product')).toThrow(
-        BadRequestException,
-      );
-      expect(() => service.validateFile(file, undefined, undefined, 'product')).toThrow(
-        /exceeds the maximum allowed limit of 3 MB for product images/,
-      );
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'product'),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'product'),
+      ).toThrow(/exceeds the maximum allowed limit of 3 MB for product images/);
     });
   });
 
   describe('Default / Other Image Size Limits (max 4MB, no minimum)', () => {
     it('should accept a small image (e.g. 0.5MB) for general/category/blog', () => {
       const file = createMockFile(0.5);
-      expect(() => service.validateFile(file, undefined, undefined, 'category')).not.toThrow();
-      expect(() => service.validateFile(file, undefined, undefined, 'blog')).not.toThrow();
-      expect(() => service.validateFile(file, undefined, undefined, undefined)).not.toThrow();
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'category'),
+      ).not.toThrow();
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'blog'),
+      ).not.toThrow();
+      expect(() =>
+        service.validateFile(file, undefined, undefined, undefined),
+      ).not.toThrow();
     });
 
     it('should accept an image up to 4MB for general/category/blog', () => {
       const file = createMockFile(3.8);
-      expect(() => service.validateFile(file, undefined, undefined, 'category')).not.toThrow();
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'category'),
+      ).not.toThrow();
     });
 
     it('should reject an image larger than 4MB for general/category/blog', () => {
       const file = createMockFile(4.2);
-      expect(() => service.validateFile(file, undefined, undefined, 'category')).toThrow(
-        BadRequestException,
-      );
-      expect(() => service.validateFile(file, undefined, undefined, 'category')).toThrow(
-        /exceeds the maximum allowed limit of 4 MB/,
-      );
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'category'),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'category'),
+      ).toThrow(/exceeds the maximum allowed limit of 4 MB/);
     });
   });
 
@@ -101,12 +116,12 @@ describe('UploadService', () => {
   describe('MIME Type Validation', () => {
     it('should reject non-image file types', () => {
       const pdfFile = createMockFile(2.5, 'application/pdf');
-      expect(() => service.validateFile(pdfFile, undefined, undefined, 'product')).toThrow(
-        BadRequestException,
-      );
-      expect(() => service.validateFile(pdfFile, undefined, undefined, 'product')).toThrow(
-        /Invalid file type/,
-      );
+      expect(() =>
+        service.validateFile(pdfFile, undefined, undefined, 'product'),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        service.validateFile(pdfFile, undefined, undefined, 'product'),
+      ).toThrow(/Invalid file type/);
     });
   });
 
@@ -130,49 +145,116 @@ describe('UploadService', () => {
     });
   });
 
-  describe("File Deletion Methods", () => {
-    it("should extract storage path from Supabase URL", () => {
-      const url = "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/123-test.png";
+  describe('File Deletion Methods', () => {
+    it('should extract storage path from Supabase URL', () => {
+      const url =
+        'https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/123-test.png';
       const parsed = service.extractStoragePath(url);
       expect(parsed).toEqual({
-        provider: "supabase",
-        bucket: "upload",
-        path: "product/123-test.png",
+        provider: 'supabase',
+        bucket: 'upload',
+        path: 'product/123-test.png',
       });
     });
 
-    it("should extract storage path from local uploads URL", () => {
-      const url = "http://localhost:3000/uploads/product/456-test.png";
+    it('should extract storage path from local uploads URL', () => {
+      const url = 'http://localhost:3000/uploads/product/456-test.png';
       const parsed = service.extractStoragePath(url);
       expect(parsed).toEqual({
-        provider: "local",
-        path: "product/456-test.png",
+        provider: 'local',
+        path: 'product/456-test.png',
       });
     });
 
-    it("should return null for external unmanaged URLs", () => {
-      const url = "https://images.unsplash.com/photo-123456";
+    it('should return null for external unmanaged URLs', () => {
+      const url = 'https://images.unsplash.com/photo-123456';
       const parsed = service.extractStoragePath(url);
       expect(parsed).toBeNull();
     });
 
-    it("should gracefully handle null or invalid URLs in deleteFileByUrl", async () => {
+    it('should gracefully handle null or invalid URLs in deleteFileByUrl', async () => {
       expect(await service.deleteFileByUrl(null)).toBe(false);
-      expect(await service.deleteFileByUrl("")).toBe(false);
-      expect(await service.deleteFileByUrl("https://external.com/pic.jpg")).toBe(false);
+      expect(await service.deleteFileByUrl('')).toBe(false);
+      expect(
+        await service.deleteFileByUrl('https://external.com/pic.jpg'),
+      ).toBe(false);
     });
 
-    it("should handle batch deletion with deleteFilesByUrls", async () => {
+    it('should handle batch deletion with deleteFilesByUrls', async () => {
       const urls = [
-        "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/test-1.png",
-        "https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/test-2.png",
-        "https://external.com/pic.jpg", // ignored
+        'https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/test-1.png',
+        'https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/product/test-2.png',
+        'https://external.com/pic.jpg', // ignored
         null,
       ];
 
       // In unit test environment without supabaseClient, these fall to local check
-      const count = await service.deleteFilesByUrls(urls as any);
-      expect(typeof count).toBe("number");
+      const count = await service.deleteFilesByUrls(urls);
+      expect(typeof count).toBe('number');
+    });
+  });
+
+  describe('Storage Namespaces & Relocation', () => {
+    it('resolveFolderPrefix should strictly map to categories/, products/, blogs/ and never general/', () => {
+      expect(service.resolveFolderPrefix('category')).toBe('categories/');
+      expect(service.resolveFolderPrefix('categories')).toBe('categories/');
+      expect(service.resolveFolderPrefix('product')).toBe('products/');
+      expect(service.resolveFolderPrefix('products')).toBe('products/');
+      expect(service.resolveFolderPrefix('blog')).toBe('blogs/');
+      expect(service.resolveFolderPrefix('blogs')).toBe('blogs/');
+      // When undefined or arbitrary, must NEVER return general/
+      expect(service.resolveFolderPrefix(undefined)).toBe('categories/');
+      expect(service.resolveFolderPrefix('arbitrary_unknown')).toBe(
+        'categories/',
+      );
+    });
+
+    it('relocateToNamespace should return external URLs unchanged', async () => {
+      const externalUrl = 'https://images.unsplash.com/photo-123456';
+      const result = await service.relocateToNamespace(
+        externalUrl,
+        'categories',
+      );
+      expect(result).toBe(externalUrl);
+    });
+
+    it('relocateToNamespace should return url unchanged if already in target namespace', async () => {
+      const alreadyInCategory =
+        'https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/categories/test.png';
+      const result = await service.relocateToNamespace(
+        alreadyInCategory,
+        'categories',
+      );
+      expect(result).toBe(alreadyInCategory);
+    });
+
+    it('relocateToNamespace should guard against path traversal attempts', async () => {
+      const traversalUrl = 'http://localhost:3000/uploads/../../secret.txt';
+      const result = await service.relocateToNamespace(
+        traversalUrl,
+        'categories',
+      );
+      expect(result).toBe(traversalUrl);
+    });
+
+    it('relocateToNamespace should handle null or empty url gracefully', async () => {
+      expect(await service.relocateToNamespace(null, 'categories')).toBeNull();
+      expect(await service.relocateToNamespace('', 'categories')).toBeNull();
+    });
+
+    it('relocateMultipleToNamespace should process multiple URLs in batch', async () => {
+      const urls = [
+        'https://mspqduxvrypexahkkxjz.supabase.co/storage/v1/object/public/upload/products/img1.png',
+        'https://images.unsplash.com/photo-1',
+        null,
+      ];
+      const results = await service.relocateMultipleToNamespace(
+        urls,
+        'products',
+      );
+      expect(results.length).toBe(2);
+      expect(results[0]).toBe(urls[0]);
+      expect(results[1]).toBe(urls[1]);
     });
   });
 });

@@ -55,7 +55,10 @@ export class CategoriesService {
         select: { id: true },
       });
 
-      if (!existing || (excludeCategoryId && existing.id === excludeCategoryId)) {
+      if (
+        !existing ||
+        (excludeCategoryId && existing.id === excludeCategoryId)
+      ) {
         return slug;
       }
 
@@ -324,17 +327,29 @@ export class CategoriesService {
         where: { id: dto.parentId, deletedAt: null },
       });
       if (!parent) {
-        throw new BadRequestException('Invalid parentId: Parent category not found');
+        throw new BadRequestException(
+          'Invalid parentId: Parent category not found',
+        );
       }
     }
 
     const slug = await this.ensureUniqueSlug(dto.slug || dto.name);
 
+    let finalImageUrl =
+      dto.imageUrl && dto.imageUrl.trim() !== '' ? dto.imageUrl.trim() : null;
+    if (finalImageUrl) {
+      finalImageUrl =
+        (await this.uploadService.relocateToNamespace(
+          finalImageUrl,
+          'categories',
+        )) || finalImageUrl;
+    }
+
     const category = await this.prisma.category.create({
       data: {
         name: dto.name,
         slug,
-        imageUrl: dto.imageUrl || null,
+        imageUrl: finalImageUrl,
         parentId: dto.parentId || null,
         isActive: dto.isActive ?? true,
         order: dto.order ?? 0,
@@ -375,7 +390,9 @@ export class CategoriesService {
         where: { id: dto.parentId, deletedAt: null },
       });
       if (!parent) {
-        throw new BadRequestException('Invalid parentId: Parent category not found');
+        throw new BadRequestException(
+          'Invalid parentId: Parent category not found',
+        );
       }
 
       // Prevent circular hierarchy (parent cannot be a descendant of this category)
@@ -401,9 +418,20 @@ export class CategoriesService {
 
     // Determine image changes and normalize empty strings to null
     const isImageSpecified = dto.imageUrl !== undefined;
-    const normalizedImageUrl = isImageSpecified
-      ? (typeof dto.imageUrl === 'string' && dto.imageUrl.trim() === '' ? null : dto.imageUrl)
+    let normalizedImageUrl = isImageSpecified
+      ? typeof dto.imageUrl === 'string' && dto.imageUrl.trim() === ''
+        ? null
+        : dto.imageUrl
       : undefined;
+
+    if (normalizedImageUrl) {
+      normalizedImageUrl =
+        (await this.uploadService.relocateToNamespace(
+          normalizedImageUrl,
+          'categories',
+        )) || normalizedImageUrl;
+    }
+
     const isImageChanged =
       isImageSpecified && normalizedImageUrl !== (existing.imageUrl ?? null);
 

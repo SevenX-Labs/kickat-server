@@ -232,13 +232,25 @@ export class BlogsService {
 
     const readTime = this.calculateReadTime(dto.content);
 
+    let finalCoverImage =
+      dto.coverImage && dto.coverImage.trim() !== ''
+        ? dto.coverImage.trim()
+        : null;
+    if (finalCoverImage) {
+      finalCoverImage =
+        (await this.uploadService.relocateToNamespace(
+          finalCoverImage,
+          'blogs',
+        )) || finalCoverImage;
+    }
+
     const post = await this.prisma.blogPost.create({
       data: {
         title: dto.title.trim(),
         slug: baseSlug,
         content: dto.content,
         summary: dto.summary ? dto.summary.trim() : null,
-        coverImage: dto.coverImage || null,
+        coverImage: finalCoverImage,
         category: categoryName,
         categoryId: dto.categoryId || null,
         tags: dto.tags || [],
@@ -293,7 +305,9 @@ export class BlogsService {
           where: { id: dto.categoryId },
         });
         if (!cat) {
-          throw new BadRequestException('Specified blog category does not exist');
+          throw new BadRequestException(
+            'Specified blog category does not exist',
+          );
         }
         categoryName = cat.name;
       } else {
@@ -305,22 +319,42 @@ export class BlogsService {
       ? this.calculateReadTime(dto.content)
       : existing.readTimeMinutes;
 
+    const nextCoverImage =
+      dto.coverImage !== undefined
+        ? dto.coverImage && dto.coverImage.trim() !== ''
+          ? (await this.uploadService.relocateToNamespace(
+              dto.coverImage.trim(),
+              'blogs',
+            )) || dto.coverImage.trim()
+          : null
+        : undefined;
+
+    const isCoverImageChanged =
+      dto.coverImage !== undefined &&
+      nextCoverImage !== (existing.coverImage ?? null);
+
     const updated = await this.prisma.blogPost.update({
       where: { id: existing.id },
       data: {
         ...(dto.title !== undefined && { title: dto.title.trim() }),
         slug: nextSlug,
         ...(dto.content !== undefined && { content: dto.content }),
-        ...(dto.summary !== undefined && { summary: dto.summary?.trim() || null }),
-        ...(dto.coverImage !== undefined && { coverImage: dto.coverImage || null }),
+        ...(dto.summary !== undefined && {
+          summary: dto.summary?.trim() || null,
+        }),
+        ...(dto.coverImage !== undefined && { coverImage: nextCoverImage }),
         category: categoryName,
-        ...(dto.categoryId !== undefined && { categoryId: dto.categoryId || null }),
+        ...(dto.categoryId !== undefined && {
+          categoryId: dto.categoryId || null,
+        }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
         ...(dto.isPublished !== undefined && { isPublished: dto.isPublished }),
         ...(dto.publishedAt !== undefined && {
           publishedAt: dto.publishedAt ? new Date(dto.publishedAt) : new Date(),
         }),
-        ...(dto.authorName !== undefined && { authorName: dto.authorName.trim() }),
+        ...(dto.authorName !== undefined && {
+          authorName: dto.authorName.trim(),
+        }),
         readTimeMinutes: readTime,
       },
       include: {
@@ -329,6 +363,16 @@ export class BlogsService {
         },
       },
     });
+
+    if (isCoverImageChanged && existing.coverImage) {
+      try {
+        await this.uploadService.deleteFileByUrl(existing.coverImage);
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to cleanup old blog cover image for post "${existing.id}": ${err?.message || err}`,
+        );
+      }
+    }
 
     return {
       success: true,
@@ -441,18 +485,35 @@ export class BlogsService {
    * Create a new blog category
    */
   async createBlogCategory(dto: CreateBlogCategoryDto) {
-    let slug = dto.slug ? this.generateSlug(dto.slug) : this.generateSlug(dto.name);
+    let slug = dto.slug
+      ? this.generateSlug(dto.slug)
+      : this.generateSlug(dto.name);
     if (!slug) slug = `cat-${Date.now()}`;
 
     const existingName = await this.prisma.blogCategory.findFirst({
       where: {
-        OR: [{ name: { equals: dto.name.trim(), mode: 'insensitive' as const } }, { slug }],
+        OR: [
+          { name: { equals: dto.name.trim(), mode: 'insensitive' as const } },
+          { slug },
+        ],
         deletedAt: null,
       },
     });
 
     if (existingName) {
-      throw new ConflictException('A blog category with this name or slug already exists');
+      throw new ConflictException(
+        'A blog category with this name or slug already exists',
+      );
+    }
+
+    let finalImageUrl =
+      dto.imageUrl && dto.imageUrl.trim() !== '' ? dto.imageUrl.trim() : null;
+    if (finalImageUrl) {
+      finalImageUrl =
+        (await this.uploadService.relocateToNamespace(
+          finalImageUrl,
+          'blogs',
+        )) || finalImageUrl;
     }
 
     const category = await this.prisma.blogCategory.create({
@@ -460,7 +521,7 @@ export class BlogsService {
         name: dto.name.trim(),
         slug,
         description: dto.description?.trim() || null,
-        imageUrl: dto.imageUrl || null,
+        imageUrl: finalImageUrl,
         order: dto.order ?? 0,
         isActive: dto.isActive ?? true,
       },
@@ -497,7 +558,9 @@ export class BlogsService {
     if (dto.name || dto.slug) {
       const orConditions: any[] = [{ slug: nextSlug }];
       if (dto.name) {
-        orConditions.push({ name: { equals: dto.name.trim(), mode: 'insensitive' as const } });
+        orConditions.push({
+          name: { equals: dto.name.trim(), mode: 'insensitive' as const },
+        });
       }
 
       const conflict = await this.prisma.blogCategory.findFirst({
@@ -508,21 +571,49 @@ export class BlogsService {
         },
       });
       if (conflict) {
-        throw new ConflictException('Another category with this name or slug already exists');
+        throw new ConflictException(
+          'Another category with this name or slug already exists',
+        );
       }
     }
+
+    const nextImageUrl =
+      dto.imageUrl !== undefined
+        ? dto.imageUrl && dto.imageUrl.trim() !== ''
+          ? (await this.uploadService.relocateToNamespace(
+              dto.imageUrl.trim(),
+              'blogs',
+            )) || dto.imageUrl.trim()
+          : null
+        : undefined;
+
+    const isImageUrlChanged =
+      dto.imageUrl !== undefined &&
+      nextImageUrl !== (existing.imageUrl ?? null);
 
     const updated = await this.prisma.blogCategory.update({
       where: { id: existing.id },
       data: {
         ...(dto.name !== undefined && { name: dto.name.trim() }),
         slug: nextSlug,
-        ...(dto.description !== undefined && { description: dto.description?.trim() || null }),
-        ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl || null }),
+        ...(dto.description !== undefined && {
+          description: dto.description?.trim() || null,
+        }),
+        ...(dto.imageUrl !== undefined && { imageUrl: nextImageUrl }),
         ...(dto.order !== undefined && { order: dto.order }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
     });
+
+    if (isImageUrlChanged && existing.imageUrl) {
+      try {
+        await this.uploadService.deleteFileByUrl(existing.imageUrl);
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to cleanup old blog category image for "${existing.id}": ${err?.message || err}`,
+        );
+      }
+    }
 
     return {
       success: true,

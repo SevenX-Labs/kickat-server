@@ -11,6 +11,8 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { MulterFile } from './dto/upload.dto';
 
+export type StorageNamespace = 'categories' | 'products' | 'blogs';
+
 export interface UploadedFileResponse {
   success: boolean;
   message: string;
@@ -82,13 +84,14 @@ export class UploadService {
    * Normalize and resolve storage folder prefix (categories/, products/, blogs/)
    */
   resolveFolderPrefix(typeOrFolder?: string): string {
-    if (!typeOrFolder) return "general/";
+    if (!typeOrFolder) return 'categories/';
     const normalized = typeOrFolder.trim().toLowerCase();
-    if (normalized === "category" || normalized === "categories") return "categories/";
-    if (normalized === "product" || normalized === "products") return "products/";
-    if (normalized === "blog" || normalized === "blogs") return "blogs/";
-    const clean = normalized.replace(/[^a-z0-9_-]/g, "");
-    return clean ? `${clean}/` : "general/";
+    if (normalized === 'category' || normalized === 'categories')
+      return 'categories/';
+    if (normalized === 'product' || normalized === 'products')
+      return 'products/';
+    if (normalized === 'blog' || normalized === 'blogs') return 'blogs/';
+    return 'categories/';
   }
 
   resolveLimits(
@@ -96,7 +99,9 @@ export class UploadService {
     minSizeMb?: number,
     maxSizeMb?: number,
   ): { minMb: number; maxMb: number; isProduct: boolean } {
-    const isProduct = type?.trim().toLowerCase() === 'product' || type?.trim().toLowerCase() === 'products';
+    const isProduct =
+      type?.trim().toLowerCase() === 'product' ||
+      type?.trim().toLowerCase() === 'products';
 
     const defaultMin = isProduct
       ? UploadService.PRODUCT_MIN_SIZE_MB
@@ -133,7 +138,11 @@ export class UploadService {
       );
     }
 
-    const { minMb, maxMb, isProduct } = this.resolveLimits(type, minSizeMb, maxSizeMb);
+    const { minMb, maxMb, isProduct } = this.resolveLimits(
+      type,
+      minSizeMb,
+      maxSizeMb,
+    );
     const minSizeBytes = minMb * 1024 * 1024;
     const maxSizeBytes = maxMb * 1024 * 1024;
     const fileSizeMb = (file.size / (1024 * 1024)).toFixed(2);
@@ -149,7 +158,8 @@ export class UploadService {
     // Check maximum file size bound
     if (file.size > maxSizeBytes) {
       const contextDesc = isProduct ? ' for product images' : '';
-      const rangeDesc = minMb > 0 ? `between ${minMb}MB and ${maxMb}MB` : `up to ${maxMb}MB`;
+      const rangeDesc =
+        minMb > 0 ? `between ${minMb}MB and ${maxMb}MB` : `up to ${maxMb}MB`;
       throw new BadRequestException(
         `File size (${fileSizeMb} MB) exceeds the maximum allowed limit of ${maxMb} MB${contextDesc}. Please upload an image ${rangeDesc}.`,
       );
@@ -221,14 +231,23 @@ export class UploadService {
     minSizeMb?: number,
     maxSizeMb?: number,
     type?: string,
-  ): Promise<{ success: boolean; total: number; files: UploadedFileResponse[] }> {
+  ): Promise<{
+    success: boolean;
+    total: number;
+    files: UploadedFileResponse[];
+  }> {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files provided for upload');
     }
 
     const uploadedResults: UploadedFileResponse[] = [];
     for (const file of files) {
-      const result = await this.uploadSingleFile(file, minSizeMb, maxSizeMb, type);
+      const result = await this.uploadSingleFile(
+        file,
+        minSizeMb,
+        maxSizeMb,
+        type,
+      );
       uploadedResults.push(result);
     }
 
@@ -274,10 +293,11 @@ export class UploadService {
         mimetype: file.mimetype,
         storageProvider: 'local',
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       this.logger.error('Failed to save file locally', err);
       throw new InternalServerErrorException(
-        `Failed to save uploaded file: ${err?.message || 'Unknown error'}`,
+        `Failed to save uploaded file: ${errMsg}`,
       );
     }
   }
@@ -294,7 +314,7 @@ export class UploadService {
       config: {
         bucket: this.bucketName,
         current: {
-          context: isProduct ? 'product' : (type || 'default'),
+          context: isProduct ? 'product' : type || 'default',
           minFileSizeMb: minMb,
           maxFileSizeMb: maxMb,
         },
@@ -306,7 +326,8 @@ export class UploadService {
         allElse: {
           minFileSizeMb: UploadService.DEFAULT_MIN_SIZE_MB,
           maxFileSizeMb: UploadService.DEFAULT_MAX_SIZE_MB,
-          description: 'All other images (categories, blogs, avatars, etc.) allow up to 4MB',
+          description:
+            'All other images (categories, blogs, avatars, etc.) allow up to 4MB',
         },
         minFileSizeMb: minMb,
         maxFileSizeMb: maxMb,
@@ -325,18 +346,19 @@ export class UploadService {
    */
   extractStoragePath(
     url: string,
-  ): { provider: "supabase" | "local"; path: string; bucket?: string } | null {
-    if (!url || typeof url !== "string") return null;
+  ): { provider: 'supabase' | 'local'; path: string; bucket?: string } | null {
+    if (!url || typeof url !== 'string') return null;
 
     try {
-      const cleanUrl = url.trim().split("?")[0].split("#")[0];
+      const cleanUrl = url.trim().split('?')[0].split('#')[0];
 
       // 1. Supabase URL format: /storage/v1/object/public/<bucket>/<path> OR /storage/v1/object/<bucket>/<path>
-      const supabasePublicRegex = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i;
+      const supabasePublicRegex =
+        /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i;
       const supabasePublicMatch = cleanUrl.match(supabasePublicRegex);
       if (supabasePublicMatch) {
         return {
-          provider: "supabase",
+          provider: 'supabase',
           bucket: decodeURIComponent(supabasePublicMatch[1]),
           path: decodeURIComponent(supabasePublicMatch[2]),
         };
@@ -344,9 +366,9 @@ export class UploadService {
 
       const supabaseDirectRegex = /\/storage\/v1\/object\/([^/]+)\/(.+)$/i;
       const supabaseDirectMatch = cleanUrl.match(supabaseDirectRegex);
-      if (supabaseDirectMatch && supabaseDirectMatch[1] !== "public") {
+      if (supabaseDirectMatch && supabaseDirectMatch[1] !== 'public') {
         return {
-          provider: "supabase",
+          provider: 'supabase',
           bucket: decodeURIComponent(supabaseDirectMatch[1]),
           path: decodeURIComponent(supabaseDirectMatch[2]),
         };
@@ -357,21 +379,21 @@ export class UploadService {
       const localMatch = cleanUrl.match(localRegex);
       if (localMatch) {
         return {
-          provider: "local",
+          provider: 'local',
           path: decodeURIComponent(localMatch[1]),
         };
       }
 
       // 3. Relative path format (e.g. "product/123.jpg" or "123.jpg")
       if (
-        !cleanUrl.startsWith("http://") &&
-        !cleanUrl.startsWith("https://") &&
-        !cleanUrl.startsWith("data:")
+        !cleanUrl.startsWith('http://') &&
+        !cleanUrl.startsWith('https://') &&
+        !cleanUrl.startsWith('data:')
       ) {
-        const relativePath = cleanUrl.replace(/^\/+/, "");
+        const relativePath = cleanUrl.replace(/^\/+/, '');
         if (relativePath.length > 0) {
           return {
-            provider: this.supabaseClient ? "supabase" : "local",
+            provider: this.supabaseClient ? 'supabase' : 'local',
             bucket: this.bucketName,
             path: relativePath,
           };
@@ -392,32 +414,40 @@ export class UploadService {
 
     const parsed = this.extractStoragePath(url);
     if (!parsed) {
-      this.logger.debug(`Skipping file deletion: URL "${url}" is not a managed storage file`);
+      this.logger.debug(
+        `Skipping file deletion: URL "${url}" is not a managed storage file`,
+      );
       return false;
     }
 
     try {
-      if (parsed.provider === "supabase" && this.supabaseClient) {
+      if (parsed.provider === 'supabase' && this.supabaseClient) {
         const bucket = parsed.bucket || this.bucketName;
         const { error } = await this.supabaseClient.storage
           .from(bucket)
           .remove([parsed.path]);
 
         if (error) {
-          this.logger.warn(`Failed to delete Supabase file "${parsed.path}": ${error.message}`);
+          this.logger.warn(
+            `Failed to delete Supabase file "${parsed.path}": ${error.message}`,
+          );
           return false;
         }
-        this.logger.log(`Deleted file from Supabase storage: bucket "${bucket}", path "${parsed.path}"`);
+        this.logger.log(
+          `Deleted file from Supabase storage: bucket "${bucket}", path "${parsed.path}"`,
+        );
         return true;
       }
 
       // Local fallback file deletion
-      const uploadDir = path.resolve(process.cwd(), "uploads");
+      const uploadDir = path.resolve(process.cwd(), 'uploads');
       const localFilePath = path.resolve(uploadDir, parsed.path);
 
       // Prevent directory traversal
       if (!localFilePath.startsWith(uploadDir)) {
-        this.logger.warn(`Security warning: Attempted path traversal in delete: ${parsed.path}`);
+        this.logger.warn(
+          `Security warning: Attempted path traversal in delete: ${parsed.path}`,
+        );
         return false;
       }
 
@@ -428,8 +458,9 @@ export class UploadService {
       }
 
       return false;
-    } catch (err: any) {
-      this.logger.warn(`Error during file deletion for "${url}": ${err?.message || err}`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Error during file deletion for "${url}": ${errMsg}`);
       return false;
     }
   }
@@ -438,11 +469,17 @@ export class UploadService {
    * Batch delete multiple files from physical storage by their URLs.
    * Deduplicates URLs and batches Supabase removal calls for high performance.
    */
-  async deleteFilesByUrls(urls: (string | null | undefined)[]): Promise<number> {
+  async deleteFilesByUrls(
+    urls: (string | null | undefined)[],
+  ): Promise<number> {
     if (!urls || urls.length === 0) return 0;
 
     const validUrls = Array.from(
-      new Set(urls.filter((u): u is string => typeof u === "string" && u.trim().length > 0)),
+      new Set(
+        urls.filter(
+          (u): u is string => typeof u === 'string' && u.trim().length > 0,
+        ),
+      ),
     );
 
     if (validUrls.length === 0) return 0;
@@ -454,7 +491,7 @@ export class UploadService {
       const parsed = this.extractStoragePath(url);
       if (!parsed) continue;
 
-      if (parsed.provider === "supabase" && this.supabaseClient) {
+      if (parsed.provider === 'supabase' && this.supabaseClient) {
         const bucket = parsed.bucket || this.bucketName;
         if (!supabaseBatches[bucket]) {
           supabaseBatches[bucket] = [];
@@ -476,32 +513,157 @@ export class UploadService {
             .remove(paths);
 
           if (error) {
-            this.logger.warn(`Batch delete error in Supabase bucket "${bucket}": ${error.message}`);
+            this.logger.warn(
+              `Batch delete error in Supabase bucket "${bucket}": ${error.message}`,
+            );
           } else {
             deletedCount += paths.length;
-            this.logger.log(`Batch deleted ${paths.length} files from Supabase bucket "${bucket}"`);
+            this.logger.log(
+              `Batch deleted ${paths.length} files from Supabase bucket "${bucket}"`,
+            );
           }
-        } catch (err: any) {
-          this.logger.warn(`Exception during Supabase batch removal: ${err?.message || err}`);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(
+            `Exception during Supabase batch removal: ${errMsg}`,
+          );
         }
       }
     }
 
     // 2. Delete from local storage
-    const uploadDir = path.resolve(process.cwd(), "uploads");
+    const uploadDir = path.resolve(process.cwd(), 'uploads');
     for (const relativePath of localPaths) {
       try {
         const localFilePath = path.resolve(uploadDir, relativePath);
-        if (localFilePath.startsWith(uploadDir) && fs.existsSync(localFilePath)) {
+        if (
+          localFilePath.startsWith(uploadDir) &&
+          fs.existsSync(localFilePath)
+        ) {
           await fs.promises.unlink(localFilePath);
           deletedCount++;
           this.logger.log(`Deleted local file: ${localFilePath}`);
         }
-      } catch (err: any) {
-        this.logger.warn(`Failed to delete local file "${relativePath}": ${err?.message || err}`);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Failed to delete local file "${relativePath}": ${errMsg}`,
+        );
       }
     }
 
     return deletedCount;
+  }
+  /**
+   * Relocate an image file from general/temporary folder to its canonical entity namespace
+   * (e.g. general/... -> categories/... or general/... -> products/...)
+   */
+  async relocateToNamespace(
+    url?: string | null,
+    targetNamespace: StorageNamespace = 'categories',
+  ): Promise<string | null> {
+    if (!url || typeof url !== 'string' || url.trim().length === 0) return null;
+
+    const parsed = this.extractStoragePath(url);
+    if (!parsed) {
+      // External unmanaged URL (e.g. Unsplash), leave untouched
+      return url;
+    }
+
+    const targetPrefix = `${targetNamespace}/`;
+    if (parsed.path.startsWith(targetPrefix)) {
+      // Already in correct namespace
+      return url;
+    }
+
+    if (parsed.path.includes('..')) {
+      this.logger.warn(
+        `Security warning: Path traversal detected in relocateToNamespace: ${parsed.path}`,
+      );
+      return url;
+    }
+
+    const fileName = path.basename(parsed.path);
+    const newPath = `${targetNamespace}/${fileName}`;
+
+    // 1. Supabase Storage move
+    if (parsed.provider === 'supabase' && this.supabaseClient) {
+      const bucket = parsed.bucket || this.bucketName;
+      try {
+        const { error } = await this.supabaseClient.storage
+          .from(bucket)
+          .move(parsed.path, newPath);
+
+        if (error) {
+          this.logger.warn(
+            `Failed to relocate Supabase file from "${parsed.path}" to "${newPath}": ${error.message}`,
+          );
+          return url;
+        }
+
+        const { data: publicUrlData } = this.supabaseClient.storage
+          .from(bucket)
+          .getPublicUrl(newPath);
+
+        this.logger.log(
+          `Relocated Supabase file: "${parsed.path}" -> "${newPath}"`,
+        );
+        return publicUrlData.publicUrl;
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Exception during Supabase relocation: ${errMsg}`);
+        return url;
+      }
+    }
+
+    // 2. Local disk move
+    try {
+      const uploadDir = path.resolve(process.cwd(), 'uploads');
+      const oldFilePath = path.resolve(uploadDir, parsed.path);
+      const newFilePath = path.resolve(uploadDir, newPath);
+
+      if (
+        !oldFilePath.startsWith(uploadDir) ||
+        !newFilePath.startsWith(uploadDir)
+      ) {
+        return url;
+      }
+
+      if (fs.existsSync(oldFilePath)) {
+        const targetDir = path.dirname(newFilePath);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        await fs.promises.rename(oldFilePath, newFilePath);
+        this.logger.log(
+          `Relocated local file: "${oldFilePath}" -> "${newFilePath}"`,
+        );
+
+        const cleanUrl = url.trim().split('?')[0].split('#')[0];
+        return cleanUrl.replace(/\/uploads\/.+$/i, `/uploads/${newPath}`);
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Exception during local file relocation: ${errMsg}`);
+    }
+
+    return url;
+  }
+
+  /**
+   * Batch relocate multiple image URLs to their canonical namespace
+   */
+  async relocateMultipleToNamespace(
+    urls: (string | null | undefined)[],
+    targetNamespace: StorageNamespace,
+  ): Promise<string[]> {
+    if (!urls || urls.length === 0) return [];
+    const validUrls = urls.filter(
+      (u): u is string => typeof u === 'string' && u.trim().length > 0,
+    );
+    const results = await Promise.all(
+      validUrls.map((u) => this.relocateToNamespace(u, targetNamespace)),
+    );
+    return results.filter((u): u is string => typeof u === 'string');
   }
 }

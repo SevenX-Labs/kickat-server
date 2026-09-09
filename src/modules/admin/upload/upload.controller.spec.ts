@@ -16,9 +16,7 @@ describe('UploadController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UploadController],
-      providers: [
-        { provide: UploadService, useValue: mockUploadService },
-      ],
+      providers: [{ provide: UploadService, useValue: mockUploadService }],
     }).compile();
 
     controller = module.get<UploadController>(UploadController);
@@ -38,52 +36,100 @@ describe('UploadController', () => {
   it('should delegate uploadProductFile with product type', async () => {
     const mockFile: any = { originalname: 'product.png' };
     await controller.uploadProductFile(mockFile, undefined, undefined);
-    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, 'product');
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(
+      mockFile,
+      undefined,
+      undefined,
+      'product',
+    );
   });
 
   it('should delegate uploadMultipleProductFiles with product type', async () => {
-    const mockFiles: any[] = [{ originalname: 'p1.png' }, { originalname: 'p2.png' }];
-    await controller.uploadMultipleProductFiles(mockFiles, undefined, undefined);
-    expect(service.uploadMultipleFiles).toHaveBeenCalledWith(mockFiles, undefined, undefined, 'product');
+    const mockFiles: any[] = [
+      { originalname: 'p1.png' },
+      { originalname: 'p2.png' },
+    ];
+    await controller.uploadMultipleProductFiles(
+      mockFiles,
+      undefined,
+      undefined,
+    );
+    expect(service.uploadMultipleFiles).toHaveBeenCalledWith(
+      mockFiles,
+      undefined,
+      undefined,
+      'product',
+    );
   });
 
-  it("should delegate deleteFile with query or body URLs", async () => {
+  it('should delegate deleteFile with query or body URLs', async () => {
     (service.deleteFilesByUrls as jest.Mock).mockResolvedValue(2);
-    const res = await controller.deleteFile("http://localhost:3000/uploads/p1.png", {
-      urls: ["http://localhost:3000/uploads/p2.png"],
-    });
+    const res = await controller.deleteFile(
+      'http://localhost:3000/uploads/p1.png',
+      {
+        urls: ['http://localhost:3000/uploads/p2.png'],
+      },
+    );
 
     expect(service.deleteFilesByUrls).toHaveBeenCalledWith([
-      "http://localhost:3000/uploads/p1.png",
-      "http://localhost:3000/uploads/p2.png",
+      'http://localhost:3000/uploads/p1.png',
+      'http://localhost:3000/uploads/p2.png',
     ]);
     expect(res.success).toBe(true);
     expect(res.deletedCount).toBe(2);
   });
 
-  it("should handle empty URLs gracefully in deleteFile", async () => {
+  it('should handle empty URLs gracefully in deleteFile', async () => {
     const res = await controller.deleteFile(undefined, undefined);
     expect(res.success).toBe(true);
     expect(res.deletedCount).toBe(0);
     expect(service.deleteFilesByUrls).not.toHaveBeenCalled();
   });
 
-  it("should delegate uploadCategoryFile with categories folder", async () => {
-    const mockFile: any = { originalname: "cat.png" };
+  it('should delegate uploadCategoryFile with categories folder', async () => {
+    const mockFile: any = { originalname: 'cat.png' };
     await controller.uploadCategoryFile(mockFile, undefined, undefined);
-    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, "categories");
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(
+      mockFile,
+      undefined,
+      undefined,
+      'categories',
+    );
   });
 
-  it("should delegate uploadBlogFile with blogs folder", async () => {
-    const mockFile: any = { originalname: "blog.png" };
+  it('should delegate uploadBlogFile with blogs folder', async () => {
+    const mockFile: any = { originalname: 'blog.png' };
     await controller.uploadBlogFile(mockFile, undefined, undefined);
-    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, "blogs");
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(
+      mockFile,
+      undefined,
+      undefined,
+      'blogs',
+    );
   });
 
-  it("should infer folder from referer header if not explicitly provided", async () => {
-    const mockFile: any = { originalname: "cat.png" };
-    const mockReq: any = { headers: { referer: "https://admin.kickat.co.in/admin/dashboard/categories" } };
-    await controller.uploadSingleFile(mockFile, mockReq, undefined, undefined, undefined, undefined, undefined, undefined);
-    expect(service.uploadSingleFile).toHaveBeenCalledWith(mockFile, undefined, undefined, "categories");
+  it('should infer folder from referer header if not explicitly provided', async () => {
+    const mockFile: any = { originalname: 'cat.png' };
+    const mockReq: any = {
+      headers: {
+        referer: 'https://admin.kickat.co.in/admin/dashboard/categories',
+      },
+    };
+    await controller.uploadSingleFile(
+      mockFile,
+      mockReq,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(service.uploadSingleFile).toHaveBeenCalledWith(
+      mockFile,
+      undefined,
+      undefined,
+      'categories',
+    );
   });
 });

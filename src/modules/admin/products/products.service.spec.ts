@@ -17,8 +17,10 @@ describe('Admin ProductsService', () => {
   let uploadService: any;
 
   const mockUploadService = {
-    deleteFilesByUrls: jest.fn().mockResolvedValue(0),
     deleteFileByUrl: jest.fn().mockResolvedValue(true),
+    deleteFilesByUrls: jest.fn().mockResolvedValue(1),
+    relocateToNamespace: jest.fn((url) => Promise.resolve(url)),
+    relocateMultipleToNamespace: jest.fn((urls) => Promise.resolve(urls || [])),
   };
 
   const mockPrismaService = {
@@ -140,7 +142,9 @@ describe('Admin ProductsService', () => {
 
       prisma.product.findFirst.mockResolvedValue(mockProduct);
 
-      const result = await service.getProductById('11111111-1111-4111-a111-111111111111');
+      const result = await service.getProductById(
+        '11111111-1111-4111-a111-111111111111',
+      );
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual(mockProduct);
@@ -157,7 +161,10 @@ describe('Admin ProductsService', () => {
 
   describe('createProduct', () => {
     it('should create a product with variants and media in transaction', async () => {
-      prisma.category.findUnique.mockResolvedValue({ id: 'cat-1', name: 'Dog Food' });
+      prisma.category.findUnique.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Dog Food',
+      });
       prisma.product.findUnique.mockResolvedValue(null); // slug is unique
 
       const createdMock = {
@@ -169,7 +176,9 @@ describe('Admin ProductsService', () => {
         categoryId: 'cat-1',
         imageUrl: 'https://example.com/image.jpg',
         variants: [{ id: 'var-1', name: '1kg', price: 899, stock: 50 }],
-        media: [{ id: 'med-1', url: 'https://example.com/image.jpg', order: 0 }],
+        media: [
+          { id: 'med-1', url: 'https://example.com/image.jpg', order: 0 },
+        ],
       };
 
       prisma.product.create.mockResolvedValue(createdMock);
@@ -201,7 +210,9 @@ describe('Admin ProductsService', () => {
         imageUrl: 'https://example.com/image.jpg',
       };
 
-      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createProduct(dto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw BadRequestException if variant discountPrice >= price', async () => {
@@ -217,7 +228,9 @@ describe('Admin ProductsService', () => {
         ],
       };
 
-      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createProduct(dto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw BadRequestException if duplicate variant SKUs are provided', async () => {
@@ -234,7 +247,9 @@ describe('Admin ProductsService', () => {
         ],
       };
 
-      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createProduct(dto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should derive product stock as sum of variant stocks and accept custom attributes', async () => {
@@ -279,10 +294,15 @@ describe('Admin ProductsService', () => {
         name: 'Too Many Images Product',
         price: 500,
         categoryId: 'cat-1',
-        images: Array.from({ length: 10 }, (_, i) => `https://example.com/img${i}.jpg`),
+        images: Array.from(
+          { length: 10 },
+          (_, i) => `https://example.com/img${i}.jpg`,
+        ),
       };
 
-      await expect(service.createProduct(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createProduct(dto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should persist descriptionTitle when provided on product create', async () => {
@@ -345,12 +365,15 @@ describe('Admin ProductsService', () => {
         name: 'Eco Chew Toy',
         price: 399,
         categoryId: 'cat-1',
-        materials: '100% natural food-grade rubber. Free from BPA and phthalates.',
+        materials:
+          '100% natural food-grade rubber. Free from BPA and phthalates.',
       };
 
       const result = await service.createProduct(dto);
       expect(result.success).toBe(true);
-      expect(createdData.materials).toBe('100% natural food-grade rubber. Free from BPA and phthalates.');
+      expect(createdData.materials).toBe(
+        '100% natural food-grade rubber. Free from BPA and phthalates.',
+      );
     });
 
     it('should set materials to null when omitted on product create', async () => {
@@ -438,7 +461,10 @@ describe('Admin ProductsService', () => {
       };
 
       prisma.product.findFirst.mockResolvedValue(existingProduct);
-      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', descriptionTitle: 'Key Features' });
+      prisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        descriptionTitle: 'Key Features',
+      });
       let updatePayload: any = null;
       prisma.product.update.mockImplementation(({ data }: any) => {
         updatePayload = data;
@@ -466,7 +492,10 @@ describe('Admin ProductsService', () => {
       };
 
       prisma.product.findFirst.mockResolvedValue(existingProduct);
-      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', descriptionTitle: null });
+      prisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        descriptionTitle: null,
+      });
       let updatePayload: any = null;
       prisma.product.update.mockImplementation(({ data }: any) => {
         updatePayload = data;
@@ -494,7 +523,10 @@ describe('Admin ProductsService', () => {
       };
 
       prisma.product.findFirst.mockResolvedValue(existingProduct);
-      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', materials: 'Updated materials info' });
+      prisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        materials: 'Updated materials info',
+      });
       let updatePayload: any = null;
       prisma.product.update.mockImplementation(({ data }: any) => {
         updatePayload = data;
@@ -522,7 +554,10 @@ describe('Admin ProductsService', () => {
       };
 
       prisma.product.findFirst.mockResolvedValue(existingProduct);
-      prisma.product.findUnique.mockResolvedValue({ id: 'prod-1', materials: null });
+      prisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        materials: null,
+      });
       let updatePayload: any = null;
       prisma.product.update.mockImplementation(({ data }: any) => {
         updatePayload = data;
@@ -537,6 +572,159 @@ describe('Admin ProductsService', () => {
       expect(result.success).toBe(true);
       expect(updatePayload.materials).toBeNull();
     });
+
+    it('should relocate product images and variant image to products namespace on create', async () => {
+      const category = { id: 'cat-1', name: 'Toys' };
+      prisma.category.findUnique.mockResolvedValue(category);
+      prisma.product.findUnique.mockResolvedValue(null);
+      prisma.product.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'prod-new', ...data }),
+      );
+
+      uploadService.relocateMultipleToNamespace.mockResolvedValueOnce([
+        'https://supabase/upload/products/img1.png',
+        'https://supabase/upload/products/img2.png',
+      ]);
+      uploadService.relocateToNamespace.mockResolvedValueOnce(
+        'https://supabase/upload/products/var1.png',
+      );
+
+      const dto: CreateProductDto = {
+        name: 'Leash',
+        price: 500,
+        categoryId: 'cat-1',
+        images: [
+          'https://supabase/upload/general/img1.png',
+          'https://supabase/upload/general/img2.png',
+        ],
+        variants: [
+          {
+            name: 'Red',
+            price: 500,
+            imageUrl: 'https://supabase/upload/general/var1.png',
+          },
+        ],
+      };
+
+      const result = await service.createProduct(dto);
+      expect(result.success).toBe(true);
+      expect(uploadService.relocateMultipleToNamespace).toHaveBeenCalledWith(
+        dto.images,
+        'products',
+      );
+      expect(uploadService.relocateToNamespace).toHaveBeenCalledWith(
+        'https://supabase/upload/general/var1.png',
+        'products',
+      );
+    });
+
+    it('multi-image removal: [a, b, c] -> [a, c] should delete only b from storage', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Leash',
+        slug: 'leash',
+        deletedAt: null,
+        images: [
+          'https://supabase/upload/products/a.png',
+          'https://supabase/upload/products/b.png',
+          'https://supabase/upload/products/c.png',
+        ],
+        variants: [],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue(null);
+      prisma.product.update.mockResolvedValue(existingProduct);
+      uploadService.relocateMultipleToNamespace.mockImplementation((urls) =>
+        Promise.resolve(urls),
+      );
+
+      const dto: UpdateProductDto = {
+        images: [
+          'https://supabase/upload/products/a.png',
+          'https://supabase/upload/products/c.png',
+        ],
+      };
+
+      await service.updateProduct('prod-1', dto);
+
+      expect(uploadService.deleteFilesByUrls).toHaveBeenCalledWith([
+        'https://supabase/upload/products/b.png',
+      ]);
+    });
+
+    it('multi-image replacement: [a, b, c] -> [a, new-b, c] should delete only b from storage', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Leash',
+        slug: 'leash',
+        deletedAt: null,
+        images: [
+          'https://supabase/upload/products/a.png',
+          'https://supabase/upload/products/b.png',
+          'https://supabase/upload/products/c.png',
+        ],
+        variants: [],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue(null);
+      prisma.product.update.mockResolvedValue(existingProduct);
+      uploadService.relocateMultipleToNamespace.mockResolvedValueOnce([
+        'https://supabase/upload/products/a.png',
+        'https://supabase/upload/products/new-b.png',
+        'https://supabase/upload/products/c.png',
+      ]);
+
+      const dto: UpdateProductDto = {
+        images: [
+          'https://supabase/upload/products/a.png',
+          'https://supabase/upload/general/new-b.png',
+          'https://supabase/upload/products/c.png',
+        ],
+      };
+
+      await service.updateProduct('prod-1', dto);
+
+      expect(uploadService.deleteFilesByUrls).toHaveBeenCalledWith([
+        'https://supabase/upload/products/b.png',
+      ]);
+    });
+
+    it('multi-image removal: should NOT delete removed gallery image if still referenced by a variant', async () => {
+      const existingProduct = {
+        id: 'prod-1',
+        name: 'Leash',
+        slug: 'leash',
+        deletedAt: null,
+        images: [
+          'https://supabase/upload/products/a.png',
+          'https://supabase/upload/products/b.png',
+        ],
+        variants: [
+          { id: 'var-1', imageUrl: 'https://supabase/upload/products/b.png' },
+        ],
+        media: [],
+      };
+
+      prisma.product.findFirst.mockResolvedValue(existingProduct);
+      prisma.product.findUnique.mockResolvedValue(null);
+      prisma.product.update.mockResolvedValue(existingProduct);
+      uploadService.relocateMultipleToNamespace.mockImplementation((urls) =>
+        Promise.resolve(urls),
+      );
+
+      // Remove b.png from gallery, but variant still uses b.png
+      const dto: UpdateProductDto = {
+        images: ['https://supabase/upload/products/a.png'],
+      };
+
+      await service.updateProduct('prod-1', dto);
+
+      expect(uploadService.deleteFilesByUrls).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteProduct', () => {
@@ -546,7 +734,9 @@ describe('Admin ProductsService', () => {
         deletedAt: null,
         imageUrl: 'https://supabase/upload/product/main.png',
         images: ['https://supabase/upload/product/g1.png'],
-        media: [{ url: 'https://supabase/upload/product/m1.png', thumbnailUrl: null }],
+        media: [
+          { url: 'https://supabase/upload/product/m1.png', thumbnailUrl: null },
+        ],
         variants: [{ imageUrl: 'https://supabase/upload/product/v1.png' }],
       });
       prisma.product.update.mockResolvedValue({});
@@ -593,7 +783,10 @@ describe('Admin ProductsService', () => {
 
   describe('updateProductStatus', () => {
     it('should update status of a single product', async () => {
-      prisma.product.findFirst.mockResolvedValue({ id: 'prod-1', deletedAt: null });
+      prisma.product.findFirst.mockResolvedValue({
+        id: 'prod-1',
+        deletedAt: null,
+      });
       prisma.product.update.mockResolvedValue({
         id: 'prod-1',
         name: 'Product 1',
@@ -649,7 +842,10 @@ describe('Admin ProductsService', () => {
 
   describe('updateStock', () => {
     it('should update stock for product and variants', async () => {
-      prisma.product.findFirst.mockResolvedValue({ id: 'prod-1', deletedAt: null });
+      prisma.product.findFirst.mockResolvedValue({
+        id: 'prod-1',
+        deletedAt: null,
+      });
       prisma.product.update.mockResolvedValue({});
       prisma.productVariant.update.mockResolvedValue({});
       prisma.product.findUnique.mockResolvedValue({
