@@ -14,6 +14,7 @@ import { AdminVerifyOtpDto } from './dto/admin-verify-otp.dto';
 import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { AdminChangePasswordDto } from './dto/admin-change-password.dto';
 import { AdminLogoutDto } from './dto/admin-logout.dto';
+import { AdminRefreshTokenDto } from './dto/admin-refresh-token.dto';
 import { AdminSessionParamDto } from './dto/admin-session-param.dto';
 import { AdminAuth, CurrentUser } from '../../../common';
 import { Admin } from '@prisma/client';
@@ -29,6 +30,18 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: AdminLoginDto, @Req() req: Request) {
     return this.authService.login(dto, req);
+  }
+
+  /**
+   * POST /api/v1/admin/auth/refresh
+   * Rotate access and refresh tokens statefully using active session
+   */
+  @Post('refresh')
+  async refresh(@Body() dto: AdminRefreshTokenDto, @Req() req: Request) {
+    const refreshToken =
+      dto?.refreshToken ||
+      (req.cookies && (req.cookies as Record<string, string>)['refreshToken']);
+    return this.authService.refreshToken(refreshToken, req);
   }
 
   /**

@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MinLength,
+} from 'class-validator';
 
 export class AdminLoginDto {
   @IsString({ message: 'adminId must be a string' })
@@ -12,4 +19,8 @@ export class AdminLoginDto {
   @IsNotEmpty({ message: 'password is required' })
   @MinLength(8, { message: 'password must be at least 8 characters' })
   password: string;
+
+  @IsOptional()
+  @IsBoolean({ message: 'rememberMe must be a boolean' })
+  rememberMe?: boolean;
 }

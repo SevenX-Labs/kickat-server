@@ -45,6 +45,7 @@ describe('Admin AuthService', () => {
     adminSession: {
       create: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
     },
@@ -61,6 +62,13 @@ describe('Admin AuthService', () => {
 
   const mockJwtService = {
     sign: jest.fn().mockReturnValue('mocked-token'),
+    verify: jest.fn().mockReturnValue({
+      sub: 'admin-uuid-1',
+      adminId: 'kickat2021',
+      email: 'kickat2021@gmail.com',
+      role: 'SUPER_ADMIN',
+      type: 'admin',
+    }),
   };
 
   const mockConfigService = {
@@ -108,7 +116,10 @@ describe('Admin AuthService', () => {
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(
-        service.login({ adminId: 'admin', password: 'wrongpassword' }, {} as any),
+        service.login(
+          { adminId: 'admin', password: 'wrongpassword' },
+          {} as any,
+        ),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -138,6 +149,30 @@ describe('Admin AuthService', () => {
       expect(result.accessToken).toBe('mocked-token');
       expect(result.refreshToken).toBe('mocked-token');
       expect(result.admin.adminId).toBe('kickat2021');
+    });
+
+    it('should support 30-day rememberMe session in login', async () => {
+      mockPrismaService.admin.findUnique.mockResolvedValue(mockAdmin);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      mockPrismaService.adminSession.create.mockResolvedValue({});
+
+      const result = await service.login(
+        { adminId: 'admin', password: 'kickat@2026', rememberMe: true },
+        { headers: {}, ip: '127.0.0.1' } as any,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ rememberMe: true }),
+        expect.objectContaining({ expiresIn: '30d' }),
+      );
+      expect(mockPrismaService.adminSession.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            expiresAt: expect.any(Date),
+          }),
+        }),
+      );
     });
   });
 
@@ -256,6 +291,192 @@ describe('Admin AuthService', () => {
           confirmPassword: 'kickat@2026',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('refreshToken', () => {
+    const validRefreshToken = 'valid.jwt.refreshtoken';
+    const mockSession = {
+      id: 'session-uuid-1',
+      adminId: mockAdmin.id,
+      refreshTokenHash: 'somehash',
+      ipAddress: '127.0.0.1',
+      userAgent: 'Mozilla/5.0',
+      isRevoked: false,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      admin: mockAdmin,
+    };
+
+    it('should throw UnauthorizedException if refreshToken is missing or invalid string', async () => {
+      await expect(
+        service.refreshToken(undefined as any, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+
+      await expect(service.refreshToken('' as any, {} as any)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException if jwtService.verify throws', async () => {
+      mockJwtService.verify.mockImplementationOnce(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(
+        service.refreshToken(validRefreshToken, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if token payload type is not admin', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: 'user-1',
+        type: 'user',
+      });
+
+      await expect(
+        service.refreshToken(validRefreshToken, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if session is not found in db', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: mockAdmin.id,
+        type: 'admin',
+      });
+      mockPrismaService.adminSession.findFirst.mockResolvedValueOnce(null);
+
+      await expect(
+        service.refreshToken(validRefreshToken, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if session is revoked', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: mockAdmin.id,
+        type: 'admin',
+      });
+      mockPrismaService.adminSession.findFirst.mockResolvedValueOnce({
+        ...mockSession,
+        isRevoked: true,
+      });
+
+      await expect(
+        service.refreshToken(validRefreshToken, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if session is expired', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: mockAdmin.id,
+        type: 'admin',
+      });
+      mockPrismaService.adminSession.findFirst.mockResolvedValueOnce({
+        ...mockSession,
+        expiresAt: new Date(Date.now() - 10000),
+      });
+
+      await expect(
+        service.refreshToken(validRefreshToken, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if admin is inactive or blocked', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: mockAdmin.id,
+        type: 'admin',
+      });
+      mockPrismaService.adminSession.findFirst.mockResolvedValueOnce({
+        ...mockSession,
+        admin: { ...mockAdmin, isActive: false },
+      });
+
+      await expect(
+        service.refreshToken(validRefreshToken, {} as any),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should successfully rotate tokens and update existing session', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: mockAdmin.id,
+        adminId: mockAdmin.adminId,
+        email: mockAdmin.email,
+        role: mockAdmin.role,
+        type: 'admin',
+      });
+      mockPrismaService.adminSession.findFirst.mockResolvedValueOnce(
+        mockSession,
+      );
+      mockPrismaService.adminSession.update.mockResolvedValueOnce({});
+      mockJwtService.sign
+        .mockReturnValueOnce('new-access-token')
+        .mockReturnValueOnce('new-refresh-token');
+
+      const reqMock = {
+        headers: { 'user-agent': 'Chrome', 'x-forwarded-for': '10.0.0.1' },
+        ip: '10.0.0.1',
+      } as any;
+
+      const result = await service.refreshToken(validRefreshToken, reqMock);
+
+      expect(result.success).toBe(true);
+      expect(result.accessToken).toBe('new-access-token');
+      expect(result.refreshToken).toBe('new-refresh-token');
+      expect(result.admin.adminId).toBe(mockAdmin.adminId);
+
+      expect(mockPrismaService.adminSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockSession.id },
+          data: expect.objectContaining({
+            refreshTokenHash: expect.any(String),
+            expiresAt: expect.any(Date),
+            ipAddress: '10.0.0.1',
+            userAgent: 'Chrome',
+          }),
+        }),
+      );
+    });
+
+    it('should preserve 30-day session if rememberMe was true', async () => {
+      mockJwtService.verify.mockReturnValueOnce({
+        sub: mockAdmin.id,
+        adminId: mockAdmin.adminId,
+        type: 'admin',
+        rememberMe: true,
+      });
+      mockPrismaService.adminSession.findFirst.mockResolvedValueOnce(
+        mockSession,
+      );
+      mockPrismaService.adminSession.update.mockResolvedValueOnce({});
+
+      await service.refreshToken(validRefreshToken, { headers: {} } as any);
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ rememberMe: true }),
+        expect.objectContaining({ expiresIn: '30d' }),
+      );
+    });
+  });
+
+  describe('getSessions', () => {
+    it('should include lastActiveAt populated from updatedAt', async () => {
+      const now = new Date();
+      mockPrismaService.adminSession.findMany.mockResolvedValueOnce([
+        {
+          id: 'sess-1',
+          ipAddress: '127.0.0.1',
+          userAgent: 'Firefox',
+          createdAt: now,
+          expiresAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const result = await service.getSessions(mockAdmin);
+
+      expect(result.success).toBe(true);
+      expect(result.sessions[0].lastActiveAt).toEqual(now);
     });
   });
 });

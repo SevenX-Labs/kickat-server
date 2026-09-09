@@ -7,6 +7,7 @@ describe('Admin AuthController', () => {
 
   const mockAuthService = {
     login: jest.fn(),
+    refreshToken: jest.fn(),
     forgotPassword: jest.fn(),
     verifyResetOtp: jest.fn(),
     resetPassword: jest.fn(),
@@ -58,5 +59,39 @@ describe('Admin AuthController', () => {
 
     expect(result).toEqual({ success: true });
     expect(mockAuthService.getMe).toHaveBeenCalledWith(admin);
+  });
+
+  it('refresh should delegate to authService with body refreshToken', async () => {
+    mockAuthService.refreshToken.mockResolvedValue({
+      success: true,
+      accessToken: 'new-token',
+    });
+    const dto = { refreshToken: 'valid-refresh-token' };
+    const req = { cookies: {} } as any;
+
+    const result = await controller.refresh(dto, req);
+
+    expect(result).toEqual({ success: true, accessToken: 'new-token' });
+    expect(mockAuthService.refreshToken).toHaveBeenCalledWith(
+      'valid-refresh-token',
+      req,
+    );
+  });
+
+  it('refresh should delegate to authService with cookie refreshToken if body is empty', async () => {
+    mockAuthService.refreshToken.mockResolvedValue({
+      success: true,
+      accessToken: 'cookie-token',
+    });
+    const dto = {};
+    const req = { cookies: { refreshToken: 'cookie-refresh-token' } } as any;
+
+    const result = await controller.refresh(dto, req);
+
+    expect(result).toEqual({ success: true, accessToken: 'cookie-token' });
+    expect(mockAuthService.refreshToken).toHaveBeenCalledWith(
+      'cookie-refresh-token',
+      req,
+    );
   });
 });

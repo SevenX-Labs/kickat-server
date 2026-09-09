@@ -26,6 +26,15 @@ import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { AdminChangePasswordDto } from './dto/admin-change-password.dto';
 import { AdminLogoutDto } from './dto/admin-logout.dto';
 
+interface AdminJwtPayload {
+  sub: string;
+  adminId: string;
+  email: string;
+  role: string;
+  type: string;
+  rememberMe?: boolean;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -77,21 +86,30 @@ export class AuthService {
       this.configService.get<string>('JWT_REFRESH_SECRET') ||
       'default-refresh-secret';
 
+    const isRememberMe = Boolean(dto.rememberMe);
+    const refreshTokenExpiryStr = isRememberMe ? '30d' : '7d';
+    const refreshTokenMs = isRememberMe
+      ? 30 * 24 * 60 * 60 * 1000
+      : 7 * 24 * 60 * 60 * 1000;
+
     const accessToken = this.jwtService.sign(payload, {
       secret: accessTokenSecret,
       expiresIn: '1d',
     });
 
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: refreshTokenSecret,
-      expiresIn: '7d',
-    });
+    const refreshToken = this.jwtService.sign(
+      { ...payload, rememberMe: isRememberMe },
+      {
+        secret: refreshTokenSecret,
+        expiresIn: refreshTokenExpiryStr,
+      },
+    );
 
     const refreshTokenHash = this.hashToken(refreshToken);
     const ipAddress =
       (req.headers['x-forwarded-for'] as string) || req.ip || undefined;
     const userAgent = req.headers['user-agent'] || undefined;
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + refreshTokenMs);
 
     await this.prisma.adminSession.create({
       data: {
@@ -107,6 +125,125 @@ export class AuthService {
       success: true,
       accessToken,
       refreshToken,
+      admin: {
+        id: admin.id,
+        adminId: admin.adminId,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        permissions: admin.permissions,
+      },
+    };
+  }
+
+  /**
+   * POST /api/v1/admin/auth/refresh
+   * Rotate access and refresh tokens statefully with session verification
+   */
+  async refreshToken(refreshToken: string | undefined, req: Request) {
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const refreshTokenSecret =
+      this.configService.get<string>('JWT_REFRESH_SECRET') ||
+      'default-refresh-secret';
+
+    let decoded: AdminJwtPayload;
+    try {
+      decoded = this.jwtService.verify<AdminJwtPayload>(refreshToken, {
+        secret: refreshTokenSecret,
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (!decoded || decoded.type !== 'admin') {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const refreshTokenHash = this.hashToken(refreshToken);
+
+    const session = await this.prisma.adminSession.findFirst({
+      where: {
+        refreshTokenHash,
+      },
+      include: {
+        admin: true,
+      },
+    });
+
+    if (
+      !session ||
+      session.isRevoked ||
+      session.expiresAt <= new Date() ||
+      !session.admin
+    ) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const admin = session.admin;
+    if (!admin.isActive || admin.isBlocked) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    // Determine session lifetime (preserve 30d if originally rememberMe, else 7d)
+    const isRememberMe =
+      Boolean(decoded.rememberMe) ||
+      session.expiresAt.getTime() - session.createdAt.getTime() >
+        14 * 24 * 60 * 60 * 1000;
+
+    const refreshTokenExpiryStr = isRememberMe ? '30d' : '7d';
+    const refreshTokenMs = isRememberMe
+      ? 30 * 24 * 60 * 60 * 1000
+      : 7 * 24 * 60 * 60 * 1000;
+
+    const payload = {
+      sub: admin.id,
+      adminId: admin.adminId,
+      email: admin.email,
+      role: admin.role,
+      type: 'admin',
+    };
+
+    const accessTokenSecret =
+      this.configService.get<string>('JWT_ACCESS_SECRET') ||
+      'default-access-secret';
+
+    const newAccessToken = this.jwtService.sign(payload, {
+      secret: accessTokenSecret,
+      expiresIn: '1d',
+    });
+
+    const newRefreshToken = this.jwtService.sign(
+      { ...payload, rememberMe: isRememberMe },
+      {
+        secret: refreshTokenSecret,
+        expiresIn: refreshTokenExpiryStr,
+      },
+    );
+
+    const newRefreshTokenHash = this.hashToken(newRefreshToken);
+    const ipAddress =
+      (req.headers['x-forwarded-for'] as string) || req.ip || session.ipAddress;
+    const userAgent = req.headers['user-agent'] || session.userAgent;
+    const newExpiresAt = new Date(Date.now() + refreshTokenMs);
+
+    // Rotate existing session statefully (updates refreshTokenHash, expiresAt, and updatedAt)
+    await this.prisma.adminSession.update({
+      where: { id: session.id },
+      data: {
+        refreshTokenHash: newRefreshTokenHash,
+        expiresAt: newExpiresAt,
+        ipAddress: ipAddress || null,
+        userAgent: userAgent || null,
+      },
+    });
+
+    return {
+      success: true,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
       admin: {
         id: admin.id,
         adminId: admin.adminId,
@@ -158,7 +295,9 @@ export class AuthService {
       },
     });
 
-    this.logger.log(`[ADMIN OTP SENT] Admin: ${admin.adminId} (${admin.email}) | OTP: ${otp}`);
+    this.logger.log(
+      `[ADMIN OTP SENT] Admin: ${admin.adminId} (${admin.email}) | OTP: ${otp}`,
+    );
 
     await this.emailService.sendOtpEmail(admin.email, otp);
 
@@ -214,10 +353,7 @@ export class AuthService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
-    const isOtpValid = await bcrypt.compare(
-      dto.otp,
-      latestTokenRecord.otpHash,
-    );
+    const isOtpValid = await bcrypt.compare(dto.otp, latestTokenRecord.otpHash);
 
     if (!isOtpValid) {
       await this.prisma.adminResetToken.update({
@@ -266,7 +402,10 @@ export class AuthService {
       throw new GoneException('token already used');
     }
 
-    if (!tokenRecord.tokenExpiresAt || tokenRecord.tokenExpiresAt < new Date()) {
+    if (
+      !tokenRecord.tokenExpiresAt ||
+      tokenRecord.tokenExpiresAt < new Date()
+    ) {
       throw new UnauthorizedException('invalid or expired resetToken');
     }
 
@@ -386,6 +525,7 @@ export class AuthService {
         userAgent: s.userAgent,
         createdAt: s.createdAt,
         expiresAt: s.expiresAt,
+        lastActiveAt: s.updatedAt,
       })),
     };
   }
