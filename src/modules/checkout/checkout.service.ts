@@ -25,7 +25,7 @@ export class CheckoutService {
     const delivery = await this.settingsService.getDeliverySettingsRaw();
     if (!delivery.deliveryFeeEnabled) return 0;
     const threshold = delivery.freeDeliveryThreshold ?? 0;
-    if (threshold > 0 && subtotal >= threshold) return 0;
+    if (threshold === 0 || subtotal >= threshold) return 0;
     return delivery.deliveryFee ?? 0;
   }
 
@@ -114,7 +114,8 @@ export class CheckoutService {
     }
 
     const delivery = await this.settingsService.getDeliverySettingsRaw();
-    const deliveryCharge = delivery.deliveryFeeEnabled ? (delivery.deliveryFee ?? 50) : 0;
+    const threshold = delivery.freeDeliveryThreshold ?? 0;
+    const deliveryCharge = delivery.deliveryFeeEnabled ? (threshold === 0 ? 0 : (delivery.deliveryFee ?? 50)) : 0;
 
     return {
       success: true,

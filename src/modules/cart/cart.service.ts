@@ -21,7 +21,7 @@ export class CartService {
     const delivery = await this.settingsService.getDeliverySettingsRaw();
     if (!delivery.deliveryFeeEnabled) return 0;
     const threshold = delivery.freeDeliveryThreshold ?? 0;
-    if (threshold > 0 && subtotal >= threshold) return 0;
+    if (threshold === 0 || subtotal >= threshold) return 0;
     return delivery.deliveryFee ?? 0;
   }
 
