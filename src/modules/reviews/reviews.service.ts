@@ -88,7 +88,8 @@ export class ReviewsService {
 
     // Only reviews containing external links / spam domains are flagged
     // All genuine customer reviews (including 1-star / bad reviews) are APPROVED by default
-    const hasSpamLink = SPAM_LINK_REGEX.test(dto.comment);
+    const contentToCheck = `${dto.title || ''} ${dto.comment || ''}`;
+    const hasSpamLink = SPAM_LINK_REGEX.test(contentToCheck);
     const reviewStatus = hasSpamLink
       ? ReviewStatusEnum.REJECTED
       : ReviewStatusEnum.APPROVED;
@@ -101,6 +102,7 @@ export class ReviewsService {
           orderId: dto.orderId,
           userName,
           rating: dto.rating,
+          title: dto.title?.trim() || null,
           comment: dto.comment,
           photos: dto.photos || [],
           isVerifiedPurchase: true,

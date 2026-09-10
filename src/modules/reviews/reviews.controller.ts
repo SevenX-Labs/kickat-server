@@ -67,6 +67,7 @@ export class ReviewsController {
   })
   @Auth()
   @Patch(':id/helpful')
+  @Post(':id/helpful')
   @HttpCode(HttpStatus.OK)
   async markHelpful(
     @CurrentUser('id') userId: string,

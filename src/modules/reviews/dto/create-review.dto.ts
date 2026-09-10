@@ -24,6 +24,11 @@ export class CreateReviewDto {
   @Max(5, { message: 'rating must be between 1 and 5' })
   rating: number;
 
+  @IsOptional()
+  @IsString({ message: 'title must be a string' })
+  @MaxLength(200, { message: 'title must not exceed 200 characters' })
+  title?: string;
+
   @IsString({ message: 'comment must be a string' })
   @MinLength(10, { message: 'comment must be at least 10 characters long' })
   @MaxLength(2000, { message: 'comment must not exceed 2000 characters' })
