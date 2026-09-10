@@ -8,10 +8,13 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { GetReviewsQueryDto, ReviewSortEnum } from './dto/get-reviews-query.dto';
-import { OrderStatusEnum } from '@prisma/client';
+import { OrderStatusEnum, ReviewStatusEnum } from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const SPAM_LINK_REGEX =
+  /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9-]+\.(com|net|org|xyz|top|site|online|io|co|in|ru|bet|link)(\/[^\s]*)?|bit\.ly\/[^\s]+|t\.me\/[^\s]+)/i;
 
 @Injectable()
 export class ReviewsService {
@@ -83,6 +86,13 @@ export class ReviewsService {
 
     const userName = user?.name || user?.email?.split('@')[0] || 'Verified Buyer';
 
+    // Only reviews containing external links / spam domains are flagged
+    // All genuine customer reviews (including 1-star / bad reviews) are APPROVED by default
+    const hasSpamLink = SPAM_LINK_REGEX.test(dto.comment);
+    const reviewStatus = hasSpamLink
+      ? ReviewStatusEnum.REJECTED
+      : ReviewStatusEnum.APPROVED;
+
     const review = await this.prisma.$transaction(async (tx) => {
       const created = await tx.productReview.create({
         data: {
@@ -94,24 +104,31 @@ export class ReviewsService {
           comment: dto.comment,
           photos: dto.photos || [],
           isVerifiedPurchase: true,
+          status: reviewStatus,
+          isSpam: hasSpamLink,
+          rejectionReason: hasSpamLink
+            ? "Contains promotional or external link"
+            : null,
         },
       });
 
-      // Recalculate product rating & reviewsCount
-      const totalReviews = product.reviewsCount + 1;
-      const newRating =
-        Math.round(
-          ((product.rating * product.reviewsCount + dto.rating) / totalReviews) *
-            10,
-        ) / 10;
+      // Recalculate product rating & reviewsCount only if review is approved
+      if (reviewStatus === ReviewStatusEnum.APPROVED) {
+        const totalReviews = product.reviewsCount + 1;
+        const newRating =
+          Math.round(
+            ((product.rating * product.reviewsCount + dto.rating) / totalReviews) *
+              10,
+          ) / 10;
 
-      await tx.product.update({
-        where: { id: dto.productId },
-        data: {
-          rating: newRating,
-          reviewsCount: totalReviews,
-        },
-      });
+        await tx.product.update({
+          where: { id: dto.productId },
+          data: {
+            rating: newRating,
+            reviewsCount: totalReviews,
+          },
+        });
+      }
 
       return created;
     });
@@ -135,7 +152,11 @@ export class ReviewsService {
     const limit = query.limit && query.limit > 0 ? query.limit : 10;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = {
+      status: ReviewStatusEnum.APPROVED,
+      isSpam: false,
+      deletedAt: null,
+    };
 
     if (query.productId) {
       where.productId = query.productId;
@@ -204,7 +225,12 @@ export class ReviewsService {
       },
     });
 
-    if (!review) {
+    if (
+      !review ||
+      review.deletedAt ||
+      review.isSpam ||
+      review.status === ReviewStatusEnum.REJECTED
+    ) {
       throw new NotFoundException('Review not found');
     }
 

@@ -153,6 +153,46 @@ describe('ReviewsService', () => {
       expect(res.success).toBe(true);
       expect(res.review).toBeDefined();
     });
+
+    it("should automatically approve 1-star bad review without links", async () => {
+      prisma.product.findUnique.mockResolvedValue(mockProduct);
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+      prisma.productReview.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(mockUser);
+      prisma.productReview.create.mockImplementation(({ data }) => Promise.resolve(data));
+
+      const res = await service.createReview(mockUserId, {
+        productId: mockProductId,
+        orderId: mockOrderId,
+        rating: 1,
+        comment: "Worst food ever, completely cold and horrible taste! 1 star.",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.review.status).toBe("APPROVED");
+      expect(res.review.isSpam).toBe(false);
+      expect(res.review.rejectionReason).toBeNull();
+    });
+
+    it("should automatically reject reviews containing spam links", async () => {
+      prisma.product.findUnique.mockResolvedValue(mockProduct);
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+      prisma.productReview.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(mockUser);
+      prisma.productReview.create.mockImplementation(({ data }) => Promise.resolve(data));
+
+      const res = await service.createReview(mockUserId, {
+        productId: mockProductId,
+        orderId: mockOrderId,
+        rating: 1,
+        comment: "Claim free coins at instant-airdrop.xyz or bit.ly/fake-link now!",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.review.status).toBe("REJECTED");
+      expect(res.review.isSpam).toBe(true);
+      expect(res.review.rejectionReason).toContain("promotional or external link");
+    });
   });
 
   describe('getReviews', () => {
