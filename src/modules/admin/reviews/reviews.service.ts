@@ -125,6 +125,7 @@ export class ReviewsService {
                 slug: true,
                 rating: true,
                 reviewsCount: true,
+                imageUrl: true,
               },
             },
           },
@@ -148,29 +149,63 @@ export class ReviewsService {
         }),
       ]);
 
-    const formattedReviews = reviews.map((r) => ({
-      id: r.id,
-      productId: r.productId,
-      productName: r.product?.name || 'Unknown Product',
-      productSlug: r.product?.slug || null,
-      userId: r.userId,
-      orderId: r.orderId,
-      userName: r.userName,
-      userAvatar: r.userAvatar,
-      rating: r.rating,
-      title: r.title,
-      comment: r.comment,
-      photos: r.photos,
-      isVerifiedPurchase: r.isVerifiedPurchase,
-      helpfulCount: r.helpfulCount,
-      status: r.status,
-      isSpam: r.isSpam,
-      adminReply: r.adminReply,
-      adminReplyAt: r.adminReplyAt,
-      rejectionReason: r.rejectionReason,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-    }));
+    const userIds = reviews.map((r) => r.userId).filter(Boolean) as string[];
+    let userMap: Record<string, { id: string; name: string; email: string }> = {};
+    if (userIds.length > 0 && (this.prisma as any).user?.findMany) {
+      try {
+        const users = await (this.prisma as any).user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true },
+        });
+        if (users && Array.isArray(users)) {
+          userMap = users.reduce((acc: any, u: any) => {
+            acc[u.id] = u;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      } catch (err: any) {
+        this.logger.warn('Failed to fetch user profiles for reviews: ' + err?.message);
+      }
+    }
+
+    const formattedReviews = reviews.map((r) => {
+      const user = {
+        id: r.userId || 'guest',
+        name: r.userName,
+        email: (r.userId && userMap[r.userId]?.email) || '',
+      };
+      const product = {
+        id: r.productId,
+        name: r.product?.name || 'Unknown Product',
+        imageUrl: (r.product as any)?.imageUrl || (r.photos && r.photos[0]) || '',
+      };
+
+      return {
+        id: r.id,
+        productId: r.productId,
+        productName: r.product?.name || 'Unknown Product',
+        productSlug: r.product?.slug || null,
+        userId: r.userId,
+        orderId: r.orderId,
+        userName: r.userName,
+        userAvatar: r.userAvatar,
+        rating: r.rating,
+        title: r.title,
+        comment: r.comment,
+        photos: r.photos,
+        isVerifiedPurchase: r.isVerifiedPurchase,
+        helpfulCount: r.helpfulCount,
+        status: r.status,
+        isSpam: r.isSpam,
+        adminReply: r.adminReply,
+        adminReplyAt: r.adminReplyAt,
+        rejectionReason: r.rejectionReason,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        user,
+        product,
+      };
+    });
 
     const totalPages = Math.ceil(total / limit);
 
@@ -216,6 +251,7 @@ export class ReviewsService {
             price: true,
             rating: true,
             reviewsCount: true,
+            imageUrl: true,
           },
         },
       },
@@ -247,6 +283,17 @@ export class ReviewsService {
       }
     }
 
+    const user = {
+      id: review.userId || 'guest',
+      name: customerInfo?.name || review.userName,
+      email: customerInfo?.email || '',
+    };
+    const product = {
+      id: review.productId,
+      name: review.product?.name || 'Unknown Product',
+      imageUrl: (review.product as any)?.imageUrl || (review.photos && review.photos[0]) || '',
+    };
+
     return {
       success: true,
       data: {
@@ -254,6 +301,8 @@ export class ReviewsService {
         productName: review.product?.name || 'Unknown Product',
         customer: customerInfo,
         order: orderInfo,
+        user,
+        product,
       },
     };
   }
