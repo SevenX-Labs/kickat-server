@@ -42,6 +42,15 @@ export class HomeController {
     return this.homeService.getBanners();
   }
 
+  /**
+   * GET /home/testimonials
+   */
+  @Get('home/testimonials')
+  async getTestimonials(@Query('limit') limit?: string) {
+    const parsedLimit = limit && parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 10;
+    return this.homeService.getTestimonials(parsedLimit);
+  }
+
 
 
   /**

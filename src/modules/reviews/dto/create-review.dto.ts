@@ -37,6 +37,6 @@ export class CreateReviewDto {
   @IsOptional()
   @IsArray({ message: 'photos must be an array' })
   @ArrayMaxSize(5, { message: 'photos array can contain at most 5 URLs' })
-  @IsUrl({}, { each: true, message: 'Each photo must be a valid URL' })
+  @IsString({ each: true, message: 'Each photo must be a valid string or URL' })
   photos?: string[];
 }

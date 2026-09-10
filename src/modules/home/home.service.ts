@@ -35,7 +35,7 @@ export class HomeService {
       }
     }
 
-    const [banners, categories, trendingProducts, bestSellers] =
+    const [banners, categories, trendingProducts, bestSellers, testimonials] =
       await Promise.all([
         this.prisma.banner.findMany({
           where: { isActive: true },
@@ -63,6 +63,11 @@ export class HomeService {
           orderBy: { reviewsCount: 'desc' },
           take: 10,
         }),
+        this.prisma.testimonial.findMany({
+          where: { isActive: true, deletedAt: null },
+          orderBy: [{ order: 'asc' }, { createdAt: 'desc' }],
+          take: 10,
+        }),
       ]);
 
     return {
@@ -72,7 +77,25 @@ export class HomeService {
         categories,
         trendingProducts,
         bestSellers,
+        testimonials,
       },
+    };
+  }
+
+  /**
+   * GET /home/testimonials
+   * Public feed of active testimonials for homepage carousel
+   */
+  async getTestimonials(limit = 10) {
+    const testimonials = await this.prisma.testimonial.findMany({
+      where: { isActive: true, deletedAt: null },
+      orderBy: [{ order: "asc" }, { createdAt: "desc" }],
+      take: limit,
+    });
+
+    return {
+      success: true,
+      data: testimonials,
     };
   }
 

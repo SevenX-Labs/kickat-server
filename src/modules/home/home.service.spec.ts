@@ -11,6 +11,7 @@ describe('HomeService', () => {
     product: { findMany: jest.fn(), count: jest.fn() },
     pet: { findUnique: jest.fn(), findFirst: jest.fn() },
     blogPost: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
+    testimonial: { findMany: jest.fn(), count: jest.fn() },
   };
 
   beforeEach(async () => {

@@ -809,3 +809,23 @@ model CampaignLog {
   @@index([campaignId])
   @@map("campaign_logs")
 }
+model Testimonial {
+  id          String    @id @default(uuid())
+  name        String
+  role        String?
+  avatarUrl   String?
+  rating      Int       @default(5)
+  content     String
+  petName     String?
+  petType     String?
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  isFeatured  Boolean   @default(false)
+  order       Int       @default(0)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive, order])
+  @@map("testimonials")
+}

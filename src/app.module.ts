@@ -38,6 +38,7 @@ import { SettingsModule as AdminSettingsModule } from './modules/admin/settings/
 import { ShippingModule as AdminShippingModule } from './modules/admin/shipping/shipping.module';
 import { ReportsModule } from './modules/admin/reports/reports.module';
 import { UploadModule as AdminUploadModule } from './modules/admin/upload/upload.module';
+import { TestimonialsModule as AdminTestimonialsModule } from './modules/admin/testimonials/testimonials.module';
 
 @Module({
   imports: [
@@ -110,6 +111,7 @@ import { UploadModule as AdminUploadModule } from './modules/admin/upload/upload
     AdminShippingModule,
     ReportsModule,
     AdminUploadModule,
+    AdminTestimonialsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuditService, OtpCacheService],
