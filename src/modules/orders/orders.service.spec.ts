@@ -1,3 +1,4 @@
+import { SettingsService } from "../admin/settings/settings.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,6 +13,10 @@ import { CancelReasonEnum } from './dto/cancel-order.dto';
 import { ReturnReasonEnum } from './dto/return-order.dto';
 
 describe('OrdersService', () => {
+  const mockSettingsServiceForOrders = {
+    getTaxSettingsRaw: jest.fn().mockResolvedValue({ gstEnabled: true, gstNumber: "27AABCU9603R1ZM", gstPercentage: 18 }),
+  };
+
   let service: OrdersService;
   let prisma: any;
 
@@ -89,6 +94,7 @@ describe('OrdersService', () => {
       providers: [
         OrdersService,
         { provide: PrismaService, useValue: prisma },
+        { provide: SettingsService, useValue: mockSettingsServiceForOrders },
       ],
     }).compile();
 

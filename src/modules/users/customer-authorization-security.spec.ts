@@ -1,3 +1,11 @@
+
+const mockSettingsServiceForCustAuth = {
+  getDeliverySettingsRaw: jest.fn().mockResolvedValue({ deliveryFeeEnabled: true, deliveryFee: 49, freeDeliveryThreshold: 500 }),
+  getPaymentSettingsRaw: jest.fn().mockResolvedValue({ cod: { enabled: true, extraFee: 0 }, upi: { enabled: true }, card: { enabled: true } }),
+  getTaxSettingsRaw: jest.fn().mockResolvedValue({ gstEnabled: true, gstNumber: "27AABCU9603R1ZM", gstPercentage: 18 }),
+  getGeneralSettingsRaw: jest.fn().mockResolvedValue({ socialLinks: {}, supportEmail: "support@kickat.co.in", supportPhone: "+91 98765 43210", maintenanceMode: false }),
+};
+import { SettingsService } from "../admin/settings/settings.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
@@ -244,6 +252,7 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
         WishlistService,
         OrdersService,
         CheckoutService,
+        { provide: SettingsService, useValue: mockSettingsServiceForCustAuth },
         PaymentsService,
         ReviewsService,
         InAppService,

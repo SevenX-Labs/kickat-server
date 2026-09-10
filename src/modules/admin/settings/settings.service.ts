@@ -5,89 +5,45 @@ import {
   UpdateDeliverySettingsDto,
   UpdateGeneralSettingsDto,
   UpdatePaymentSettingsDto,
-  UpdateStoreSettingsDto,
   UpdateTaxSettingsDto,
 } from './dto/admin-settings.dto';
 
-const MASKED_SECRET = '••••••••';
-
-const DEFAULT_GENERAL_SETTINGS = {
-  siteName: 'Kickat Pet Care',
-  siteDescription: 'Premium Pet Nutrition & Care Supplies',
-  supportEmail: 'support@kickat.in',
-  supportPhone: '+91-98765-43210',
-  logoUrl: 'https://kickat.in/logo.png',
-  faviconUrl: 'https://kickat.in/favicon.ico',
+export const DEFAULT_GENERAL_SETTINGS = {
+  socialLinks: {
+    instagram: '',
+    facebook: '',
+    youtube: '',
+    twitter: '',
+    linkedin: '',
+  },
+  supportEmail: 'support@kickat.co.in',
+  supportPhone: '+91 98765 43210',
   maintenanceMode: false,
-  smtp: {
-    host: 'smtp.sendgrid.net',
-    port: 587,
-    user: 'apikey',
-    password: '',
-    isSecure: true,
-    fromEmail: 'noreply@kickat.in',
-  },
 };
 
-const DEFAULT_STORE_SETTINGS = {
-  storeName: 'Kickat Store',
-  legalBusinessName: 'Kickat Pet Care Private Limited',
-  currency: 'INR',
-  currencySymbol: '₹',
-  country: 'India',
-  timezone: 'Asia/Kolkata',
-  orderPrefix: 'ORD-',
-  invoicePrefix: 'INV-',
-  minOrderValue: 0,
-  maxOrderValue: 500000,
-  autoCancelUnpaidMinutes: 30,
-};
-
-const DEFAULT_PAYMENT_SETTINGS = {
-  razorpay: {
-    enabled: true,
-    keyId: 'rzp_test_samplekey123',
-    keySecret: '',
-    webhookSecret: '',
-  },
+export const DEFAULT_PAYMENT_SETTINGS = {
   cod: {
     enabled: true,
-    maxAmount: 5000,
     extraFee: 0,
   },
-  upi: { enabled: true },
-  wallet: { enabled: true },
-  card: { enabled: true },
-  netbanking: { enabled: true },
-};
-
-const DEFAULT_TAX_SETTINGS = {
-  taxEnabled: true,
-  gstNumber: '27AABCU9603R1ZM',
-  standardGstRate: 18,
-  cgstRate: 9,
-  sgstRate: 9,
-  igstRate: 18,
-  hsnCodes: {
-    petFood: '2309',
-    petAccessories: '4201',
-    petMedicines: '3004',
+  upi: {
+    enabled: true,
   },
-  pricesIncludeTax: true,
+  card: {
+    enabled: true,
+  },
 };
 
-const DEFAULT_DELIVERY_SETTINGS = {
-  standardDeliveryFee: 50,
+export const DEFAULT_TAX_SETTINGS = {
+  gstEnabled: false,
+  gstNumber: null,
+  gstPercentage: 0,
+};
+
+export const DEFAULT_DELIVERY_SETTINGS = {
+  deliveryFeeEnabled: true,
+  deliveryFee: 50,
   freeDeliveryThreshold: 499,
-  estimatedDeliveryDays: 3,
-  defaultCourier: 'Delhivery',
-  supportedCouriers: ['Delhivery', 'Shiprocket', 'BlueDart', 'DTDC'],
-  deliverySlots: [
-    'Morning (9AM - 1PM)',
-    'Afternoon (1PM - 5PM)',
-    'Evening (5PM - 9PM)',
-  ],
-  enableRtoTracking: true,
 };
 
 @Injectable()
@@ -97,36 +53,52 @@ export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Helper to retrieve raw setting group from database or fallback to defaults
+   * Helper to retrieve raw setting group from database
    */
-  private async getRawSettingGroup(group: string, defaults: any) {
+  async getRawSettingGroup(group: string, defaults: any) {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: group },
     });
 
-    if (!setting) {
+    if (!setting || !setting.value) {
       return { ...defaults };
     }
 
     return { ...defaults, ...(setting.value as any) };
   }
 
+  async getDeliverySettingsRaw() {
+    return this.getRawSettingGroup('delivery', DEFAULT_DELIVERY_SETTINGS);
+  }
+
+  async getPaymentSettingsRaw() {
+    return this.getRawSettingGroup('payment', DEFAULT_PAYMENT_SETTINGS);
+  }
+
+  async getTaxSettingsRaw() {
+    return this.getRawSettingGroup('tax', DEFAULT_TAX_SETTINGS);
+  }
+
+  async getGeneralSettingsRaw() {
+    return this.getRawSettingGroup('general', DEFAULT_GENERAL_SETTINGS);
+  }
+
   /**
    * Helper to save raw setting group to database
    */
-  private async saveRawSettingGroup(group: string, value: any, isSecret = false) {
+  private async saveRawSettingGroup(group: string, value: any) {
     const saved = await this.prisma.systemSetting.upsert({
       where: { key: group },
       update: {
         value,
         group,
-        isSecret,
+        isSecret: false,
       },
       create: {
         key: group,
         group,
         value,
-        isSecret,
+        isSecret: false,
       },
     });
 
@@ -134,58 +106,12 @@ export class SettingsService {
   }
 
   /**
-   * Masks secrets from General settings (SMTP password)
-   */
-  private sanitizeGeneralSettings(raw: any) {
-    const result = { ...raw };
-    if (result.smtp) {
-      const hasPassword = Boolean(result.smtp.password && result.smtp.password !== MASKED_SECRET);
-      result.smtp = {
-        host: result.smtp.host,
-        port: result.smtp.port,
-        user: result.smtp.user,
-        isSecure: result.smtp.isSecure,
-        fromEmail: result.smtp.fromEmail,
-        hasPassword,
-        password: hasPassword ? MASKED_SECRET : '',
-      };
-    }
-    return result;
-  }
-
-  /**
-   * Masks secrets from Payment settings (Razorpay secret & webhook)
-   */
-  private sanitizePaymentSettings(raw: any) {
-    const result = { ...raw };
-    if (result.razorpay) {
-      const hasSecretKey = Boolean(
-        result.razorpay.keySecret && result.razorpay.keySecret !== MASKED_SECRET,
-      );
-      const hasWebhookSecret = Boolean(
-        result.razorpay.webhookSecret && result.razorpay.webhookSecret !== MASKED_SECRET,
-      );
-
-      result.razorpay = {
-        enabled: result.razorpay.enabled,
-        keyId: result.razorpay.keyId,
-        hasSecretKey,
-        hasWebhookSecret,
-        keySecret: hasSecretKey ? MASKED_SECRET : '',
-        webhookSecret: hasWebhookSecret ? MASKED_SECRET : '',
-      };
-    }
-    return result;
-  }
-
-  /**
    * GET /api/v1/admin/settings
-   * Returns consolidated view of all settings with secrets masked
+   * Returns consolidated view of the 4 settings groups
    */
   async getAllSettings() {
-    const [general, store, payment, tax, delivery] = await Promise.all([
+    const [general, payment, tax, delivery] = await Promise.all([
       this.getRawSettingGroup('general', DEFAULT_GENERAL_SETTINGS),
-      this.getRawSettingGroup('store', DEFAULT_STORE_SETTINGS),
       this.getRawSettingGroup('payment', DEFAULT_PAYMENT_SETTINGS),
       this.getRawSettingGroup('tax', DEFAULT_TAX_SETTINGS),
       this.getRawSettingGroup('delivery', DEFAULT_DELIVERY_SETTINGS),
@@ -194,9 +120,8 @@ export class SettingsService {
     return {
       success: true,
       data: {
-        general: this.sanitizeGeneralSettings(general),
-        store,
-        payment: this.sanitizePaymentSettings(payment),
+        general,
+        payment,
         tax,
         delivery,
       },
@@ -205,13 +130,12 @@ export class SettingsService {
 
   /**
    * PATCH /api/v1/admin/settings
-   * Bulk update across multiple settings groups
+   * Bulk update across settings groups
    */
   async updateAllSettings(dto: UpdateAllSettingsDto) {
     const updates: Promise<any>[] = [];
 
     if (dto.general) updates.push(this.updateGeneralSettings(dto.general));
-    if (dto.store) updates.push(this.updateStoreSettings(dto.store));
     if (dto.payment) updates.push(this.updatePaymentSettings(dto.payment));
     if (dto.tax) updates.push(this.updateTaxSettings(dto.tax));
     if (dto.delivery) updates.push(this.updateDeliverySettings(dto.delivery));
@@ -228,7 +152,7 @@ export class SettingsService {
     const raw = await this.getRawSettingGroup('general', DEFAULT_GENERAL_SETTINGS);
     return {
       success: true,
-      data: this.sanitizeGeneralSettings(raw),
+      data: raw,
     };
   }
 
@@ -238,58 +162,22 @@ export class SettingsService {
   async updateGeneralSettings(dto: UpdateGeneralSettingsDto) {
     const existing = await this.getRawSettingGroup('general', DEFAULT_GENERAL_SETTINGS);
 
-    let updatedSmtp = existing.smtp;
-    if (dto.smtp) {
-      const newPassword =
-        dto.smtp.password && dto.smtp.password !== MASKED_SECRET
-          ? dto.smtp.password
-          : existing.smtp?.password || '';
-
-      updatedSmtp = {
-        ...existing.smtp,
-        ...dto.smtp,
-        password: newPassword,
-      };
-    }
-
     const merged = {
       ...existing,
       ...dto,
-      ...(dto.smtp && { smtp: updatedSmtp }),
+      ...(dto.socialLinks && {
+        socialLinks: {
+          ...existing.socialLinks,
+          ...dto.socialLinks,
+        },
+      }),
     };
 
-    await this.saveRawSettingGroup('general', merged, true);
+    await this.saveRawSettingGroup('general', merged);
 
     return {
       success: true,
       message: 'General settings updated successfully',
-      data: this.sanitizeGeneralSettings(merged),
-    };
-  }
-
-  /**
-   * GET /api/v1/admin/settings/store
-   */
-  async getStoreSettings() {
-    const raw = await this.getRawSettingGroup('store', DEFAULT_STORE_SETTINGS);
-    return {
-      success: true,
-      data: raw,
-    };
-  }
-
-  /**
-   * PATCH /api/v1/admin/settings/store
-   */
-  async updateStoreSettings(dto: UpdateStoreSettingsDto) {
-    const existing = await this.getRawSettingGroup('store', DEFAULT_STORE_SETTINGS);
-    const merged = { ...existing, ...dto };
-
-    await this.saveRawSettingGroup('store', merged, false);
-
-    return {
-      success: true,
-      message: 'Store settings updated successfully',
       data: merged,
     };
   }
@@ -301,7 +189,7 @@ export class SettingsService {
     const raw = await this.getRawSettingGroup('payment', DEFAULT_PAYMENT_SETTINGS);
     return {
       success: true,
-      data: this.sanitizePaymentSettings(raw),
+      data: raw,
     };
   }
 
@@ -311,38 +199,34 @@ export class SettingsService {
   async updatePaymentSettings(dto: UpdatePaymentSettingsDto) {
     const existing = await this.getRawSettingGroup('payment', DEFAULT_PAYMENT_SETTINGS);
 
-    let updatedRazorpay = existing.razorpay;
-    if (dto.razorpay) {
-      const newKeySecret =
-        dto.razorpay.keySecret && dto.razorpay.keySecret !== MASKED_SECRET
-          ? dto.razorpay.keySecret
-          : existing.razorpay?.keySecret || '';
-
-      const newWebhookSecret =
-        dto.razorpay.webhookSecret && dto.razorpay.webhookSecret !== MASKED_SECRET
-          ? dto.razorpay.webhookSecret
-          : existing.razorpay?.webhookSecret || '';
-
-      updatedRazorpay = {
-        ...existing.razorpay,
-        ...dto.razorpay,
-        keySecret: newKeySecret,
-        webhookSecret: newWebhookSecret,
-      };
-    }
-
     const merged = {
       ...existing,
-      ...dto,
-      ...(dto.razorpay && { razorpay: updatedRazorpay }),
+      ...(dto.cod && {
+        cod: {
+          ...existing.cod,
+          ...dto.cod,
+        },
+      }),
+      ...(dto.upi && {
+        upi: {
+          ...existing.upi,
+          ...dto.upi,
+        },
+      }),
+      ...(dto.card && {
+        card: {
+          ...existing.card,
+          ...dto.card,
+        },
+      }),
     };
 
-    await this.saveRawSettingGroup('payment', merged, true);
+    await this.saveRawSettingGroup('payment', merged);
 
     return {
       success: true,
       message: 'Payment settings updated successfully',
-      data: this.sanitizePaymentSettings(merged),
+      data: merged,
     };
   }
 
@@ -365,10 +249,9 @@ export class SettingsService {
     const merged = {
       ...existing,
       ...dto,
-      ...(dto.hsnCodes && { hsnCodes: { ...existing.hsnCodes, ...dto.hsnCodes } }),
     };
 
-    await this.saveRawSettingGroup('tax', merged, false);
+    await this.saveRawSettingGroup('tax', merged);
 
     return {
       success: true,
@@ -393,14 +276,34 @@ export class SettingsService {
    */
   async updateDeliverySettings(dto: UpdateDeliverySettingsDto) {
     const existing = await this.getRawSettingGroup('delivery', DEFAULT_DELIVERY_SETTINGS);
-    const merged = { ...existing, ...dto };
+    const merged = {
+      ...existing,
+      ...dto,
+    };
 
-    await this.saveRawSettingGroup('delivery', merged, false);
+    await this.saveRawSettingGroup('delivery', merged);
 
     return {
       success: true,
       message: 'Delivery settings updated successfully',
       data: merged,
+    };
+  }
+
+  /**
+   * GET /api/v1/settings/public
+   * Public general settings for customer frontend (social links, contact info, maintenance mode)
+   */
+  async getPublicGeneralSettings() {
+    const general = await this.getRawSettingGroup('general', DEFAULT_GENERAL_SETTINGS);
+    return {
+      success: true,
+      data: {
+        socialLinks: general.socialLinks || DEFAULT_GENERAL_SETTINGS.socialLinks,
+        supportEmail: general.supportEmail || DEFAULT_GENERAL_SETTINGS.supportEmail,
+        supportPhone: general.supportPhone || DEFAULT_GENERAL_SETTINGS.supportPhone,
+        maintenanceMode: Boolean(general.maintenanceMode),
+      },
     };
   }
 }

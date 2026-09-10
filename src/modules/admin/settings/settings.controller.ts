@@ -11,7 +11,6 @@ import {
   UpdateDeliverySettingsDto,
   UpdateGeneralSettingsDto,
   UpdatePaymentSettingsDto,
-  UpdateStoreSettingsDto,
   UpdateTaxSettingsDto,
 } from './dto/admin-settings.dto';
 
@@ -22,7 +21,7 @@ export class SettingsController {
 
   /**
    * GET /api/v1/admin/settings
-   * Returns consolidated view of all settings with secrets masked
+   * Returns consolidated view of the 4 setting groups
    */
   @Get()
   async getAllSettings() {
@@ -52,22 +51,6 @@ export class SettingsController {
   @Patch('general')
   async updateGeneralSettings(@Body() dto: UpdateGeneralSettingsDto) {
     return this.settingsService.updateGeneralSettings(dto);
-  }
-
-  /**
-   * GET /api/v1/admin/settings/store
-   */
-  @Get('store')
-  async getStoreSettings() {
-    return this.settingsService.getStoreSettings();
-  }
-
-  /**
-   * PATCH /api/v1/admin/settings/store
-   */
-  @Patch('store')
-  async updateStoreSettings(@Body() dto: UpdateStoreSettingsDto) {
-    return this.settingsService.updateStoreSettings(dto);
   }
 
   /**
@@ -116,5 +99,19 @@ export class SettingsController {
   @Patch('delivery')
   async updateDeliverySettings(@Body() dto: UpdateDeliverySettingsDto) {
     return this.settingsService.updateDeliverySettings(dto);
+  }
+}
+
+@Controller('settings')
+export class PublicSettingsController {
+  constructor(private readonly settingsService: SettingsService) {}
+
+  /**
+   * GET /api/v1/settings/public
+   * Returns socialLinks, supportEmail, supportPhone, maintenanceMode
+   */
+  @Get('public')
+  async getPublicSettings() {
+    return this.settingsService.getPublicGeneralSettings();
   }
 }

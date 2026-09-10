@@ -1,3 +1,4 @@
+import { SettingsService } from "../admin/settings/settings.service";
 import {
   BadRequestException,
   ConflictException,
@@ -19,7 +20,10 @@ const UUID_V4_REGEX =
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   private validateUuid(id: string, paramName: string = 'id'): string {
     if (!id || typeof id !== 'string' || !UUID_V4_REGEX.test(id)) {
@@ -320,7 +324,12 @@ export class OrdersService {
   async getOrderInvoice(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
 
-    const taxAmount = Math.round(order.subtotal * 0.18 * 100) / 100;
+    const taxSettings = await this.settingsService.getTaxSettingsRaw();
+    const gstEnabled = Boolean(taxSettings.gstEnabled);
+    const gstPercentage = Number(taxSettings.gstPercentage ?? 0);
+    const taxAmount = gstEnabled
+      ? Math.round(order.subtotal * (gstPercentage / 100) * 100) / 100
+      : 0;
 
     return {
       success: true,
@@ -333,6 +342,9 @@ export class OrdersService {
         items: order.items,
         summary: {
           subtotal: order.subtotal,
+          gstEnabled,
+          gstNumber: taxSettings.gstNumber || null,
+          gstPercentage,
           taxAmount,
           deliveryFee: order.deliveryFee,
           grandTotal: order.grandTotal,

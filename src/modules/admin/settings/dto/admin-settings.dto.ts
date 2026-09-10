@@ -1,10 +1,7 @@
 import {
-  IsArray,
   IsBoolean,
   IsEmail,
-  IsInt,
   IsNumber,
-  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -14,165 +11,65 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class SmtpConfigDto {
+export class SocialLinksDto {
   @IsOptional()
-  @IsString()
-  host?: string;
+  @IsUrl({}, { message: 'instagram must be a valid URL' })
+  instagram?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(65535)
-  port?: number;
+  @IsUrl({}, { message: 'facebook must be a valid URL' })
+  facebook?: string;
 
   @IsOptional()
-  @IsString()
-  user?: string;
+  @IsUrl({}, { message: 'youtube must be a valid URL' })
+  youtube?: string;
 
   @IsOptional()
-  @IsString()
-  password?: string;
+  @IsUrl({}, { message: 'twitter must be a valid URL' })
+  twitter?: string;
 
   @IsOptional()
-  @IsBoolean()
-  isSecure?: boolean;
-
-  @IsOptional()
-  @IsEmail()
-  fromEmail?: string;
+  @IsUrl({}, { message: 'linkedin must be a valid URL' })
+  linkedin?: string;
 }
 
 export class UpdateGeneralSettingsDto {
   @IsOptional()
-  @IsString()
-  siteName?: string;
+  @ValidateNested()
+  @Type(() => SocialLinksDto)
+  socialLinks?: SocialLinksDto;
 
   @IsOptional()
-  @IsString()
-  siteDescription?: string;
-
-  @IsOptional()
-  @IsEmail()
+  @IsEmail({}, { message: 'supportEmail must be a valid email address' })
   supportEmail?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'supportPhone must be a string' })
   supportPhone?: string;
 
   @IsOptional()
-  @IsString()
-  logoUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  faviconUrl?: string;
-
-  @IsOptional()
-  @IsBoolean()
+  @IsBoolean({ message: 'maintenanceMode must be a boolean' })
   maintenanceMode?: boolean;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => SmtpConfigDto)
-  smtp?: SmtpConfigDto;
-}
-
-export class UpdateStoreSettingsDto {
-  @IsOptional()
-  @IsString()
-  storeName?: string;
-
-  @IsOptional()
-  @IsString()
-  legalBusinessName?: string;
-
-  @IsOptional()
-  @IsString()
-  currency?: string;
-
-  @IsOptional()
-  @IsString()
-  currencySymbol?: string;
-
-  @IsOptional()
-  @IsString()
-  country?: string;
-
-  @IsOptional()
-  @IsString()
-  timezone?: string;
-
-  @IsOptional()
-  @IsString()
-  orderPrefix?: string;
-
-  @IsOptional()
-  @IsString()
-  invoicePrefix?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  minOrderValue?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  maxOrderValue?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(5)
-  @Max(1440)
-  autoCancelUnpaidMinutes?: number;
-}
-
-export class RazorpayConfigDto {
-  @IsOptional()
-  @IsBoolean()
-  enabled?: boolean;
-
-  @IsOptional()
-  @IsString()
-  keyId?: string;
-
-  @IsOptional()
-  @IsString()
-  keySecret?: string;
-
-  @IsOptional()
-  @IsString()
-  webhookSecret?: string;
 }
 
 export class CodConfigDto {
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({ message: 'enabled must be a boolean' })
   enabled?: boolean;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  maxAmount?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber({}, { message: 'extraFee must be a number' })
+  @Min(0, { message: 'extraFee must be a non-negative number' })
   extraFee?: number;
 }
 
 export class SimpleGatewayConfigDto {
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({ message: 'enabled must be a boolean' })
   enabled?: boolean;
 }
 
 export class UpdatePaymentSettingsDto {
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => RazorpayConfigDto)
-  razorpay?: RazorpayConfigDto;
-
   @IsOptional()
   @ValidateNested()
   @Type(() => CodConfigDto)
@@ -186,95 +83,39 @@ export class UpdatePaymentSettingsDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => SimpleGatewayConfigDto)
-  wallet?: SimpleGatewayConfigDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => SimpleGatewayConfigDto)
   card?: SimpleGatewayConfigDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => SimpleGatewayConfigDto)
-  netbanking?: SimpleGatewayConfigDto;
 }
 
 export class UpdateTaxSettingsDto {
   @IsOptional()
-  @IsBoolean()
-  taxEnabled?: boolean;
+  @IsBoolean({ message: 'gstEnabled must be a boolean' })
+  gstEnabled?: boolean;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'gstNumber must be a string' })
   gstNumber?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  standardGstRate?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  cgstRate?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  sgstRate?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  igstRate?: number;
-
-  @IsOptional()
-  @IsObject()
-  hsnCodes?: Record<string, string>;
-
-  @IsOptional()
-  @IsBoolean()
-  pricesIncludeTax?: boolean;
+  @IsNumber({}, { message: 'gstPercentage must be a number' })
+  @Min(0, { message: 'gstPercentage cannot be negative' })
+  @Max(100, { message: 'gstPercentage cannot exceed 100' })
+  gstPercentage?: number;
 }
 
 export class UpdateDeliverySettingsDto {
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  standardDeliveryFee?: number;
+  @IsBoolean({ message: 'deliveryFeeEnabled must be a boolean' })
+  deliveryFeeEnabled?: boolean;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber({}, { message: 'deliveryFee must be a number' })
+  @Min(0, { message: 'deliveryFee cannot be negative' })
+  deliveryFee?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'freeDeliveryThreshold must be a number' })
+  @Min(0, { message: 'freeDeliveryThreshold cannot be negative' })
   freeDeliveryThreshold?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(30)
-  estimatedDeliveryDays?: number;
-
-  @IsOptional()
-  @IsString()
-  defaultCourier?: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  supportedCouriers?: string[];
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  deliverySlots?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  enableRtoTracking?: boolean;
 }
 
 export class UpdateAllSettingsDto {
@@ -282,11 +123,6 @@ export class UpdateAllSettingsDto {
   @ValidateNested()
   @Type(() => UpdateGeneralSettingsDto)
   general?: UpdateGeneralSettingsDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => UpdateStoreSettingsDto)
-  store?: UpdateStoreSettingsDto;
 
   @IsOptional()
   @ValidateNested()

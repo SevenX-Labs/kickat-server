@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CartService } from './cart.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SettingsService } from '../admin/settings/settings.service';
 
 describe('CartService', () => {
   let service: CartService;
@@ -28,11 +29,20 @@ describe('CartService', () => {
     },
   };
 
+  const mockSettingsService = {
+    getDeliverySettingsRaw: jest.fn().mockResolvedValue({
+      deliveryFeeEnabled: true,
+      deliveryFee: 49,
+      freeDeliveryThreshold: 500,
+    }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CartService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: SettingsService, useValue: mockSettingsService },
       ],
     }).compile();
 

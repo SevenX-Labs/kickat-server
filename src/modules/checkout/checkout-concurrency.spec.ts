@@ -1,3 +1,4 @@
+import { SettingsService } from "../admin/settings/settings.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { CheckoutService } from './checkout.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -20,6 +21,12 @@ import { CancelReasonEnum } from '../orders/dto/cancel-order.dto';
 import { ReturnReasonEnum } from '../orders/dto/return-order.dto';
 
 describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
+  const mockSettingsServiceForConcurrency = {
+    getDeliverySettingsRaw: jest.fn().mockResolvedValue({ deliveryFeeEnabled: true, deliveryFee: 49, freeDeliveryThreshold: 500 }),
+    getPaymentSettingsRaw: jest.fn().mockResolvedValue({ cod: { enabled: true, extraFee: 0 }, upi: { enabled: true }, card: { enabled: true } }),
+    getTaxSettingsRaw: jest.fn().mockResolvedValue({ gstEnabled: true, gstNumber: "27AABCU9603R1ZM", gstPercentage: 18 }),
+  };
+
   let checkoutService: CheckoutService;
   let paymentsService: PaymentsService;
   let ordersService: OrdersService;
@@ -104,6 +111,7 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
         CheckoutService,
         PaymentsService,
         OrdersService,
+        { provide: SettingsService, useValue: mockSettingsServiceForConcurrency },
         { provide: PrismaService, useValue: prisma },
         { provide: RazorpayService, useValue: razorpayService },
       ],

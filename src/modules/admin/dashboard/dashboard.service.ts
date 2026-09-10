@@ -1033,7 +1033,7 @@ export class DashboardService {
       }),
     ]);
 
-    const currentRevenue = Number((monthRevenueAgg._sum.grandTotal ?? 0).toFixed(2));
+    const currentRevenue = Number((monthRevenueAgg?._sum?.grandTotal ?? 0).toFixed(2));
     const currentOrders = monthOrdersCount;
     const revTarget = configuredTargets.monthlyRevenueTarget || defaultTargets.monthlyRevenueTarget;
     const ordTarget = configuredTargets.monthlyOrdersTarget || defaultTargets.monthlyOrdersTarget;

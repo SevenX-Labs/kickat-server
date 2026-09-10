@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SettingsService } from '../admin/settings/settings.service';
 import { ValidateAddressDto } from './dto/validate-address.dto';
 import {
   CheckoutPaymentMethodEnum,
@@ -14,7 +15,19 @@ import {
 
 @Injectable()
 export class CheckoutService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
+
+  private async computeDeliveryFee(subtotal: number): Promise<number> {
+    if (subtotal <= 0) return 0;
+    const delivery = await this.settingsService.getDeliverySettingsRaw();
+    if (!delivery.deliveryFeeEnabled) return 0;
+    const threshold = delivery.freeDeliveryThreshold ?? 0;
+    if (threshold > 0 && subtotal >= threshold) return 0;
+    return delivery.deliveryFee ?? 0;
+  }
 
   /**
    * GET /checkout
@@ -45,7 +58,7 @@ export class CheckoutService {
       subtotal += price * item.quantity;
     }
 
-    const deliveryFee = subtotal > 500 ? 0 : 49;
+    const deliveryFee = await this.computeDeliveryFee(subtotal);
     const grandTotal = subtotal + deliveryFee;
 
     // Trigger/Upsert 10-minute stock reservation
@@ -100,10 +113,13 @@ export class CheckoutService {
       throw new BadRequestException('Unserviceable pincode');
     }
 
+    const delivery = await this.settingsService.getDeliverySettingsRaw();
+    const deliveryCharge = delivery.deliveryFeeEnabled ? (delivery.deliveryFee ?? 50) : 0;
+
     return {
       success: true,
       serviceable: true,
-      deliveryCharge: 49,
+      deliveryCharge,
       estimatedDays: '2-3 business days',
       address: targetAddress,
     };
@@ -121,24 +137,28 @@ export class CheckoutService {
       throw new BadRequestException('pincode must be exactly 6 digits');
     }
 
-    const codAvailable = orderAmount <= 5000 && !pincode.startsWith('9');
+    const paymentSettings = await this.settingsService.getPaymentSettingsRaw();
+
+    const codEnabled = Boolean(paymentSettings.cod?.enabled ?? true);
+    const upiEnabled = Boolean(paymentSettings.upi?.enabled ?? true);
+    const cardEnabled = Boolean(paymentSettings.card?.enabled ?? true);
+    const codExtraFee = Number(paymentSettings.cod?.extraFee ?? 0);
 
     return {
       success: true,
       orderAmount,
       pincode,
       methods: [
-        { type: 'UPI', name: 'UPI / QR Code', available: true },
-        { type: 'CARD', name: 'Credit / Debit Card', available: true },
+        { type: 'UPI', name: 'UPI / QR Code', available: upiEnabled },
+        { type: 'CARD', name: 'Credit / Debit Card', available: cardEnabled },
         { type: 'WALLET', name: 'Digital Wallets', available: true },
         { type: 'NETBANKING', name: 'Net Banking', available: true },
         {
           type: 'COD',
           name: 'Cash on Delivery',
-          available: codAvailable,
-          reason: codAvailable
-            ? undefined
-            : 'COD not available for order amount > ₹5000 or remote pincode',
+          available: codEnabled,
+          extraFee: codExtraFee,
+          reason: codEnabled ? undefined : 'COD payment method is currently disabled',
         },
       ],
     };
@@ -156,6 +176,19 @@ export class CheckoutService {
       throw new BadRequestException(
         'Idempotency-Key header is required and must be a valid UUID v4',
       );
+    }
+
+    const paymentSettings = await this.settingsService.getPaymentSettingsRaw();
+
+    // Check payment method enablement
+    if (dto.paymentMethod === CheckoutPaymentMethodEnum.COD && !paymentSettings.cod?.enabled) {
+      throw new UnprocessableEntityException('COD payment method is currently disabled');
+    }
+    if (dto.paymentMethod === CheckoutPaymentMethodEnum.UPI && !paymentSettings.upi?.enabled) {
+      throw new UnprocessableEntityException('UPI payment method is currently disabled');
+    }
+    if (dto.paymentMethod === CheckoutPaymentMethodEnum.CARD && !paymentSettings.card?.enabled) {
+      throw new UnprocessableEntityException('Card payment method is currently disabled');
     }
 
     // Persistent database idempotency check
@@ -210,7 +243,7 @@ export class CheckoutService {
       throw new NotFoundException('Address not found');
     }
 
-    // Payment method configuration validation
+    // Payment method payload validation
     if (dto.paymentMethod === CheckoutPaymentMethodEnum.UPI && !dto.upiId) {
       throw new UnprocessableEntityException('upiId is required for UPI payment');
     }
@@ -261,7 +294,11 @@ export class CheckoutService {
       });
     }
 
-    const deliveryFee = subtotal > 500 ? 0 : 49;
+    let deliveryFee = await this.computeDeliveryFee(subtotal);
+    if (dto.paymentMethod === CheckoutPaymentMethodEnum.COD && paymentSettings.cod?.extraFee > 0) {
+      deliveryFee += Number(paymentSettings.cod.extraFee);
+    }
+
     const grandTotal = subtotal + deliveryFee;
     const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -349,7 +386,6 @@ export class CheckoutService {
         grandTotal: order.grandTotal,
       };
     } catch (error: any) {
-      // Handle concurrent P2002 race on unique idempotencyKey gracefully
       if (
         error?.code === 'P2002' ||
         (typeof error?.message === 'string' &&

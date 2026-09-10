@@ -4,13 +4,26 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SettingsService } from '../admin/settings/settings.service';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { BuyNowDto } from './dto/buy-now.dto';
 import { AddGuestCartItemDto } from './dto/guest-cart-item.dto';
 
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
+
+  private async computeDeliveryFee(subtotal: number): Promise<number> {
+    if (subtotal <= 0) return 0;
+    const delivery = await this.settingsService.getDeliverySettingsRaw();
+    if (!delivery.deliveryFeeEnabled) return 0;
+    const threshold = delivery.freeDeliveryThreshold ?? 0;
+    if (threshold > 0 && subtotal >= threshold) return 0;
+    return delivery.deliveryFee ?? 0;
+  }
 
   /**
    * GET /cart
@@ -72,7 +85,7 @@ export class CartService {
       };
     });
 
-    const deliveryFee = subtotal > 500 || subtotal === 0 ? 0 : 49;
+    const deliveryFee = await this.computeDeliveryFee(subtotal);
     const grandTotal = subtotal + deliveryFee;
 
     return {
@@ -237,7 +250,7 @@ export class CartService {
     }
 
     const subtotal = unitPrice * dto.quantity;
-    const deliveryFee = subtotal > 500 ? 0 : 49;
+    const deliveryFee = await this.computeDeliveryFee(subtotal);
     const grandTotal = subtotal + deliveryFee;
 
     return {
@@ -348,7 +361,7 @@ export class CartService {
       };
     });
 
-    const deliveryFee = subtotal > 500 || subtotal === 0 ? 0 : 49;
+    const deliveryFee = await this.computeDeliveryFee(subtotal);
 
     return {
       success: true,

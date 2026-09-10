@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CheckoutService } from './checkout.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SettingsService } from '../admin/settings/settings.service';
 
 describe('CheckoutService', () => {
   let service: CheckoutService;
@@ -32,11 +33,25 @@ describe('CheckoutService', () => {
     $transaction: jest.fn((cb) => cb(mockPrismaService)),
   };
 
+  const mockSettingsService = {
+    getDeliverySettingsRaw: jest.fn().mockResolvedValue({
+      deliveryFeeEnabled: true,
+      deliveryFee: 49,
+      freeDeliveryThreshold: 500,
+    }),
+    getPaymentSettingsRaw: jest.fn().mockResolvedValue({
+      cod: { enabled: true, extraFee: 0 },
+      upi: { enabled: true },
+      card: { enabled: true },
+    }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CheckoutService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: SettingsService, useValue: mockSettingsService },
       ],
     }).compile();
 
