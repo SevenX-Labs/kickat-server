@@ -151,7 +151,8 @@ export class ShippingService {
       orders,
       total,
       pendingAssignmentCount,
-      inTransitCount,
+      shippedCount,
+      outForDeliveryCount,
       deliveredCount,
       rtoCount,
     ] = await Promise.all([
@@ -172,14 +173,20 @@ export class ShippingService {
       this.prisma.order.count({
         where: {
           ...where,
-          orderStatus: { in: [OrderStatusEnum.PROCESSING, OrderStatusEnum.PACKED] },
+          orderStatus: { in: [OrderStatusEnum.PLACED, OrderStatusEnum.PROCESSING, OrderStatusEnum.PACKED] },
           trackingNumber: null,
         },
       }),
       this.prisma.order.count({
         where: {
           ...where,
-          orderStatus: { in: [OrderStatusEnum.SHIPPED, OrderStatusEnum.OUT_FOR_DELIVERY] },
+          orderStatus: OrderStatusEnum.SHIPPED,
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          ...where,
+          orderStatus: OrderStatusEnum.OUT_FOR_DELIVERY,
         },
       }),
       this.prisma.order.count({
@@ -212,6 +219,8 @@ export class ShippingService {
           name: order.user?.name || 'Customer',
           email: order.user?.email || null,
           phone: order.user?.phone || null,
+          city: order.address?.city || null,
+          pincode: order.address?.pincode || null,
         },
         destination: {
           city: order.address?.city || null,
@@ -248,8 +257,11 @@ export class ShippingService {
         },
         summary: {
           totalShipments: total,
+          pendingPickup: pendingAssignmentCount,
           pendingAssignmentCount,
-          inTransitCount,
+          shippedCount,
+          outForDeliveryCount,
+          inTransitCount: shippedCount + outForDeliveryCount,
           deliveredCount,
           rtoCount,
         },
@@ -342,6 +354,7 @@ export class ShippingService {
         courierPartner: updated.courierPartner,
         awbNumber: updated.trackingNumber,
         estimatedDelivery: updated.estimatedDelivery,
+        orderStatus: updated.orderStatus,
         status: updated.orderStatus,
         trackingUrl: this.getCourierTrackingUrl(updated.courierPartner, updated.trackingNumber),
         pickupLocation: dto.pickupLocation || 'Kickat Central Warehouse, Mumbai',
@@ -471,14 +484,24 @@ export class ShippingService {
       },
     ];
 
+    const specCheckpoints = checkpoints
+      .filter((c) => c.isCompleted)
+      .map((c) => ({
+        status: c.stage,
+        location: c.location,
+        timestamp: c.timestamp,
+      }));
+
     return {
       success: true,
       data: {
-        shipmentNumber: `SHIP-${order.orderNumber}`,
+        id: order.id,
         orderId: order.id,
+        shipmentNumber: `SHIP-${order.orderNumber}`,
         orderNumber: order.orderNumber,
         awbNumber: awb,
         courierPartner: courier,
+        status: order.orderStatus,
         currentStatus: order.orderStatus,
         isRTO,
         origin: 'Kickat Central Warehouse, Mumbai, Maharashtra',
@@ -488,6 +511,7 @@ export class ShippingService {
           order.deliveryDate ||
           new Date(baseCreated + 3 * 24 * 60 * 60 * 1000).toISOString(),
         trackingUrl: this.getCourierTrackingUrl(courier, awb),
+        checkpoints: specCheckpoints,
         timeline: checkpoints,
       },
     };
