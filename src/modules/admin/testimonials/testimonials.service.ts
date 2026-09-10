@@ -48,12 +48,10 @@ export class TestimonialsService {
       data: {
         name: dto.name.trim(),
         role: dto.role ? dto.role.trim() : null,
-        avatarUrl: dto.avatarUrl ? dto.avatarUrl.trim() : null,
         rating: dto.rating ?? 5,
         content: dto.content.trim(),
         petName: dto.petName ? dto.petName.trim() : null,
         petType: dto.petType ? dto.petType.trim() : null,
-        imageUrl: dto.imageUrl ? dto.imageUrl.trim() : null,
         isActive: dto.isActive ?? true,
         isFeatured: dto.isFeatured ?? false,
         order: displayOrder,
@@ -134,7 +132,7 @@ export class TestimonialsService {
 
     const avgRating = ratingAgg._avg.rating
       ? Number(ratingAgg._avg.rating.toFixed(2))
-      : 5.0;
+      : 0;
 
     return {
       success: true,
@@ -197,12 +195,10 @@ export class TestimonialsService {
       data: {
         ...(dto.name !== undefined && { name: dto.name.trim() }),
         ...(dto.role !== undefined && { role: dto.role ? dto.role.trim() : null }),
-        ...(dto.avatarUrl !== undefined && { avatarUrl: dto.avatarUrl ? dto.avatarUrl.trim() : null }),
         ...(dto.rating !== undefined && { rating: dto.rating }),
         ...(dto.content !== undefined && { content: dto.content.trim() }),
         ...(dto.petName !== undefined && { petName: dto.petName ? dto.petName.trim() : null }),
         ...(dto.petType !== undefined && { petType: dto.petType ? dto.petType.trim() : null }),
-        ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl ? dto.imageUrl.trim() : null }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         ...(dto.isFeatured !== undefined && { isFeatured: dto.isFeatured }),
         ...(dto.order !== undefined && { order: dto.order }),

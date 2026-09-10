@@ -157,25 +157,6 @@ export class UploadController {
   }
 
   /**
-   * POST /api/v1/admin/upload/testimonial
-   * Explicit convenience endpoint for testimonial avatar/photos (Stores inside testimonials/ folder)
-   */
-  @Post('testimonial')
-  @HttpCode(HttpStatus.OK)
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Upload testimonial image or avatar (Stored inside testimonials/ folder, max 4MB)',
-  })
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 4 * 1024 * 1024 },
-    }),
-  )
-  async uploadTestimonialFile(@UploadedFile() file: MulterFile) {
-    return this.uploadService.uploadSingleFile(file, undefined, undefined, 'testimonial');
-  }
-
-  /**
    * POST /api/v1/admin/upload/multiple
    * Multiple file upload endpoint (Max 10 files per request)
    */

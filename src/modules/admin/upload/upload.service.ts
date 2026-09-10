@@ -91,7 +91,6 @@ export class UploadService {
     if (normalized === 'product' || normalized === 'products')
       return 'products/';
     if (normalized === 'blog' || normalized === 'blogs') return 'blogs/';
-    if (normalized === 'testimonial' || normalized === 'testimonials') return 'testimonials/';
     return 'categories/';
   }
 

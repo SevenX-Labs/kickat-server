@@ -34,10 +34,6 @@ export class CreateTestimonialDto {
   role?: string;
 
   @IsOptional()
-  @IsString()
-  avatarUrl?: string;
-
-  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(5)
@@ -58,10 +54,6 @@ export class CreateTestimonialDto {
   @IsString()
   @MaxLength(50)
   petType?: string;
-
-  @IsOptional()
-  @IsString()
-  imageUrl?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -92,10 +84,6 @@ export class UpdateTestimonialDto {
   role?: string;
 
   @IsOptional()
-  @IsString()
-  avatarUrl?: string;
-
-  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(5)
@@ -116,10 +104,6 @@ export class UpdateTestimonialDto {
   @IsString()
   @MaxLength(50)
   petType?: string;
-
-  @IsOptional()
-  @IsString()
-  imageUrl?: string;
 
   @IsOptional()
   @IsBoolean()
