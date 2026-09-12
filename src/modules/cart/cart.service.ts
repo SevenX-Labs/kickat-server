@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -16,13 +17,101 @@ export class CartService {
     private readonly settingsService: SettingsService,
   ) {}
 
-  private async computeDeliveryFee(subtotal: number): Promise<number> {
-    if (subtotal <= 0) return 0;
-    const delivery = await this.settingsService.getDeliverySettingsRaw();
-    if (!delivery.deliveryFeeEnabled) return 0;
+    private async validateProductAndVariant(productId: string, variantId?: string | null) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product || product.deletedAt !== null || product.status !== "ACTIVE") {
+      throw new NotFoundException("Product not found or is unavailable");
+    }
+
+    const variantCount = await this.prisma.productVariant.count({
+      where: { productId },
+    });
+
+    const isVariable = product.type === "VARIABLE" || variantCount > 0;
+
+    if (!isVariable) {
+      if (variantId) {
+        throw new BadRequestException("Simple products do not accept variantId");
+      }
+      return { product, variant: null, availableStock: product.stock };
+    }
+
+    if (!variantId) {
+      throw new BadRequestException("Variant selection is required for variable products");
+    }
+
+    const variant = await this.prisma.productVariant.findFirst({
+      where: { id: variantId },
+    });
+
+    if (!variant) {
+      throw new NotFoundException("Product variant not found");
+    }
+
+    if (variant.productId !== productId) {
+      throw new BadRequestException("Variant does not belong to the specified product");
+    }
+
+    return { product, variant, availableStock: variant.stock };
+  }
+
+  public async computeCartFees(subtotal: number) {
+    if (subtotal <= 0) {
+      return {
+        deliveryFee: 0,
+        freeDeliveryThreshold: 0,
+        gstPercentage: 0,
+        gstAmount: 0,
+        extraFeeName: null,
+        extraFeeAmount: 0,
+        grandTotal: 0,
+      };
+    }
+
+    const [delivery, tax] = await Promise.all([
+      this.settingsService.getDeliverySettingsRaw(),
+      this.settingsService.getTaxSettingsRaw(),
+    ]);
+
+    let deliveryFee = 0;
     const threshold = delivery.freeDeliveryThreshold ?? 0;
-    if (threshold === 0 || subtotal >= threshold) return 0;
-    return delivery.deliveryFee ?? 0;
+    if (delivery.deliveryFeeEnabled) {
+      if (threshold > 0 && subtotal >= threshold) {
+        deliveryFee = 0;
+      } else {
+        deliveryFee = Number(delivery.deliveryFee ?? 0);
+      }
+    }
+
+    const gstPercentage = tax.gstEnabled ? Number(tax.gstPercentage ?? 0) : 0;
+    const gstAmount = gstPercentage > 0
+      ? Number(((subtotal * gstPercentage) / 100).toFixed(2))
+      : 0;
+
+    const extraFeeAmount = (delivery.extraFeeEnabled && Number(delivery.extraFeeAmount ?? 0) > 0)
+      ? Number(delivery.extraFeeAmount)
+      : 0;
+    const extraFeeName = extraFeeAmount > 0 ? (delivery.extraFeeName || "Handling Fee") : null;
+
+    const grandTotal = Number((subtotal + deliveryFee + gstAmount + extraFeeAmount).toFixed(2));
+
+    return {
+      deliveryFee,
+      freeDeliveryThreshold: threshold,
+      gstPercentage,
+      gstAmount,
+      extraFeeName,
+      extraFeeAmount,
+      grandTotal,
+    };
+  }
+
+  private async computeDeliveryFee(subtotal: number): Promise<number> {
+    const fees = await this.computeCartFees(subtotal);
+    return fees.deliveryFee;
   }
 
   /**
@@ -85,8 +174,7 @@ export class CartService {
       };
     });
 
-    const deliveryFee = await this.computeDeliveryFee(subtotal);
-    const grandTotal = subtotal + deliveryFee;
+    const fees = await this.computeCartFees(subtotal);
 
     return {
       success: true,
@@ -94,8 +182,7 @@ export class CartService {
         itemCount: items.reduce((acc, item) => acc + item.quantity, 0),
         subtotal,
         productDiscount: Math.max(0, originalTotal - subtotal),
-        deliveryFee,
-        grandTotal,
+        ...fees,
       },
       items: formattedItems,
     };
@@ -105,24 +192,14 @@ export class CartService {
    * POST /cart/items
    */
   async addCartItem(userId: string, dto: AddCartItemDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: dto.productId },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found');
+    if (dto.quantity <= 0) {
+      throw new BadRequestException("Quantity must be greater than 0");
     }
 
-    let availableStock = product.stock;
-    if (dto.variantId) {
-      const variant = await this.prisma.productVariant.findFirst({
-        where: { id: dto.variantId, productId: dto.productId },
-      });
-      if (!variant) {
-        throw new NotFoundException('Product variant not found');
-      }
-      availableStock = variant.stock;
-    }
+    const { availableStock } = await this.validateProductAndVariant(
+      dto.productId,
+      dto.variantId,
+    );
 
     const existing = await this.prisma.cartItem.findFirst({
       where: {
@@ -220,38 +297,24 @@ export class CartService {
    * POST /cart/buy-now
    */
   async buyNow(userId: string, dto: BuyNowDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: dto.productId },
-      include: { category: true },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found');
+    if (dto.quantity <= 0) {
+      throw new BadRequestException("Quantity must be greater than 0");
     }
 
-    let availableStock = product.stock;
-    let unitPrice = product.discountPrice ?? product.price;
-    let variantObj: any = null;
-
-    if (dto.variantId) {
-      const variant = await this.prisma.productVariant.findFirst({
-        where: { id: dto.variantId, productId: dto.productId },
-      });
-      if (!variant) {
-        throw new NotFoundException('Product variant not found');
-      }
-      availableStock = variant.stock;
-      unitPrice = variant.discountPrice ?? variant.price;
-      variantObj = variant;
-    }
+    const { product, variant: variantObj, availableStock } = await this.validateProductAndVariant(
+      dto.productId,
+      dto.variantId,
+    );
+    const unitPrice = variantObj
+      ? variantObj.discountPrice ?? variantObj.price
+      : product.discountPrice ?? product.price;
 
     if (dto.quantity > availableStock) {
       throw new ConflictException('Insufficient stock available');
     }
 
     const subtotal = unitPrice * dto.quantity;
-    const deliveryFee = await this.computeDeliveryFee(subtotal);
-    const grandTotal = subtotal + deliveryFee;
+    const fees = await this.computeCartFees(subtotal);
 
     return {
       success: true,
@@ -264,8 +327,7 @@ export class CartService {
         quantity: dto.quantity,
         unitPrice,
         subtotal,
-        deliveryFee,
-        grandTotal,
+        ...fees,
       },
     };
   }
@@ -274,24 +336,14 @@ export class CartService {
    * POST /cart/guest
    */
   async addGuestCartItem(dto: AddGuestCartItemDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: dto.productId },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found');
+    if (dto.quantity <= 0) {
+      throw new BadRequestException("Quantity must be greater than 0");
     }
 
-    let availableStock = product.stock;
-    if (dto.variantId) {
-      const variant = await this.prisma.productVariant.findFirst({
-        where: { id: dto.variantId, productId: dto.productId },
-      });
-      if (!variant) {
-        throw new NotFoundException('Product variant not found');
-      }
-      availableStock = variant.stock;
-    }
+    const { availableStock } = await this.validateProductAndVariant(
+      dto.productId,
+      dto.variantId,
+    );
 
     const existing = await this.prisma.guestCartItem.findFirst({
       where: {
@@ -361,7 +413,7 @@ export class CartService {
       };
     });
 
-    const deliveryFee = await this.computeDeliveryFee(subtotal);
+    const fees = await this.computeCartFees(subtotal);
 
     return {
       success: true,
@@ -369,8 +421,7 @@ export class CartService {
       summary: {
         itemCount: items.reduce((acc, i) => acc + i.quantity, 0),
         subtotal,
-        deliveryFee,
-        grandTotal: subtotal + deliveryFee,
+        ...fees,
       },
       items: formattedItems,
     };

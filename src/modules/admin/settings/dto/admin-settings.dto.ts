@@ -116,6 +116,23 @@ export class UpdateDeliverySettingsDto {
   @IsNumber({}, { message: 'freeDeliveryThreshold must be a number' })
   @Min(0, { message: 'freeDeliveryThreshold cannot be negative' })
   freeDeliveryThreshold?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'extraFeeEnabled must be a boolean' })
+  extraFeeEnabled?: boolean;
+
+  @IsOptional()
+  @IsString({ message: 'extraFeeName must be a string' })
+  extraFeeName?: string;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'extraFeeAmount must be a number' })
+  @Min(0, { message: 'extraFeeAmount cannot be negative' })
+  extraFeeAmount?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'isExtraFeeCompulsory must be a boolean' })
+  isExtraFeeCompulsory?: boolean;
 }
 
 export class UpdateAllSettingsDto {

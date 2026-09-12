@@ -44,6 +44,10 @@ export const DEFAULT_DELIVERY_SETTINGS = {
   deliveryFeeEnabled: true,
   deliveryFee: 50,
   freeDeliveryThreshold: 499,
+  extraFeeEnabled: false,
+  extraFeeName: "Handling Fee",
+  extraFeeAmount: 0,
+  isExtraFeeCompulsory: true,
 };
 
 @Injectable()
@@ -295,14 +299,35 @@ export class SettingsService {
    * Public general settings for customer frontend (social links, contact info, maintenance mode)
    */
   async getPublicGeneralSettings() {
-    const general = await this.getRawSettingGroup('general', DEFAULT_GENERAL_SETTINGS);
+    const [general, delivery, tax] = await Promise.all([
+      this.getRawSettingGroup("general", DEFAULT_GENERAL_SETTINGS),
+      this.getRawSettingGroup("delivery", DEFAULT_DELIVERY_SETTINGS),
+      this.getRawSettingGroup("tax", DEFAULT_TAX_SETTINGS),
+    ]);
+
     return {
       success: true,
       data: {
-        socialLinks: general.socialLinks || DEFAULT_GENERAL_SETTINGS.socialLinks,
-        supportEmail: general.supportEmail || DEFAULT_GENERAL_SETTINGS.supportEmail,
-        supportPhone: general.supportPhone || DEFAULT_GENERAL_SETTINGS.supportPhone,
-        maintenanceMode: Boolean(general.maintenanceMode),
+        general: {
+          socialLinks: general.socialLinks || DEFAULT_GENERAL_SETTINGS.socialLinks,
+          supportEmail: general.supportEmail || DEFAULT_GENERAL_SETTINGS.supportEmail,
+          supportPhone: general.supportPhone || DEFAULT_GENERAL_SETTINGS.supportPhone,
+          maintenanceMode: Boolean(general.maintenanceMode),
+        },
+        delivery: {
+          deliveryFeeEnabled: Boolean(delivery.deliveryFeeEnabled),
+          deliveryFee: Number(delivery.deliveryFee ?? 0),
+          freeDeliveryThreshold: Number(delivery.freeDeliveryThreshold ?? 0),
+          extraFeeEnabled: Boolean(delivery.extraFeeEnabled),
+          extraFeeName: delivery.extraFeeName || "Handling Fee",
+          extraFeeAmount: Number(delivery.extraFeeAmount ?? 0),
+          isExtraFeeCompulsory: Boolean(delivery.isExtraFeeCompulsory ?? true),
+        },
+        tax: {
+          gstEnabled: Boolean(tax.gstEnabled),
+          gstPercentage: Number(tax.gstPercentage ?? 0),
+          gstNumber: tax.gstNumber || null,
+        },
       },
     };
   }

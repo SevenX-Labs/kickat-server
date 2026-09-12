@@ -22,6 +22,7 @@ import {
   MediaType,
   PetSpecies,
   ProductStatusEnum,
+  ProductType,
 } from '@prisma/client';
 
 export enum AdminProductSortEnum {
@@ -69,6 +70,16 @@ export class CreateVariantDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5, { message: "A maximum of 5 variant images is allowed" })
+  @IsString({ each: true })
+  images?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }
 
 export class UpdateVariantDto {
@@ -108,6 +119,16 @@ export class UpdateVariantDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5, { message: "A maximum of 5 variant images is allowed" })
+  @IsString({ each: true })
+  images?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }
 
 export class CreateMediaDto {
@@ -294,6 +315,10 @@ export class ProductSizeGuideDto {
 }
 
 export class CreateProductDto {
+  @IsOptional()
+  @IsEnum(ProductType)
+  type?: ProductType;
+
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -359,7 +384,7 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(9, { message: 'A maximum of 9 product images is allowed' })
+  @ArrayMaxSize(5, { message: 'A maximum of 5 product images is allowed' })
   @IsString({ each: true })
   images?: string[] = [];
 
@@ -429,6 +454,10 @@ export class CreateProductDto {
 
 export class UpdateProductDto {
   @IsOptional()
+  @IsEnum(ProductType)
+  type?: ProductType;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   name?: string;
@@ -495,7 +524,7 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(9, { message: 'A maximum of 9 product images is allowed' })
+  @ArrayMaxSize(5, { message: 'A maximum of 5 product images is allowed' })
   @IsString({ each: true })
   images?: string[];
 

@@ -36,18 +36,23 @@ describe('Admin ProductsService', () => {
       deleteMany: jest.fn(),
     },
     productVariant: {
+      findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
       deleteMany: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
     productMedia: {
+      findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
       deleteMany: jest.fn(),
     },
     category: {
       findUnique: jest.fn(),
+    },
+    cartItem: {
+      count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
@@ -287,7 +292,7 @@ describe('Admin ProductsService', () => {
       expect(createdData.imageUrl).toBe('https://example.com/img1.jpg');
     });
 
-    it('should reject more than 9 images', async () => {
+    it('should reject more than 5 images', async () => {
       prisma.category.findUnique.mockResolvedValue({ id: 'cat-1' });
 
       const dto: CreateProductDto = {
@@ -863,4 +868,123 @@ describe('Admin ProductsService', () => {
       expect(result.data?.stock).toBe(100);
     });
   });
+
+    describe("Simple and Variable Product Business Rules & Hardening", () => {
+      it("should reject creating SIMPLE product with variants", async () => {
+        prisma.category.findUnique.mockResolvedValue({ id: "cat-1" });
+        await expect(
+          service.createProduct({
+            name: "Simple Dog Bowl",
+            price: 299,
+            categoryId: "cat-1",
+            type: "SIMPLE" as any,
+            variants: [
+              { name: "Small", price: 299, stock: 10 },
+            ],
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it("should reject creating VARIABLE product with 0 variants", async () => {
+        prisma.category.findUnique.mockResolvedValue({ id: "cat-1" });
+        await expect(
+          service.createProduct({
+            name: "Variable Dog Collar",
+            price: 499,
+            categoryId: "cat-1",
+            type: "VARIABLE" as any,
+            variants: [],
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it("should reject request with multiple default variants for a variable product", async () => {
+        prisma.category.findUnique.mockResolvedValue({ id: "cat-1" });
+        await expect(
+          service.createProduct({
+            name: "Multi Default Collar",
+            price: 499,
+            categoryId: "cat-1",
+            variants: [
+              { name: "Red", price: 499, stock: 10, isDefault: true },
+              { name: "Blue", price: 499, stock: 10, isDefault: true },
+            ],
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it("should automatically set first variant as default if no default specified", async () => {
+        prisma.category.findUnique.mockResolvedValue({ id: "cat-1" });
+        prisma.product.create.mockImplementation((args: any) =>
+          Promise.resolve({
+            id: "prod-auto-default",
+            ...args.data,
+          }),
+        );
+
+        await service.createProduct({
+          name: "Auto Default Belt",
+          price: 199,
+          categoryId: "cat-1",
+          variants: [
+            { name: "Small", price: 199, stock: 5, isDefault: false },
+            { name: "Large", price: 299, stock: 5, isDefault: false },
+          ],
+        });
+
+        expect(prisma.product.create).toHaveBeenCalled();
+        const createCall = prisma.product.create.mock.calls[0][0];
+        expect(createCall.data.variants.create[0].isDefault).toBe(true);
+        expect(createCall.data.variants.create[1].isDefault).toBe(false);
+      });
+
+      it("should detect and reject duplicate attribute combinations regardless of key order", async () => {
+        prisma.category.findUnique.mockResolvedValue({ id: "cat-1" });
+        await expect(
+          service.createProduct({
+            name: "T-Shirt",
+            price: 399,
+            categoryId: "cat-1",
+            variants: [
+              { name: "V1", price: 399, stock: 5, attributes: { Color: "Black", Size: "XL" } },
+              { name: "V2", price: 399, stock: 5, attributes: { Size: "XL", Color: "Black" } },
+            ],
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it("should reject cross-product image references on variant create/update", async () => {
+        prisma.category.findUnique.mockResolvedValue({ id: "cat-1" });
+        prisma.productMedia.findFirst.mockResolvedValue({ id: "med-1", productId: "other-prod" });
+        await expect(
+          service.createProduct({
+            name: "Harness",
+            price: 599,
+            categoryId: "cat-1",
+            variants: [
+              { name: "Red", price: 599, stock: 5, images: ["/uploads/other-prod-image.jpg"] },
+            ],
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it("should reject unsafe VARIABLE to SIMPLE conversion when cart references exist", async () => {
+        prisma.product.findFirst.mockResolvedValue({
+          id: "prod-var",
+          type: "VARIABLE",
+          price: 500,
+          discountPrice: null,
+          variants: [{ id: "var-1", name: "Red", price: 500, stock: 10 }],
+          media: [],
+        });
+        prisma.cartItem.count.mockResolvedValue(2);
+
+        await expect(
+          service.updateProduct("prod-var", {
+            type: "SIMPLE" as any,
+          }),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
 });

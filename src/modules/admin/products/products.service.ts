@@ -16,21 +16,101 @@ import {
   UpdateProductStatusDto,
   UpdateProductStockDto,
 } from './dto/admin-product.dto';
-import { ProductStatusEnum } from '@prisma/client';
+import { ProductStatusEnum, ProductType } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function getCanonicalAttributeKey(attributes?: Record<string, any>): string {
-  if (!attributes || typeof attributes !== 'object') return '';
-  const sortedKeys = Object.keys(attributes).sort();
-  if (sortedKeys.length === 0) return '';
-  const sortedObj: Record<string, any> = {};
+  if (!attributes || typeof attributes !== "object") return "";
+  const keys = Object.keys(attributes);
+  if (keys.length === 0) return "";
+  const sortedKeys = keys.sort();
+  const sortedObj: Record<string, string> = {};
   for (const key of sortedKeys) {
-    sortedObj[key] = attributes[key];
+    const rawVal = attributes[key];
+    if (rawVal === null || rawVal === undefined) {
+      throw new BadRequestException(`Attribute value for "${key}" cannot be null or undefined`);
+    }
+    if (typeof rawVal === "object" || Array.isArray(rawVal)) {
+      throw new BadRequestException(`Attribute value for "${key}" cannot be an array or object`);
+    }
+    const valStr = String(rawVal).trim();
+    const keyStr = key.trim();
+    if (!keyStr || !valStr) {
+      throw new BadRequestException("Attribute key and value cannot be empty");
+    }
+    sortedObj[keyStr] = valStr;
   }
   return JSON.stringify(sortedObj);
+}
+
+function normalizeVariants(variants?: any[]): any[] | undefined {
+  if (!variants || variants.length === 0) return variants;
+
+  const defaultIndices = variants
+    .map((v, idx) => (v.isDefault === true ? idx : -1))
+    .filter((idx) => idx !== -1);
+
+  if (defaultIndices.length > 1) {
+    throw new BadRequestException("Only one variant can be set as default");
+  }
+
+  let defaultIdx = defaultIndices.length === 1 ? defaultIndices[0] : 0;
+
+  return variants.map((v, idx) => {
+    let rawImages = Array.isArray(v.images) && v.images.length > 0
+      ? Array.from(new Set(v.images.filter((img: any) => typeof img === "string" && img.trim().length > 0)))
+      : v.imageUrl
+        ? [v.imageUrl]
+        : [];
+
+    if (rawImages.length > 5) {
+      throw new BadRequestException("A maximum of 5 images per variant is allowed");
+    }
+
+    const primaryImg = rawImages[0] || v.imageUrl || null;
+    if (primaryImg && rawImages.length === 0) {
+      rawImages = [primaryImg];
+    }
+
+    return {
+      ...v,
+      images: rawImages,
+      imageUrl: primaryImg,
+      isDefault: idx === defaultIdx,
+    };
+  });
+}
+
+async function prepareVariantsForSave(variants: any[] | undefined, uploadService: any): Promise<any[] | undefined> {
+  if (!variants || variants.length === 0) return variants;
+  const normalized = normalizeVariants(variants) || [];
+  return Promise.all(
+    normalized.map(async (v) => {
+      const relocatedImages = await uploadService.relocateMultipleToNamespace(
+        v.images || [],
+        "products",
+      );
+      let primaryUrl = v.imageUrl
+        ? (await uploadService.relocateToNamespace(v.imageUrl, "products")) || v.imageUrl
+        : null;
+      if (!primaryUrl && relocatedImages.length > 0) {
+        primaryUrl = relocatedImages[0];
+      }
+      const finalImages = relocatedImages.length > 0
+        ? relocatedImages
+        : primaryUrl
+          ? [primaryUrl]
+          : [];
+      return {
+        ...v,
+        images: finalImages,
+        imageUrl: primaryUrl || finalImages[0] || null,
+      };
+    }),
+  );
 }
 
 function resolveVariantName(name?: string, attributes?: Record<string, any>): string {
@@ -65,6 +145,64 @@ function validateVariantAttributes(variants: { attributes?: Record<string, any> 
 
 @Injectable()
 export class ProductsService {
+  private async validateVariantImagesOwnership(
+    variants: any[] | undefined,
+    currentProductId: string | undefined,
+  ) {
+    if (!variants || variants.length === 0) return;
+    const allVariantImages: string[] = [];
+    for (const v of variants) {
+      if (Array.isArray(v.images)) {
+        for (const img of v.images) {
+          if (typeof img === "string" && img.trim()) {
+            allVariantImages.push(img.trim());
+          }
+        }
+      }
+      if (v.imageUrl && typeof v.imageUrl === "string" && v.imageUrl.trim()) {
+        allVariantImages.push(v.imageUrl.trim());
+      }
+    }
+
+    if (allVariantImages.length === 0) return;
+
+    const [otherMedia, otherVariants, otherProducts] = await Promise.all([
+      this.prisma.productMedia.findFirst({
+        where: {
+          url: { in: allVariantImages },
+          ...(currentProductId ? { productId: { not: currentProductId } } : {}),
+        },
+        select: { url: true, productId: true },
+      }),
+      this.prisma.productVariant.findFirst({
+        where: {
+          OR: [
+            { imageUrl: { in: allVariantImages } },
+            { images: { hasSome: allVariantImages } },
+          ],
+          ...(currentProductId ? { productId: { not: currentProductId } } : {}),
+        },
+        select: { imageUrl: true, images: true, productId: true },
+      }),
+      this.prisma.product.findFirst({
+        where: {
+          OR: [
+            { imageUrl: { in: allVariantImages } },
+            { images: { hasSome: allVariantImages } },
+          ],
+          ...(currentProductId ? { id: { not: currentProductId } } : {}),
+        },
+        select: { imageUrl: true, images: true, id: true },
+      }),
+    ]);
+
+    if (otherMedia || otherVariants || otherProducts) {
+      throw new BadRequestException(
+        "One or more variant images belong to another product and cannot be referenced",
+      );
+    }
+  }
+
   private readonly logger = new Logger(ProductsService.name);
 
   constructor(
@@ -392,11 +530,25 @@ export class ProductsService {
       primaryImageUrl = images[0];
     }
 
-    if (images.length > 9) {
-      throw new BadRequestException('A maximum of 9 product images is allowed');
+    if (images.length > 5) {
+      throw new BadRequestException('A maximum of 5 product images is allowed');
     }
 
+    const isVariantProduct = dto.variants && dto.variants.length > 0;
+    if (dto.type === ProductType.SIMPLE && isVariantProduct) {
+      throw new BadRequestException("SIMPLE products cannot have variants");
+    }
+    if (dto.type === ProductType.VARIABLE && !isVariantProduct) {
+      throw new BadRequestException("VARIABLE products must have at least one variant");
+    }
+    const finalType = dto.type
+      ? dto.type
+      : isVariantProduct
+        ? ProductType.VARIABLE
+        : ProductType.SIMPLE;
+
     if (dto.variants && dto.variants.length > 0) {
+      await this.validateVariantImagesOwnership(dto.variants, undefined);
       validateVariantAttributes(dto.variants);
       const skus = dto.variants
         .map((v) => v.sku?.trim())
@@ -441,13 +593,14 @@ export class ProductsService {
       }
     }
 
-    const hasVariants = dto.variants && dto.variants.length > 0;
-    const effectiveStock = hasVariants
+    const effectiveStock = isVariantProduct
       ? dto.variants!.reduce((sum, v) => sum + (v.stock ?? 0), 0)
       : (dto.stock ?? 0);
 
     // 3. Generate unique slug
     const slug = await this.ensureUniqueSlug(dto.slug || dto.name);
+
+        const preparedVariants = await prepareVariantsForSave(dto.variants, this.uploadService);
 
     // 4. Create product in transaction
     const createdProduct = await this.prisma.$transaction(async (tx) => {
@@ -474,6 +627,7 @@ export class ProductsService {
           imageUrl: primaryImageUrl,
           images: images,
           status: dto.status || ProductStatusEnum.ACTIVE,
+          type: finalType,
           seoTitle: dto.seoTitle || null,
           seoDescription: dto.seoDescription || null,
           attributes: (dto.attributes as any) || null,
@@ -484,25 +638,20 @@ export class ProductsService {
           sizeGuide: (dto.sizeGuide as any) || null,
           isTrending: dto.isTrending ?? false,
           isBestSeller: dto.isBestSeller ?? false,
-          ...(dto.variants && dto.variants.length > 0
+          ...(preparedVariants && preparedVariants.length > 0
             ? {
                 variants: {
-                  create: await Promise.all(
-                    dto.variants.map(async (v) => ({
-                      name: resolveVariantName(v.name, v.attributes),
-                      sku: v.sku || null,
-                      price: v.price,
-                      discountPrice: v.discountPrice || null,
-                      stock: v.stock ?? 0,
-                      attributes: v.attributes || {},
-                      imageUrl: v.imageUrl
-                        ? (await this.uploadService.relocateToNamespace(
-                            v.imageUrl,
-                            'products',
-                          )) || v.imageUrl
-                        : null,
-                    })),
-                  ),
+                  create: preparedVariants.map((v) => ({
+                    name: resolveVariantName(v.name, v.attributes),
+                    sku: v.sku || null,
+                    price: v.price,
+                    discountPrice: v.discountPrice || null,
+                    stock: v.stock ?? 0,
+                    attributes: v.attributes || {},
+                    imageUrl: v.imageUrl || (v.images && v.images[0]) || null,
+                    images: v.images || [],
+                    isDefault: v.isDefault ?? false,
+                  })),
                 },
               }
             : {}),
@@ -587,11 +736,48 @@ export class ProductsService {
       );
     }
 
-    if (dto.images && dto.images.length > 9) {
-      throw new BadRequestException('A maximum of 9 product images is allowed');
+    if (dto.images && dto.images.length > 5) {
+      throw new BadRequestException('A maximum of 5 product images is allowed');
     }
 
+    const existingVariantsCount = existing.variants.length;
+    const hasNewVariantsPayload = dto.variants !== undefined;
+    const newVariantsCount = hasNewVariantsPayload
+      ? (dto.variants?.length ?? 0)
+      : existingVariantsCount;
+
+    if (dto.type === ProductType.SIMPLE && (newVariantsCount > 0 || (dto.variants && dto.variants.length > 0))) {
+      throw new BadRequestException("SIMPLE products cannot have variants");
+    }
+
+    if (dto.type === ProductType.VARIABLE && newVariantsCount === 0) {
+      throw new BadRequestException("VARIABLE products must have at least one variant");
+    }
+
+    if (existing.type === ProductType.VARIABLE && (dto.type === ProductType.SIMPLE || (hasNewVariantsPayload && dto.variants?.length === 0))) {
+      const cartItemsCount = await this.prisma.cartItem.count({
+        where: { productId: id },
+      });
+      if (cartItemsCount > 0) {
+        throw new BadRequestException(
+          "Cannot convert VARIABLE product to SIMPLE product: product has active cart references",
+        );
+      }
+      if (existingVariantsCount > 0 && (!dto.variants || dto.variants.length === 0)) {
+        throw new BadRequestException(
+          "Cannot convert VARIABLE product to SIMPLE product: active variants exist and cannot be automatically destroyed",
+        );
+      }
+    }
+
+    const finalType = dto.type
+      ? dto.type
+      : hasNewVariantsPayload
+        ? (dto.variants!.length > 0 ? ProductType.VARIABLE : ProductType.SIMPLE)
+        : existing.type;
+
     if (dto.variants && dto.variants.length > 0) {
+      await this.validateVariantImagesOwnership(dto.variants, id);
       validateVariantAttributes(dto.variants);
       const skus = dto.variants
         .map((v) => v.sku?.trim())
@@ -636,10 +822,8 @@ export class ProductsService {
       }
     }
 
-    const hasVariants = dto.variants && dto.variants.length > 0;
-    const effectiveStock = hasVariants
-      ? dto.variants!.reduce((sum, v) => sum + (v.stock ?? 0), 0)
-      : (dto.stock ?? 0);
+    const effectiveStock = (dto.variants && dto.variants.length > 0) ? dto.variants.reduce((sum, v) => sum + (v.stock ?? 0), 0) : (dto.stock !== undefined ? dto.stock : existing.stock);
+    const preparedVariants = await prepareVariantsForSave(dto.variants, this.uploadService);
 
     let slug = existing.slug;
     if (dto.slug || (dto.name && dto.name !== existing.name && !dto.slug)) {

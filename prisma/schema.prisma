@@ -73,6 +73,11 @@ enum ProductStatusEnum {
   INACTIVE
 }
 
+enum ProductType {
+  SIMPLE
+  VARIABLE
+}
+
 enum OrderStatusEnum {
   PENDING
   PLACED
@@ -248,6 +253,7 @@ model Product {
   imageUrl          String
   images            String[]           @default([])
   status            ProductStatusEnum  @default(ACTIVE)
+  type              ProductType        @default(SIMPLE)
   seoTitle          String?
   seoDescription    String?
   attributes        Json?
@@ -273,6 +279,7 @@ model Product {
   @@index([status, deletedAt])
   @@index([isTrending, status])
   @@index([isBestSeller, status])
+  @@index([type])
   @@map("products")
 }
 
@@ -286,6 +293,8 @@ model ProductVariant {
   stock         Int             @default(50)
   attributes    Json?
   imageUrl      String?
+  images        String[]        @default([])
+  isDefault     Boolean         @default(false)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   product       Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -485,6 +494,10 @@ model Order {
   orderStatus          OrderStatusEnum   @default(PLACED)
   subtotal             Float
   deliveryFee          Float             @default(0)
+  gstPercentage        Float             @default(0)
+  gstAmount            Float             @default(0)
+  extraFeeName         String?
+  extraFeeAmount       Float             @default(0)
   grandTotal           Float
   idempotencyKey       String?           @unique
   deliveryDate         DateTime?
