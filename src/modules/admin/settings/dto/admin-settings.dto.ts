@@ -100,6 +100,10 @@ export class UpdateTaxSettingsDto {
   @Min(0, { message: 'gstPercentage cannot be negative' })
   @Max(100, { message: 'gstPercentage cannot exceed 100' })
   gstPercentage?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'gstAppliesToDelivery must be a boolean' })
+  gstAppliesToDelivery?: boolean;
 }
 
 export class UpdateDeliverySettingsDto {

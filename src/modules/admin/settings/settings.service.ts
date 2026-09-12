@@ -38,6 +38,7 @@ export const DEFAULT_TAX_SETTINGS = {
   gstEnabled: false,
   gstNumber: null,
   gstPercentage: 0,
+  gstAppliesToDelivery: false,
 };
 
 export const DEFAULT_DELIVERY_SETTINGS = {
@@ -327,6 +328,7 @@ export class SettingsService {
           gstEnabled: Boolean(tax.gstEnabled),
           gstPercentage: Number(tax.gstPercentage ?? 0),
           gstNumber: tax.gstNumber || null,
+          gstAppliesToDelivery: Boolean(tax.gstAppliesToDelivery),
         },
       },
     };

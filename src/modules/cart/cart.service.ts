@@ -45,8 +45,9 @@ export function calculateFeesHelper(
   }
 
   const gstPercentage = tax?.gstEnabled ? Number(tax?.gstPercentage ?? 0) : 0;
+  const taxableBase = tax?.gstAppliesToDelivery ? (subtotal + deliveryFee) : subtotal;
   const gstAmount = gstPercentage > 0
-    ? roundCurrency((subtotal * gstPercentage) / 100)
+    ? roundCurrency((taxableBase * gstPercentage) / 100)
     : 0;
 
   let extraFeeAmount = 0;
@@ -67,6 +68,7 @@ export function calculateFeesHelper(
     deliveryFee: roundCurrency(deliveryFee),
     freeDeliveryThreshold: threshold,
     gstPercentage,
+    gstAppliesToDelivery: Boolean(tax?.gstAppliesToDelivery),
     gstAmount: roundCurrency(gstAmount),
     extraFeeName,
     extraFeeAmount: roundCurrency(extraFeeAmount),
