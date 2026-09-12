@@ -1,3 +1,4 @@
+import { calculateFeesHelper, roundCurrency } from "../cart/cart.service";
 import {
   BadRequestException,
   ConflictException,
@@ -20,55 +21,13 @@ export class CheckoutService {
     private readonly settingsService: SettingsService,
   ) {}
 
-  private async computeFees(subtotal: number) {
-    if (subtotal <= 0) {
-      return {
-        deliveryFee: 0,
-        freeDeliveryThreshold: 0,
-        gstPercentage: 0,
-        gstAmount: 0,
-        extraFeeName: null,
-        extraFeeAmount: 0,
-        grandTotal: 0,
-      };
-    }
-
+  private async computeFees(subtotal: number, applyOptionalExtraFee: boolean = false) {
     const [delivery, tax] = await Promise.all([
       this.settingsService.getDeliverySettingsRaw(),
       this.settingsService.getTaxSettingsRaw(),
     ]);
 
-    let deliveryFee = 0;
-    const threshold = delivery.freeDeliveryThreshold ?? 0;
-    if (delivery.deliveryFeeEnabled) {
-      if (threshold > 0 && subtotal >= threshold) {
-        deliveryFee = 0;
-      } else {
-        deliveryFee = Number(delivery.deliveryFee ?? 0);
-      }
-    }
-
-    const gstPercentage = tax.gstEnabled ? Number(tax.gstPercentage ?? 0) : 0;
-    const gstAmount = gstPercentage > 0
-      ? Number(((subtotal * gstPercentage) / 100).toFixed(2))
-      : 0;
-
-    const extraFeeAmount = (delivery.extraFeeEnabled && Number(delivery.extraFeeAmount ?? 0) > 0)
-      ? Number(delivery.extraFeeAmount)
-      : 0;
-    const extraFeeName = extraFeeAmount > 0 ? (delivery.extraFeeName || "Handling Fee") : null;
-
-    const grandTotal = Number((subtotal + deliveryFee + gstAmount + extraFeeAmount).toFixed(2));
-
-    return {
-      deliveryFee,
-      freeDeliveryThreshold: threshold,
-      gstPercentage,
-      gstAmount,
-      extraFeeName,
-      extraFeeAmount,
-      grandTotal,
-    };
+    return calculateFeesHelper(subtotal, delivery, tax, applyOptionalExtraFee);
   }
 
   private async computeDeliveryFee(subtotal: number): Promise<number> {
@@ -120,7 +79,6 @@ export class CheckoutService {
       success: true,
       summary: {
         itemCount: cartItems.reduce((acc, i) => acc + i.quantity, 0),
-        subtotal,
         ...fees,
       },
       addresses,
@@ -353,13 +311,20 @@ export class CheckoutService {
       });
     }
 
-    const fees = await this.computeFees(subtotal);
+    // Explicitly re-fetch live system settings at exact moment of order placement
+    const fees = await this.computeFees(subtotal, dto.applyExtraFee ?? false);
     let deliveryFee = fees.deliveryFee;
     if (dto.paymentMethod === CheckoutPaymentMethodEnum.COD && paymentSettings.cod?.extraFee > 0) {
       deliveryFee += Number(paymentSettings.cod.extraFee);
     }
 
-    const grandTotal = Number((subtotal + deliveryFee + fees.gstAmount + fees.extraFeeAmount).toFixed(2));
+    const grandTotal = roundCurrency(subtotal + deliveryFee + fees.gstAmount + fees.extraFeeAmount);
+
+    if (dto.expectedTotal !== undefined && Math.abs(grandTotal - dto.expectedTotal) > 0.01) {
+      throw new ConflictException(
+        "Cart total has changed due to updated fee settings. Please review your total before completing checkout."
+      );
+    }
     const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {

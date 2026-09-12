@@ -494,10 +494,10 @@ model Order {
   orderStatus          OrderStatusEnum   @default(PLACED)
   subtotal             Float
   deliveryFee          Float             @default(0)
-  gstPercentage        Float             @default(0)
-  gstAmount            Float             @default(0)
+  gstPercentage        Float?
+  gstAmount            Float?
   extraFeeName         String?
-  extraFeeAmount       Float             @default(0)
+  extraFeeAmount       Float?
   grandTotal           Float
   idempotencyKey       String?           @unique
   deliveryDate         DateTime?

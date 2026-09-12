@@ -1,38 +1,42 @@
-import { Type } from 'class-transformer';
+import { Type } from "class-transformer";
 import {
+  IsBoolean,
   IsEnum,
   IsISO8601,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Length,
+  Max,
+  Min,
   ValidateNested,
-} from 'class-validator';
+} from "class-validator";
 
 export enum CheckoutPaymentMethodEnum {
-  UPI = 'UPI',
-  CARD = 'CARD',
-  WALLET = 'WALLET',
-  NETBANKING = 'NETBANKING',
-  COD = 'COD',
+  UPI = "UPI",
+  CARD = "CARD",
+  WALLET = "WALLET",
+  NETBANKING = "NETBANKING",
+  COD = "COD",
 }
 
 export enum WalletProviderEnum {
-  GPAY = 'GPAY',
-  PHONEPE = 'PHONEPE',
-  PAYTM = 'PAYTM',
-  AMAZON_PAY = 'AMAZON_PAY',
+  GPAY = "GPAY",
+  PHONEPE = "PHONEPE",
+  PAYTM = "PAYTM",
+  AMAZON_PAY = "AMAZON_PAY",
 }
 
 export class PlaceOrderDto {
-  @IsNotEmpty({ message: 'addressId is required' })
-  @IsUUID('4', { message: 'addressId must be a valid UUID v4' })
+  @IsNotEmpty({ message: "addressId is required" })
+  @IsUUID("4", { message: "addressId must be a valid UUID v4" })
   addressId: string;
 
-  @IsNotEmpty({ message: 'paymentMethod is required' })
+  @IsNotEmpty({ message: "paymentMethod is required" })
   @IsEnum(CheckoutPaymentMethodEnum, {
-    message: 'paymentMethod must be UPI, CARD, WALLET, NETBANKING, or COD',
+    message: "paymentMethod must be UPI, CARD, WALLET, NETBANKING, or COD",
   })
   paymentMethod: CheckoutPaymentMethodEnum;
 
@@ -42,20 +46,29 @@ export class PlaceOrderDto {
   deliveryInstructions?: string;
 
   @IsOptional()
-  @IsString({ message: 'upiId must be a string' })
+  @IsString({ message: "upiId must be a string" })
   upiId?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'savedCardId must be a valid UUID v4' })
+  @IsUUID("4", { message: "savedCardId must be a valid UUID v4" })
   savedCardId?: string;
 
   @IsOptional()
   @IsEnum(WalletProviderEnum, {
-    message: 'walletProvider must be GPAY, PHONEPE, PAYTM, or AMAZON_PAY',
+    message: "walletProvider must be GPAY, PHONEPE, PAYTM, or AMAZON_PAY",
   })
   walletProvider?: WalletProviderEnum;
 
   @IsOptional()
-  @IsString({ message: 'bankCode must be a string' })
+  @IsString({ message: "bankCode must be a string" })
   bankCode?: string;
+
+  @IsOptional()
+  @IsNumber({}, { message: "expectedTotal must be a number" })
+  @Min(0, { message: "expectedTotal cannot be negative" })
+  expectedTotal?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: "applyExtraFee must be a boolean" })
+  applyExtraFee?: boolean;
 }

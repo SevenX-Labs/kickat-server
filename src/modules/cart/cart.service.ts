@@ -10,6 +10,71 @@ import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { BuyNowDto } from './dto/buy-now.dto';
 import { AddGuestCartItemDto } from './dto/guest-cart-item.dto';
 
+export function roundCurrency(val: number): number {
+  return Math.round((val + Number.EPSILON) * 100) / 100;
+}
+
+export function calculateFeesHelper(
+  subtotal: number,
+  delivery: any,
+  tax: any,
+  applyOptionalExtraFee: boolean = false,
+) {
+  if (subtotal <= 0) {
+    return {
+      subtotal: 0,
+      deliveryFee: 0,
+      freeDeliveryThreshold: Number(delivery?.freeDeliveryThreshold ?? 0),
+      gstPercentage: 0,
+      gstAmount: 0,
+      extraFeeName: null,
+      extraFeeAmount: 0,
+      isExtraFeeCompulsory: Boolean(delivery?.isExtraFeeCompulsory ?? true),
+      grandTotal: 0,
+    };
+  }
+
+  let deliveryFee = 0;
+  const threshold = Number(delivery?.freeDeliveryThreshold ?? 0);
+  if (delivery?.deliveryFeeEnabled) {
+    if (threshold > 0 && subtotal >= threshold) {
+      deliveryFee = 0;
+    } else {
+      deliveryFee = Number(delivery?.deliveryFee ?? 0);
+    }
+  }
+
+  const gstPercentage = tax?.gstEnabled ? Number(tax?.gstPercentage ?? 0) : 0;
+  const gstAmount = gstPercentage > 0
+    ? roundCurrency((subtotal * gstPercentage) / 100)
+    : 0;
+
+  let extraFeeAmount = 0;
+  let extraFeeName: string | null = null;
+  const configuredExtraFee = Number(delivery?.extraFeeAmount ?? 0);
+  if (delivery?.extraFeeEnabled && configuredExtraFee > 0) {
+    const isCompulsory = Boolean(delivery?.isExtraFeeCompulsory ?? true);
+    if (isCompulsory || applyOptionalExtraFee) {
+      extraFeeAmount = configuredExtraFee;
+      extraFeeName = delivery?.extraFeeName || "Handling Fee";
+    }
+  }
+
+  const grandTotal = roundCurrency(subtotal + deliveryFee + gstAmount + extraFeeAmount);
+
+  return {
+    subtotal: roundCurrency(subtotal),
+    deliveryFee: roundCurrency(deliveryFee),
+    freeDeliveryThreshold: threshold,
+    gstPercentage,
+    gstAmount: roundCurrency(gstAmount),
+    extraFeeName,
+    extraFeeAmount: roundCurrency(extraFeeAmount),
+    isExtraFeeCompulsory: Boolean(delivery?.isExtraFeeCompulsory ?? true),
+    grandTotal,
+  };
+}
+
 @Injectable()
 export class CartService {
   constructor(
@@ -58,55 +123,13 @@ export class CartService {
     return { product, variant, availableStock: variant.stock };
   }
 
-  public async computeCartFees(subtotal: number) {
-    if (subtotal <= 0) {
-      return {
-        deliveryFee: 0,
-        freeDeliveryThreshold: 0,
-        gstPercentage: 0,
-        gstAmount: 0,
-        extraFeeName: null,
-        extraFeeAmount: 0,
-        grandTotal: 0,
-      };
-    }
-
+  public async computeCartFees(subtotal: number, applyOptionalExtraFee: boolean = false) {
     const [delivery, tax] = await Promise.all([
       this.settingsService.getDeliverySettingsRaw(),
       this.settingsService.getTaxSettingsRaw(),
     ]);
 
-    let deliveryFee = 0;
-    const threshold = delivery.freeDeliveryThreshold ?? 0;
-    if (delivery.deliveryFeeEnabled) {
-      if (threshold > 0 && subtotal >= threshold) {
-        deliveryFee = 0;
-      } else {
-        deliveryFee = Number(delivery.deliveryFee ?? 0);
-      }
-    }
-
-    const gstPercentage = tax.gstEnabled ? Number(tax.gstPercentage ?? 0) : 0;
-    const gstAmount = gstPercentage > 0
-      ? Number(((subtotal * gstPercentage) / 100).toFixed(2))
-      : 0;
-
-    const extraFeeAmount = (delivery.extraFeeEnabled && Number(delivery.extraFeeAmount ?? 0) > 0)
-      ? Number(delivery.extraFeeAmount)
-      : 0;
-    const extraFeeName = extraFeeAmount > 0 ? (delivery.extraFeeName || "Handling Fee") : null;
-
-    const grandTotal = Number((subtotal + deliveryFee + gstAmount + extraFeeAmount).toFixed(2));
-
-    return {
-      deliveryFee,
-      freeDeliveryThreshold: threshold,
-      gstPercentage,
-      gstAmount,
-      extraFeeName,
-      extraFeeAmount,
-      grandTotal,
-    };
+    return calculateFeesHelper(subtotal, delivery, tax, applyOptionalExtraFee);
   }
 
   private async computeDeliveryFee(subtotal: number): Promise<number> {
@@ -180,7 +203,6 @@ export class CartService {
       success: true,
       summary: {
         itemCount: items.reduce((acc, item) => acc + item.quantity, 0),
-        subtotal,
         productDiscount: Math.max(0, originalTotal - subtotal),
         ...fees,
       },
@@ -326,7 +348,6 @@ export class CartService {
         variantName: variantObj ? variantObj.name : null,
         quantity: dto.quantity,
         unitPrice,
-        subtotal,
         ...fees,
       },
     };
@@ -420,7 +441,6 @@ export class CartService {
       sessionId,
       summary: {
         itemCount: items.reduce((acc, i) => acc + i.quantity, 0),
-        subtotal,
         ...fees,
       },
       items: formattedItems,

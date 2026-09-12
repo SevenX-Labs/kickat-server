@@ -177,8 +177,10 @@ describe('Admin SettingsService', () => {
       const result = await service.getPublicGeneralSettings();
 
       expect(result.success).toBe(true);
-      expect(result.data.supportEmail).toBe('support@kickat.co.in');
-      expect(result.data.maintenanceMode).toBe(false);
+      expect(result.data.general.supportEmail).toBe('support@kickat.co.in');
+      expect(result.data.general.maintenanceMode).toBe(false);
+      expect(result.data.delivery.deliveryFeeEnabled).toBeDefined();
+      expect(result.data.tax.gstEnabled).toBeDefined();
     });
   });
 });
