@@ -37,9 +37,9 @@ export enum AdminProductSortEnum {
 }
 
 export class CreateVariantDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  name: string;
+  name?: string;
 
   @IsOptional()
   @IsString()
@@ -76,9 +76,9 @@ export class UpdateVariantDto {
   @IsUUID()
   id?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  name: string;
+  name?: string;
 
   @IsOptional()
   @IsString()

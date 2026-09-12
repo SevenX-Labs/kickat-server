@@ -21,6 +21,47 @@ import { ProductStatusEnum } from '@prisma/client';
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function getCanonicalAttributeKey(attributes?: Record<string, any>): string {
+  if (!attributes || typeof attributes !== 'object') return '';
+  const sortedKeys = Object.keys(attributes).sort();
+  if (sortedKeys.length === 0) return '';
+  const sortedObj: Record<string, any> = {};
+  for (const key of sortedKeys) {
+    sortedObj[key] = attributes[key];
+  }
+  return JSON.stringify(sortedObj);
+}
+
+function resolveVariantName(name?: string, attributes?: Record<string, any>): string {
+  if (name && name.trim().length > 0) {
+    return name.trim();
+  }
+  if (attributes && typeof attributes === 'object') {
+    const vals = Object.values(attributes)
+      .filter((val) => val !== undefined && val !== null && String(val).trim().length > 0)
+      .map((val) => String(val).trim());
+    if (vals.length > 0) {
+      return vals.join(' / ');
+    }
+  }
+  return 'Default Variant';
+}
+
+function validateVariantAttributes(variants: { attributes?: Record<string, any> }[]) {
+  const seenKeys = new Set<string>();
+  for (const v of variants) {
+    const key = getCanonicalAttributeKey(v.attributes);
+    if (key && seenKeys.has(key)) {
+      throw new BadRequestException(
+        "Duplicate variant combination found: " + JSON.stringify(v.attributes),
+      );
+    }
+    if (key) {
+      seenKeys.add(key);
+    }
+  }
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -355,6 +396,7 @@ export class ProductsService {
     }
 
     if (dto.variants && dto.variants.length > 0) {
+      validateVariantAttributes(dto.variants);
       const skus = dto.variants
         .map((v) => v.sku?.trim().toLowerCase())
         .filter(Boolean);
@@ -434,7 +476,7 @@ export class ProductsService {
                 variants: {
                   create: await Promise.all(
                     dto.variants.map(async (v) => ({
-                      name: v.name,
+                      name: resolveVariantName(v.name, v.attributes),
                       sku: v.sku || null,
                       price: v.price,
                       discountPrice: v.discountPrice || null,
@@ -537,6 +579,7 @@ export class ProductsService {
     }
 
     if (dto.variants && dto.variants.length > 0) {
+      validateVariantAttributes(dto.variants);
       const skus = dto.variants
         .map((v) => v.sku?.trim().toLowerCase())
         .filter(Boolean);
@@ -781,7 +824,7 @@ export class ProductsService {
             await tx.productVariant.update({
               where: { id: v.id },
               data: {
-                name: v.name,
+                name: resolveVariantName(v.name, v.attributes),
                 sku: v.sku || null,
                 price: v.price,
                 discountPrice: v.discountPrice || null,
@@ -794,7 +837,7 @@ export class ProductsService {
             await tx.productVariant.create({
               data: {
                 productId: id,
-                name: v.name,
+                name: resolveVariantName(v.name, v.attributes),
                 sku: v.sku || null,
                 price: v.price,
                 discountPrice: v.discountPrice || null,

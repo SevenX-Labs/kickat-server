@@ -280,7 +280,7 @@ model ProductVariant {
   id            String          @id @default(uuid())
   productId     String
   name          String
-  sku           String?
+  sku           String?         @unique
   price         Float
   discountPrice Float?
   stock         Int             @default(50)
