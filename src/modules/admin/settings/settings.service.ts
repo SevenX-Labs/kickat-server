@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   UpdateAllSettingsDto,
@@ -46,7 +46,7 @@ export const DEFAULT_DELIVERY_SETTINGS = {
   deliveryFee: 50,
   freeDeliveryThreshold: 499,
   extraFeeEnabled: false,
-  extraFeeName: "Handling Fee",
+  extraFeeName: null,
   extraFeeAmount: 0,
   isExtraFeeCompulsory: true,
 };
@@ -286,6 +286,17 @@ export class SettingsService {
       ...dto,
     };
 
+    if (merged.extraFeeName !== undefined && typeof merged.extraFeeName === 'string') {
+      merged.extraFeeName = merged.extraFeeName.trim();
+    }
+
+    const isEnabled = Boolean(merged.extraFeeEnabled);
+    const name = merged.extraFeeName;
+
+    if (isEnabled && (!name || typeof name !== 'string' || name.trim() === '')) {
+      throw new BadRequestException('extraFeeName is required and cannot be empty when extra fee is enabled');
+    }
+
     await this.saveRawSettingGroup('delivery', merged);
 
     return {
@@ -321,7 +332,7 @@ export class SettingsService {
           deliveryFee: Number(delivery.deliveryFee ?? 0),
           freeDeliveryThreshold: Number(delivery.freeDeliveryThreshold ?? 0),
           extraFeeEnabled: Boolean(delivery.extraFeeEnabled),
-          extraFeeName: delivery.extraFeeName || "Handling Fee",
+          extraFeeName: delivery.extraFeeName || null,
           extraFeeAmount: Number(delivery.extraFeeAmount ?? 0),
           isExtraFeeCompulsory: Boolean(delivery.isExtraFeeCompulsory ?? true),
         },

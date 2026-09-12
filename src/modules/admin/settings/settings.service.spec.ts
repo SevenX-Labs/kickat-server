@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { SettingsService } from './settings.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 
@@ -181,6 +182,78 @@ describe('Admin SettingsService', () => {
       expect(result.data.general.maintenanceMode).toBe(false);
       expect(result.data.delivery.deliveryFeeEnabled).toBeDefined();
       expect(result.data.tax.gstEnabled).toBeDefined();
+    });
+  });
+
+  describe('Extra Fee Name Validation in Delivery Settings', () => {
+    it('should PASS when extra fee is enabled with a valid name and trim whitespace', async () => {
+      prisma.systemSetting.findUnique.mockResolvedValue(null);
+      prisma.systemSetting.upsert.mockImplementation(({ update }) =>
+        Promise.resolve({ value: update.value }),
+      );
+
+      const result = await service.updateDeliverySettings({
+        extraFeeEnabled: true,
+        extraFeeName: ' Packaging Charge ',
+        extraFeeAmount: 5,
+        isExtraFeeCompulsory: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.extraFeeName).toBe('Packaging Charge');
+      expect(result.data.extraFeeAmount).toBe(5);
+    });
+
+    it('should REJECT when extra fee is enabled with an empty string name', async () => {
+      prisma.systemSetting.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateDeliverySettings({
+          extraFeeEnabled: true,
+          extraFeeName: '',
+          extraFeeAmount: 5,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should REJECT when extra fee is enabled with whitespace-only name', async () => {
+      prisma.systemSetting.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateDeliverySettings({
+          extraFeeEnabled: true,
+          extraFeeName: '   ',
+          extraFeeAmount: 5,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should REJECT when extra fee is enabled without a name (null)', async () => {
+      prisma.systemSetting.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateDeliverySettings({
+          extraFeeEnabled: true,
+          extraFeeName: null as any,
+          extraFeeAmount: 5,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should PASS when extra fee is disabled even with no name', async () => {
+      prisma.systemSetting.findUnique.mockResolvedValue(null);
+      prisma.systemSetting.upsert.mockImplementation(({ update }) =>
+        Promise.resolve({ value: update.value }),
+      );
+
+      const result = await service.updateDeliverySettings({
+        extraFeeEnabled: false,
+        extraFeeName: '',
+        extraFeeAmount: 0,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.extraFeeEnabled).toBe(false);
     });
   });
 });

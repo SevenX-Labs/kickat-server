@@ -67,7 +67,7 @@ export function calculateFeesHelper(
     const isCompulsory = Boolean(delivery?.isExtraFeeCompulsory ?? true);
     if (isCompulsory || applyOptionalExtraFee) {
       extraFeeAmount = configuredExtraFee;
-      extraFeeName = delivery?.extraFeeName || "Handling Fee";
+      extraFeeName = delivery?.extraFeeName || null;
     }
   }
 
