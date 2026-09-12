@@ -43,6 +43,9 @@ describe("CartService & Fee Calculation Engine", () => {
       gstEnabled: true,
       gstPercentage: 18,
     }),
+    getPaymentSettingsRaw: jest.fn().mockResolvedValue({
+      cod: { enabled: true, extraFee: 10 },
+    }),
   };
 
   beforeEach(async () => {

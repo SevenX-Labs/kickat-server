@@ -193,7 +193,7 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
         {
           productId: 'prod_1',
           quantity: 1,
-          product: { id: 'prod_1', name: 'Shoes', price: 1200, stock: 5 },
+          product: { id: 'prod_1', name: 'Shoes', price: 1200, stock: 5, status: 'ACTIVE', deletedAt: null },
           variant: null,
         },
       ]);
@@ -239,7 +239,7 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
           productId: 'prod_1',
           variantId: null,
           quantity: 2,
-          product: { id: 'prod_1', name: 'T-Shirt', price: 500, stock: 1 },
+          product: { id: 'prod_1', name: 'T-Shirt', price: 500, stock: 1, status: 'ACTIVE', deletedAt: null },
           variant: null,
         },
       ]);
@@ -279,8 +279,8 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
           productId: 'prod_1',
           variantId: 'var_red_l',
           quantity: 1,
-          product: { id: 'prod_1', name: 'Jersey', price: 900, stock: 10 },
-          variant: { id: 'var_red_l', name: 'Red L', price: 900, stock: 2 },
+          product: { id: 'prod_1', name: 'Jersey', price: 900, stock: 10, status: 'ACTIVE', deletedAt: null },
+          variant: { id: 'var_red_l', name: 'Red L', price: 900, stock: 2, productId: 'prod_1' },
         },
       ]);
 
