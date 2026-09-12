@@ -300,10 +300,11 @@ export class SettingsService {
    * Public general settings for customer frontend (social links, contact info, maintenance mode)
    */
   async getPublicGeneralSettings() {
-    const [general, delivery, tax] = await Promise.all([
+    const [general, delivery, tax, payment] = await Promise.all([
       this.getRawSettingGroup("general", DEFAULT_GENERAL_SETTINGS),
       this.getRawSettingGroup("delivery", DEFAULT_DELIVERY_SETTINGS),
       this.getRawSettingGroup("tax", DEFAULT_TAX_SETTINGS),
+      this.getRawSettingGroup("payment", DEFAULT_PAYMENT_SETTINGS),
     ]);
 
     return {
@@ -329,6 +330,18 @@ export class SettingsService {
           gstPercentage: Number(tax.gstPercentage ?? 0),
           gstNumber: tax.gstNumber || null,
           gstAppliesToDelivery: Boolean(tax.gstAppliesToDelivery),
+        },
+        payment: {
+          cod: {
+            enabled: Boolean(payment.cod?.enabled ?? true),
+            extraFee: Number(payment.cod?.extraFee ?? 0),
+          },
+          upi: {
+            enabled: Boolean(payment.upi?.enabled ?? true),
+          },
+          card: {
+            enabled: Boolean(payment.card?.enabled ?? true),
+          },
         },
       },
     };

@@ -494,6 +494,7 @@ model Order {
   orderStatus          OrderStatusEnum   @default(PLACED)
   subtotal             Float
   deliveryFee          Float             @default(0)
+  codFee               Float?            @default(0)
   gstPercentage        Float?
   gstAmount            Float?
   extraFeeName         String?

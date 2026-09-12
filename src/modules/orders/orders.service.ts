@@ -350,6 +350,7 @@ export class OrdersService {
           extraFeeName: order.extraFeeName,
           extraFeeAmount: order.extraFeeAmount ?? 0,
           deliveryFee: order.deliveryFee,
+          codFee: order.codFee ?? 0,
           grandTotal: order.grandTotal,
         },
         paymentMethod: order.paymentMethod,

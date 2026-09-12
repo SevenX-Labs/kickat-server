@@ -19,6 +19,8 @@ export function calculateFeesHelper(
   delivery: any,
   tax: any,
   applyOptionalExtraFee: boolean = false,
+  paymentMethod?: string,
+  paymentSettings?: any,
 ) {
   if (subtotal <= 0) {
     return {
@@ -26,10 +28,12 @@ export function calculateFeesHelper(
       deliveryFee: 0,
       freeDeliveryThreshold: Number(delivery?.freeDeliveryThreshold ?? 0),
       gstPercentage: 0,
+      gstAppliesToDelivery: Boolean(tax?.gstAppliesToDelivery),
       gstAmount: 0,
       extraFeeName: null,
       extraFeeAmount: 0,
       isExtraFeeCompulsory: Boolean(delivery?.isExtraFeeCompulsory ?? true),
+      codFee: 0,
       grandTotal: 0,
     };
   }
@@ -42,6 +46,12 @@ export function calculateFeesHelper(
     } else {
       deliveryFee = Number(delivery?.deliveryFee ?? 0);
     }
+  }
+
+  let codFee = 0;
+  const isCod = paymentMethod === "COD" || paymentMethod === "cod";
+  if (isCod && paymentSettings?.cod?.enabled && Number(paymentSettings?.cod?.extraFee ?? 0) > 0) {
+    codFee = Number(paymentSettings.cod.extraFee);
   }
 
   const gstPercentage = tax?.gstEnabled ? Number(tax?.gstPercentage ?? 0) : 0;
@@ -61,7 +71,7 @@ export function calculateFeesHelper(
     }
   }
 
-  const grandTotal = roundCurrency(subtotal + deliveryFee + gstAmount + extraFeeAmount);
+  const grandTotal = roundCurrency(subtotal + deliveryFee + gstAmount + extraFeeAmount + codFee);
 
   return {
     subtotal: roundCurrency(subtotal),
@@ -73,6 +83,7 @@ export function calculateFeesHelper(
     extraFeeName,
     extraFeeAmount: roundCurrency(extraFeeAmount),
     isExtraFeeCompulsory: Boolean(delivery?.isExtraFeeCompulsory ?? true),
+    codFee: roundCurrency(codFee),
     grandTotal,
   };
 }
@@ -125,13 +136,25 @@ export class CartService {
     return { product, variant, availableStock: variant.stock };
   }
 
-  public async computeCartFees(subtotal: number, applyOptionalExtraFee: boolean = false) {
-    const [delivery, tax] = await Promise.all([
+  public async computeCartFees(
+    subtotal: number,
+    applyOptionalExtraFee: boolean = false,
+    paymentMethod?: string,
+  ) {
+    const [delivery, tax, payment] = await Promise.all([
       this.settingsService.getDeliverySettingsRaw(),
       this.settingsService.getTaxSettingsRaw(),
+      this.settingsService.getPaymentSettingsRaw(),
     ]);
 
-    return calculateFeesHelper(subtotal, delivery, tax, applyOptionalExtraFee);
+    return calculateFeesHelper(
+      subtotal,
+      delivery,
+      tax,
+      applyOptionalExtraFee,
+      paymentMethod,
+      payment,
+    );
   }
 
   private async computeDeliveryFee(subtotal: number): Promise<number> {

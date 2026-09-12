@@ -21,13 +21,25 @@ export class CheckoutService {
     private readonly settingsService: SettingsService,
   ) {}
 
-  private async computeFees(subtotal: number, applyOptionalExtraFee: boolean = false) {
-    const [delivery, tax] = await Promise.all([
+  private async computeFees(
+    subtotal: number,
+    applyOptionalExtraFee: boolean = false,
+    paymentMethod?: string,
+  ) {
+    const [delivery, tax, payment] = await Promise.all([
       this.settingsService.getDeliverySettingsRaw(),
       this.settingsService.getTaxSettingsRaw(),
+      this.settingsService.getPaymentSettingsRaw(),
     ]);
 
-    return calculateFeesHelper(subtotal, delivery, tax, applyOptionalExtraFee);
+    return calculateFeesHelper(
+      subtotal,
+      delivery,
+      tax,
+      applyOptionalExtraFee,
+      paymentMethod,
+      payment,
+    );
   }
 
   private async computeDeliveryFee(subtotal: number): Promise<number> {
@@ -312,13 +324,10 @@ export class CheckoutService {
     }
 
     // Explicitly re-fetch live system settings at exact moment of order placement
-    const fees = await this.computeFees(subtotal, dto.applyExtraFee ?? false);
-    let deliveryFee = fees.deliveryFee;
-    if (dto.paymentMethod === CheckoutPaymentMethodEnum.COD && paymentSettings.cod?.extraFee > 0) {
-      deliveryFee += Number(paymentSettings.cod.extraFee);
-    }
-
-    const grandTotal = roundCurrency(subtotal + deliveryFee + fees.gstAmount + fees.extraFeeAmount);
+    const fees = await this.computeFees(subtotal, dto.applyExtraFee ?? false, dto.paymentMethod);
+    const deliveryFee = fees.deliveryFee;
+    const codFee = fees.codFee;
+    const grandTotal = fees.grandTotal;
 
     if (dto.expectedTotal !== undefined && Math.abs(grandTotal - dto.expectedTotal) > 0.01) {
       throw new ConflictException(
@@ -381,6 +390,7 @@ export class CheckoutService {
             orderStatus: 'PLACED',
             subtotal,
             deliveryFee,
+            codFee,
             gstPercentage: fees.gstPercentage,
             gstAmount: fees.gstAmount,
             extraFeeName: fees.extraFeeName,
