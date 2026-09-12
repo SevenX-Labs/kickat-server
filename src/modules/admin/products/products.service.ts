@@ -17,6 +17,7 @@ import {
   UpdateProductStockDto,
 } from './dto/admin-product.dto';
 import { ProductStatusEnum } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -398,13 +399,25 @@ export class ProductsService {
     if (dto.variants && dto.variants.length > 0) {
       validateVariantAttributes(dto.variants);
       const skus = dto.variants
-        .map((v) => v.sku?.trim().toLowerCase())
-        .filter(Boolean);
-      const duplicate = skus.find((s, idx) => skus.indexOf(s) !== idx);
+        .map((v) => v.sku?.trim())
+        .filter((s): s is string => !!s && s.length > 0);
+      const lowerSkus = skus.map((s) => s.toLowerCase());
+      const duplicate = lowerSkus.find((s, idx) => lowerSkus.indexOf(s) !== idx);
       if (duplicate) {
         throw new BadRequestException(
           `Duplicate variant SKU found: ${duplicate}`,
         );
+      }
+      if (skus.length > 0) {
+        const existingVariant = await this.prisma.productVariant.findFirst({
+          where: { sku: { in: skus, mode: "insensitive" } },
+          select: { sku: true },
+        });
+        if (existingVariant) {
+          throw new BadRequestException(
+            `Variant SKU "${existingVariant.sku}" already exists on another product`,
+          );
+        }
       }
 
       for (const v of dto.variants) {
@@ -581,13 +594,25 @@ export class ProductsService {
     if (dto.variants && dto.variants.length > 0) {
       validateVariantAttributes(dto.variants);
       const skus = dto.variants
-        .map((v) => v.sku?.trim().toLowerCase())
-        .filter(Boolean);
-      const duplicate = skus.find((s, idx) => skus.indexOf(s) !== idx);
+        .map((v) => v.sku?.trim())
+        .filter((s): s is string => !!s && s.length > 0);
+      const lowerSkus = skus.map((s) => s.toLowerCase());
+      const duplicate = lowerSkus.find((s, idx) => lowerSkus.indexOf(s) !== idx);
       if (duplicate) {
         throw new BadRequestException(
           `Duplicate variant SKU found: ${duplicate}`,
         );
+      }
+      if (skus.length > 0) {
+        const existingVariant = await this.prisma.productVariant.findFirst({
+          where: { sku: { in: skus, mode: "insensitive" }, productId: { not: id } },
+          select: { sku: true },
+        });
+        if (existingVariant) {
+          throw new BadRequestException(
+            `Variant SKU "${existingVariant.sku}" already exists on another product`,
+          );
+        }
       }
 
       for (const v of dto.variants) {
