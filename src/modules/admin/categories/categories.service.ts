@@ -20,6 +20,29 @@ const UUID_V4_REGEX =
 
 @Injectable()
 export class CategoriesService {
+  /**
+   * Helper to recursively gather category ID and all descendant subcategory IDs
+   */
+  private async getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
+    const categoryIds: string[] = [rootCategoryId];
+
+    const getChildren = async (parentIds: string[]) => {
+      if (parentIds.length === 0) return;
+      const children = await this.prisma.category.findMany({
+        where: { parentId: { in: parentIds }, deletedAt: null },
+        select: { id: true },
+      });
+      if (children.length > 0) {
+        const childIds = children.map((c) => c.id);
+        categoryIds.push(...childIds);
+        await getChildren(childIds);
+      }
+    };
+
+    await getChildren([rootCategoryId]);
+    return categoryIds;
+  }
+
   private readonly logger = new Logger(CategoriesService.name);
 
   constructor(
@@ -155,20 +178,28 @@ export class CategoriesService {
         }),
       ]);
 
-    const formatted = categories.map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      slug: cat.slug,
-      imageUrl: cat.imageUrl,
-      parentId: cat.parentId,
-      parent: cat.parent,
-      isActive: cat.isActive,
-      order: cat.order,
-      productsCount: cat._count.products,
-      subcategoriesCount: cat._count.children,
-      createdAt: cat.createdAt,
-      updatedAt: cat.updatedAt,
-    }));
+    const formatted = await Promise.all(
+      categories.map(async (cat) => {
+        const descendantIds = await this.getDescendantCategoryIds(cat.id);
+        const aggregatedCount = await this.prisma.product.count({
+          where: { categoryId: { in: descendantIds }, deletedAt: null },
+        });
+        return {
+          id: cat.id,
+          name: cat.name,
+          slug: cat.slug,
+          imageUrl: cat.imageUrl,
+          parentId: cat.parentId,
+          parent: cat.parent,
+          isActive: cat.isActive,
+          order: cat.order,
+          productsCount: aggregatedCount,
+          subcategoriesCount: cat._count.children,
+          createdAt: cat.createdAt,
+          updatedAt: cat.updatedAt,
+        };
+      }),
+    );
 
     return {
       success: true,
@@ -217,30 +248,49 @@ export class CategoriesService {
       },
     });
 
-    const formattedTree = categories.map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      slug: cat.slug,
-      imageUrl: cat.imageUrl,
-      isActive: cat.isActive,
-      order: cat.order,
-      productsCount: cat._count.products,
-      subcategoriesCount: cat._count.children,
-      children: cat.children.map((child) => ({
-        id: child.id,
-        name: child.name,
-        slug: child.slug,
-        imageUrl: child.imageUrl,
-        parentId: child.parentId,
-        isActive: child.isActive,
-        order: child.order,
-        productsCount: child._count.products,
-        createdAt: child.createdAt,
-        updatedAt: child.updatedAt,
-      })),
-      createdAt: cat.createdAt,
-      updatedAt: cat.updatedAt,
-    }));
+    const formattedTree = await Promise.all(
+      categories.map(async (cat) => {
+        const rootDescendantIds = await this.getDescendantCategoryIds(cat.id);
+        const rootCount = await this.prisma.product.count({
+          where: { categoryId: { in: rootDescendantIds }, deletedAt: null },
+        });
+
+        const children = await Promise.all(
+          cat.children.map(async (child) => {
+            const childDescendantIds = await this.getDescendantCategoryIds(child.id);
+            const childCount = await this.prisma.product.count({
+              where: { categoryId: { in: childDescendantIds }, deletedAt: null },
+            });
+            return {
+              id: child.id,
+              name: child.name,
+              slug: child.slug,
+              imageUrl: child.imageUrl,
+              parentId: child.parentId,
+              isActive: child.isActive,
+              order: child.order,
+              productsCount: childCount,
+              createdAt: child.createdAt,
+              updatedAt: child.updatedAt,
+            };
+          }),
+        );
+
+        return {
+          id: cat.id,
+          name: cat.name,
+          slug: cat.slug,
+          imageUrl: cat.imageUrl,
+          isActive: cat.isActive,
+          order: cat.order,
+          productsCount: rootCount,
+          subcategoriesCount: cat._count.children,
+          children,
+          createdAt: cat.createdAt,
+          updatedAt: cat.updatedAt,
+        };
+      }),
+    );
 
     return {
       success: true,
@@ -289,6 +339,29 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
+    const descendantIds = await this.getDescendantCategoryIds(category.id);
+    const aggregatedProductsCount = await this.prisma.product.count({
+      where: { categoryId: { in: descendantIds }, deletedAt: null },
+    });
+
+    const childrenFormatted = await Promise.all(
+      category.children.map(async (c) => {
+        const childDescendantIds = await this.getDescendantCategoryIds(c.id);
+        const childCount = await this.prisma.product.count({
+          where: { categoryId: { in: childDescendantIds }, deletedAt: null },
+        });
+        return {
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          imageUrl: c.imageUrl,
+          isActive: c.isActive,
+          order: c.order,
+          productsCount: childCount,
+        };
+      }),
+    );
+
     return {
       success: true,
       data: {
@@ -300,17 +373,9 @@ export class CategoriesService {
         parent: category.parent,
         isActive: category.isActive,
         order: category.order,
-        productsCount: category._count.products,
+        productsCount: aggregatedProductsCount,
         subcategoriesCount: category._count.children,
-        children: category.children.map((c) => ({
-          id: c.id,
-          name: c.name,
-          slug: c.slug,
-          imageUrl: c.imageUrl,
-          isActive: c.isActive,
-          order: c.order,
-          productsCount: c._count.products,
-        })),
+        children: childrenFormatted,
         createdAt: category.createdAt,
         updatedAt: category.updatedAt,
       },

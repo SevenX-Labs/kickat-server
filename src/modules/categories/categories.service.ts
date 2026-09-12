@@ -7,6 +7,29 @@ import {
 
 @Injectable()
 export class CategoriesService {
+  /**
+   * Helper to recursively gather category ID and all descendant subcategory IDs
+   */
+  private async getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
+    const categoryIds: string[] = [rootCategoryId];
+
+    const getChildren = async (parentIds: string[]) => {
+      if (parentIds.length === 0) return;
+      const children = await this.prisma.category.findMany({
+        where: { parentId: { in: parentIds }, isActive: true, deletedAt: null },
+        select: { id: true },
+      });
+      if (children.length > 0) {
+        const childIds = children.map((c) => c.id);
+        categoryIds.push(...childIds);
+        await getChildren(childIds);
+      }
+    };
+
+    await getChildren([rootCategoryId]);
+    return categoryIds;
+  }
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -103,8 +126,10 @@ export class CategoriesService {
     const limit = query.limit || 10;
     const skip = (page - 1) * limit;
 
+    const targetCategoryIds = await this.getDescendantCategoryIds(category.id);
+
     const whereCondition: any = {
-      categoryId: category.id,
+      categoryId: { in: targetCategoryIds },
       deletedAt: null,
       status: 'ACTIVE',
       ...(query.priceMin !== undefined || query.priceMax !== undefined
