@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,6 +11,7 @@ import {
   AdminOrderSortEnum,
   AdminOrdersQueryDto,
   AdminRefundOrderDto,
+  ConfirmCodRefundDto,
   UpdateOrderStatusDto,
 } from './dto/admin-order.dto';
 import { OrderStatusEnum, PaymentStatusEnum } from '@prisma/client';
@@ -342,6 +344,142 @@ export class OrdersService {
    * POST /api/v1/admin/orders/:id/refund
    * Process full or partial refund
    */
+
+  /**
+   * POST /api/v1/admin/orders/:id/confirm-cod-refund
+   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
+   */
+
+  /**
+   * POST /api/v1/admin/orders/returns/:returnId/confirm-received
+   * Confirm physical receipt of returned goods at warehouse
+   */
+  async confirmReturnReceived(returnId: string) {
+    const returnRecord = await this.prisma.orderReturn.findUnique({
+      where: { id: returnId },
+      include: { order: true },
+    });
+
+    if (!returnRecord) {
+      throw new NotFoundException("Return record not found");
+    }
+
+    if (returnRecord.status === "RETURN_RECEIVED") {
+      return {
+        success: true,
+        message: "Return is already marked as received",
+        return: returnRecord,
+      };
+    }
+
+    const updated = await this.prisma.orderReturn.update({
+      where: { id: returnId },
+      data: { status: "RETURN_RECEIVED" },
+    });
+
+    return {
+      success: true,
+      message: "Return physical receipt confirmed at warehouse",
+      return: updated,
+    };
+  }
+
+  
+  /**
+   * POST /api/v1/admin/orders/:id/confirm-cod-refund
+   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
+   */
+  
+  /**
+   * POST /api/v1/admin/orders/:id/confirm-cod-refund
+   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
+   */
+  async confirmCodRefund(id: string, dto: ConfirmCodRefundDto) {
+    const order = await this.findOrderByIdOrNumber(id);
+
+    if ((order.paymentMethod as string) !== "COD") {
+      throw new BadRequestException("Order payment method is not COD");
+    }
+
+    if (order.orderStatus === OrderStatusEnum.RETURNED) {
+      throw new ConflictException("Order has already been marked as returned / refunded");
+    }
+
+    const returnRecord = await this.prisma.orderReturn.findFirst({
+      where: { orderId: order.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!returnRecord || returnRecord.status !== "RETURN_RECEIVED") {
+      throw new BadRequestException(
+        "COD refund can only be processed after physical return receipt (RETURN_RECEIVED)",
+      );
+    }
+
+    const refundAmount = dto.amount ?? order.grandTotal;
+
+    if (refundAmount <= 0) {
+      throw new BadRequestException("Refund amount must be greater than 0");
+    }
+
+    if (refundAmount > order.grandTotal) {
+      throw new BadRequestException(
+        `Refund amount (₹${refundAmount}) cannot exceed order total (₹${order.grandTotal})`,
+      );
+    }
+
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          orderStatus: { not: OrderStatusEnum.RETURNED },
+        },
+        data: {
+          orderStatus: OrderStatusEnum.RETURNED,
+          paymentStatus: PaymentStatusEnum.FAILED,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException("Order is already marked as returned / refunded");
+      }
+
+      await tx.orderReturn.updateMany({
+        where: { orderId: order.id },
+        data: { status: "COD_REFUNDED" },
+      });
+
+      await tx.payment.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          amount: refundAmount,
+          currency: "INR",
+          paymentMethod: order.paymentMethod,
+          status: PaymentStatusEnum.FAILED,
+          failureReason: `COD Refund: ${dto.transactionReference}. Notes: ${dto.notes || "N/A"}`,
+        },
+      });
+
+      return await tx.order.findUnique({ where: { id: order.id } });
+    });
+
+    return {
+      success: true,
+      message: "COD refund marked as successful",
+      data: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        refundAmount: Number(refundAmount.toFixed(2)),
+        currency: "INR",
+        transactionReference: dto.transactionReference,
+        notes: dto.notes || null,
+        refundedAt: updatedOrder?.updatedAt || new Date(),
+        status: "COD_REFUNDED",
+      },
+    };
+  }
+
   async processRefund(id: string, dto: AdminRefundOrderDto) {
     const order = await this.findOrderByIdOrNumber(id);
 

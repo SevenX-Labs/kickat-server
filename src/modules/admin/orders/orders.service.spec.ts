@@ -9,13 +9,15 @@ describe('Admin OrdersService', () => {
   let service: OrdersService;
   let prisma: any;
 
-  const mockPrismaService = {
+    const mockPrismaService = {
     order: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       count: jest.fn(),
       aggregate: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     product: {
       update: jest.fn(),
@@ -25,9 +27,13 @@ describe('Admin OrdersService', () => {
     },
     payment: {
       updateMany: jest.fn(),
+      create: jest.fn(),
     },
     orderReturn: {
       updateMany: jest.fn(),
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
     },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
@@ -217,6 +223,77 @@ describe('Admin OrdersService', () => {
       await expect(
         service.cancelOrder('ord-1', { reason: 'Duplicate' }),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  
+  describe("confirmCodRefund & confirmReturnReceived", () => {
+    it("should reject COD refund before RETURN_RECEIVED", async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: "ord-cod-1",
+        orderNumber: "ORD-COD-1",
+        paymentMethod: "COD",
+        orderStatus: "SHIPPED",
+        grandTotal: 1000,
+      });
+      prisma.orderReturn.findFirst.mockResolvedValue({
+        id: "ret-1",
+        status: "INITIATED",
+      });
+
+      await expect(
+        service.confirmCodRefund("ord-cod-1", {
+          transactionReference: "TXN123456",
+        }),
+      ).rejects.toThrow("COD refund can only be processed after physical return receipt (RETURN_RECEIVED)");
+    });
+
+    it("should process COD refund successfully after RETURN_RECEIVED", async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: "ord-cod-1",
+        orderNumber: "ORD-COD-1",
+        paymentMethod: "COD",
+        orderStatus: "SHIPPED",
+        grandTotal: 1000,
+        userId: "usr-1",
+      });
+      prisma.orderReturn.findFirst.mockResolvedValue({
+        id: "ret-1",
+        status: "RETURN_RECEIVED",
+      });
+      prisma.$transaction.mockImplementation(async (cb) => {
+        prisma.order.updateMany.mockResolvedValue({ count: 1 });
+        prisma.orderReturn.updateMany.mockResolvedValue({ count: 1 });
+        prisma.payment.create.mockResolvedValue({ id: "pay-1" });
+        prisma.order.findUnique.mockResolvedValue({ id: "ord-cod-1", updatedAt: new Date() });
+        return cb(prisma);
+      });
+
+      const res = await service.confirmCodRefund("ord-cod-1", {
+        transactionReference: "TXN123456",
+        notes: "Paid via UPI",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data.status).toBe("COD_REFUNDED");
+      expect(res.data.transactionReference).toBe("TXN123456");
+      expect(res.data.refundedAt).toBeDefined();
+    });
+
+    it("should prevent duplicate COD refund on already returned order", async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: "ord-cod-1",
+        orderNumber: "ORD-COD-1",
+        paymentMethod: "COD",
+        orderStatus: "RETURNED",
+        grandTotal: 1000,
+      });
+
+      await expect(
+        service.confirmCodRefund("ord-cod-1", {
+          transactionReference: "TXN123456",
+        }),
+      ).rejects.toThrow("Order has already been marked as returned / refunded");
     });
   });
 

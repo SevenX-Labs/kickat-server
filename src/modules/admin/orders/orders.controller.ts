@@ -13,6 +13,7 @@ import {
   AdminCancelOrderDto,
   AdminOrdersQueryDto,
   AdminRefundOrderDto,
+  ConfirmCodRefundDto,
   UpdateOrderStatusDto,
 } from './dto/admin-order.dto';
 
@@ -86,6 +87,29 @@ export class OrdersController {
    * Process refund for an order
    */
   @Post(':id/refund')
+
+  /**
+   * POST /api/v1/admin/orders/:id/confirm-cod-refund
+   * Mark COD refund as manually completed by admin
+   */
+  @Post(":id/confirm-cod-refund")
+
+  /**
+   * POST /api/v1/admin/orders/returns/:returnId/confirm-received
+   * Confirm physical receipt of returned goods at warehouse
+   */
+  @Post("returns/:returnId/confirm-received")
+  async confirmReturnReceived(@Param("returnId") returnId: string) {
+    return this.ordersService.confirmReturnReceived(returnId);
+  }
+
+  async confirmCodRefund(
+    @Param("id") id: string,
+    @Body() dto: ConfirmCodRefundDto,
+  ) {
+    return this.ordersService.confirmCodRefund(id, dto);
+  }
+
   async processRefund(
     @Param('id') id: string,
     @Body() dto: AdminRefundOrderDto,

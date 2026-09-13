@@ -128,3 +128,20 @@ export class AdminRefundOrderDto {
   @MaxLength(500)
   notes?: string;
 }
+
+export class ConfirmCodRefundDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
+
+  @IsString()
+  @IsNotEmpty()
+  transactionReference: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
