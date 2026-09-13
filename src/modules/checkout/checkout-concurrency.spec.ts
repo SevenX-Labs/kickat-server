@@ -1,3 +1,5 @@
+import { NotificationsService } from "../notifications/notifications.service";
+import { InvoicePdfService } from "../orders/invoice-pdf.service";
 import { SettingsService } from "../admin/settings/settings.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { CheckoutService } from './checkout.service';
@@ -108,6 +110,8 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
+        { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from("pdf-data")) } },
         CheckoutService,
         PaymentsService,
         OrdersService,

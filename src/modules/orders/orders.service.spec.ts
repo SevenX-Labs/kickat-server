@@ -1,3 +1,5 @@
+import { NotificationsService } from "../notifications/notifications.service";
+import { InvoicePdfService } from "./invoice-pdf.service";
 import { SettingsService } from "../admin/settings/settings.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersService } from './orders.service';
@@ -92,6 +94,8 @@ describe('OrdersService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
+        { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from("pdf-data")) } },
         OrdersService,
         { provide: PrismaService, useValue: prisma },
         { provide: SettingsService, useValue: mockSettingsServiceForOrders },

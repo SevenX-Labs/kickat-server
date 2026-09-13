@@ -1,3 +1,4 @@
+import { Response } from 'express';
 import {
   Body,
   Controller,
@@ -6,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { AdminAuth } from '../../../common';
@@ -35,6 +37,22 @@ export class OrdersController {
    * GET /api/v1/admin/orders/:id/invoice
    * Generate tax invoice with GST breakdown
    */
+
+  /**
+   * GET /api/v1/admin/orders/:id/invoice/pdf
+   * Generate downloadable PDF invoice
+   */
+  @Get(':id/invoice/pdf')
+  async getOrderInvoicePdf(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, orderNumber } = await this.ordersService.getOrderInvoicePdf(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice-${orderNumber}.pdf"`);
+    res.send(buffer);
+  }
+
   @Get(':id/invoice')
   async getOrderInvoice(@Param('id') id: string) {
     return this.ordersService.getOrderInvoice(id);

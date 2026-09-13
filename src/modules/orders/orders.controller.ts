@@ -1,3 +1,4 @@
+import { Response } from 'express';
 import {
   Body,
   Controller,
@@ -8,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { Auth, CurrentUser } from '../../common';
@@ -102,6 +104,22 @@ export class OrdersController {
   /**
    * GET /orders/:id/invoice
    */
+
+  /**
+   * GET /orders/:id/invoice/pdf
+   */
+  @Get(':id/invoice/pdf')
+  async getOrderInvoicePdf(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, orderNumber } = await this.ordersService.getOrderInvoicePdf(userId, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice-${orderNumber}.pdf"`);
+    res.send(buffer);
+  }
+
   @Get(':id/invoice')
   async getOrderInvoice(
     @CurrentUser('id') userId: string,

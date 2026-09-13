@@ -1,3 +1,5 @@
+import { NotificationsService } from "../notifications/notifications.service";
+import { InvoicePdfService } from "../orders/invoice-pdf.service";
 
 const mockSettingsServiceForCustAuth = {
   getDeliverySettingsRaw: jest.fn().mockResolvedValue({ deliveryFeeEnabled: true, deliveryFee: 49, freeDeliveryThreshold: 500 }),
@@ -244,6 +246,8 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
+        { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from("pdf-data")) } },
         AdminGuard,
         JwtAuthGuard,
         JwtStrategy,
@@ -468,7 +472,7 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
       ).rejects.toThrow(NotFoundException);
 
       expect(prismaMock.wishlistItem.findFirst).toHaveBeenCalledWith({
-        where: { userId: userAId, productId: productAId },
+        where: { userId: userAId, productId: productAId, variantId: null },
         include: { product: true, variant: true },
       });
     });
@@ -481,7 +485,7 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
       ).rejects.toThrow(NotFoundException);
 
       expect(prismaMock.wishlistItem.findFirst).toHaveBeenCalledWith({
-        where: { userId: userAId, productId: productAId },
+        where: { userId: userAId, productId: productAId, variantId: null },
       });
     });
   });

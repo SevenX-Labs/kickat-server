@@ -1,3 +1,4 @@
+import { InvoicePdfService } from "../../orders/invoice-pdf.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import {
   BadRequestException,
@@ -27,6 +28,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly invoicePdfService: InvoicePdfService,
   ) {}
 
   /**
@@ -592,6 +594,60 @@ export class OrdersService {
    * GET /api/v1/admin/orders/:id/invoice
    * Generate tax invoice with compliant GST structure
    */
+
+  /**
+   * GET /api/v1/admin/orders/:id/invoice/pdf
+   * Generate downloadable PDF invoice
+   */
+  async getOrderInvoicePdf(id: string) {
+    const order = await this.findOrderByIdOrNumber(id);
+
+    let supportEmail = 'support@kickat.co.in';
+    let supportPhone = '+91 98765 43210';
+    let gstNumber: string | null = null;
+
+    try {
+      const generalSetting = await this.prisma.systemSetting.findFirst({ where: { group: 'general' } });
+      if (generalSetting?.value && typeof generalSetting.value === 'object') {
+        const val: any = generalSetting.value;
+        if (val.supportEmail) supportEmail = val.supportEmail;
+        if (val.supportPhone) supportPhone = val.supportPhone;
+      }
+      const taxSetting = await this.prisma.systemSetting.findFirst({ where: { group: 'tax' } });
+      if (taxSetting?.value && typeof taxSetting.value === 'object') {
+        const val: any = taxSetting.value;
+        if (val.gstNumber) gstNumber = val.gstNumber;
+      }
+    } catch {
+      // Graceful default settings fallback
+    }
+
+    const buffer = await this.invoicePdfService.generateInvoicePdf({
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      subtotal: order.subtotal,
+      gstPercentage: order.gstPercentage,
+      gstAmount: order.gstAmount,
+      deliveryFee: order.deliveryFee,
+      codFee: order.codFee,
+      extraFeeName: order.extraFeeName,
+      extraFeeAmount: order.extraFeeAmount,
+      grandTotal: order.grandTotal,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      user: order.user,
+      address: order.address,
+      items: order.items,
+      storeSettings: {
+        supportEmail,
+        supportPhone,
+        gstNumber,
+      },
+    });
+
+    return { buffer, orderNumber: order.orderNumber };
+  }
+
   async getOrderInvoice(id: string) {
     const order = await this.findOrderByIdOrNumber(id);
 

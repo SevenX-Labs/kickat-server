@@ -1,3 +1,4 @@
+import { InvoicePdfService } from "./invoice-pdf.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { SettingsService } from "../admin/settings/settings.service";
 import {
@@ -25,6 +26,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
+    private readonly invoicePdfService: InvoicePdfService,
   ) {}
 
   private validateUuid(id: string, paramName: string = 'id'): string {
@@ -42,6 +44,7 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
+        user: { select: { id: true, name: true, email: true, phone: true } },
         items: true,
         address: true,
         payments: true,
@@ -323,6 +326,41 @@ export class OrdersService {
   /**
    * GET /orders/:id/invoice
    */
+
+  /**
+   * GET /orders/:id/invoice/pdf
+   */
+  async getOrderInvoicePdf(userId: string, id: string) {
+    const order = await this.findOrderAndVerifyOwnership(userId, id);
+    const taxSettings = await this.settingsService.getTaxSettingsRaw();
+    const generalSettings = await this.settingsService.getGeneralSettingsRaw();
+
+    const buffer = await this.invoicePdfService.generateInvoicePdf({
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      subtotal: order.subtotal,
+      gstPercentage: order.gstPercentage,
+      gstAmount: order.gstAmount,
+      deliveryFee: order.deliveryFee,
+      codFee: order.codFee,
+      extraFeeName: order.extraFeeName,
+      extraFeeAmount: order.extraFeeAmount,
+      grandTotal: order.grandTotal,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      user: order.user,
+      address: order.address,
+      items: order.items,
+      storeSettings: {
+        supportEmail: generalSettings.supportEmail,
+        supportPhone: generalSettings.supportPhone,
+        gstNumber: taxSettings.gstNumber,
+      },
+    });
+
+    return { buffer, orderNumber: order.orderNumber };
+  }
+
   async getOrderInvoice(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
 

@@ -1,3 +1,4 @@
+import { NotificationsService } from "../notifications/notifications.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -68,6 +69,7 @@ describe('PaymentsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
         PaymentsService,
         { provide: PrismaService, useValue: prisma },
         { provide: RazorpayService, useValue: razorpayService },

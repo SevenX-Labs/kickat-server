@@ -1,3 +1,4 @@
+import { InvoicePdfService } from "./invoice-pdf.service";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { Module } from '@nestjs/common';
 import { OrdersController } from './orders.controller';
@@ -9,7 +10,7 @@ import { SettingsModule } from '../admin/settings/settings.module';
 @Module({
   imports: [PrismaModule, SettingsModule, NotificationsModule],
   controllers: [OrdersController, ReturnsController],
-  providers: [OrdersService],
-  exports: [OrdersService],
+  providers: [OrdersService, InvoicePdfService],
+  exports: [OrdersService, InvoicePdfService],
 })
 export class OrdersModule {}
