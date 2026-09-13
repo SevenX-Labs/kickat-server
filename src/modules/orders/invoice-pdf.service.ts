@@ -3,43 +3,44 @@ import { PrismaService } from "../../prisma/prisma.service";
 import PDFDocument from "pdfkit";
 
 export interface InvoicePdfData {
+  storeSettings?: StoreSettingsData | null;
   orderNumber: string;
   createdAt: Date | string;
   paymentMethod: string;
   paymentStatus: string;
   subtotal: number;
-  discountTotal?: number;
-  gstAmount?: number;
-  gstPercentage?: number;
-  cgstTotal?: number;
-  sgstTotal?: number;
-  igstTotal?: number;
-  deliveryFee?: number;
-  shippingFee?: number;
-  codFee?: number;
-  extraFeeAmount?: number;
-  extraFeeName?: string;
+  discountTotal?: number | null;
+  gstAmount?: number | null;
+  gstPercentage?: number | null;
+  cgstTotal?: number | null;
+  sgstTotal?: number | null;
+  igstTotal?: number | null;
+  deliveryFee?: number | null;
+  shippingFee?: number | null;
+  codFee?: number | null;
+  extraFeeAmount?: number | null;
+  extraFeeName?: string | null;
   grandTotal: number;
-  total?: number;
+  total?: number | null;
   user?: {
-    fullName?: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-    phoneNumber?: string;
-  };
+    fullName?: string | null;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    phoneNumber?: string | null;
+  } | null;
   address?: {
-    fullName?: string;
-    streetAddress?: string;
-    addressLine1?: string;
-    addressLine2?: string;
-    city?: string;
-    state?: string;
-    postalCode?: string;
-    country?: string;
-    phone?: string;
-    phoneNumber?: string;
-  };
+    fullName?: string | null;
+    streetAddress?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    phoneNumber?: string | null;
+  } | null;
   items: Array<{
     productName: string;
     variantName?: string | null;
@@ -47,12 +48,14 @@ export interface InvoicePdfData {
     quantity: number;
     price: number;
     totalPrice: number;
-    gstRate?: number;
-    gstAmount?: number;
+    gstRate?: number | null;
+    gstAmount?: number | null;
   }>;
 }
 
 export interface StoreSettingsData {
+  gstNumber?: string;
+  address?: string;
   storeName?: string;
   storeEmail?: string;
   storePhone?: string;
@@ -108,7 +111,7 @@ export class InvoicePdfService {
   constructor(private readonly prisma?: PrismaService) {}
 
   public async generateInvoicePdf(orderData: InvoicePdfData, customStoreSettings?: StoreSettingsData): Promise<Buffer> {
-    let storeSettings: StoreSettingsData = customStoreSettings || {};
+    let storeSettings: StoreSettingsData = customStoreSettings || orderData.storeSettings || {};
 
     if (!customStoreSettings && this.prisma) {
       try {
@@ -165,7 +168,7 @@ export class InvoicePdfService {
         const storeName = storeSettings.storeName || "KickAt Retail India";
         doc.fillColor(bodyText).fontSize(9).font("Helvetica").text(storeName, 40, y + 40);
         
-        let storeSubInfo = [];
+        let storeSubInfo: string[] = [];
         if (storeSettings.gstin) storeSubInfo.push(`GSTIN: ${storeSettings.gstin}`);
         if (storeSettings.pan) storeSubInfo.push(`PAN: ${storeSettings.pan}`);
         if (storeSubInfo.length > 0) {
