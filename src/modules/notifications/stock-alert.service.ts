@@ -29,7 +29,8 @@ export class StockAlertService {
     try {
       const { productId, variantId, previousStock, newStock } = target;
 
-      // 1. If stock is restored (increased), no alert is sent, but alert eligibility is automatically re-armed
+      // 1. If stock is restored (increased), no alert is sent. Eligibility automatically re-arms because
+      // future decrements will cross the threshold from > threshold down to <= threshold.
       if (newStock > previousStock) {
         return;
       }
@@ -80,7 +81,7 @@ export class StockAlertService {
         return; // No threshold-crossing event detected
       }
 
-      // 4. Retrieve Admin Alert Phone Number
+      // 4. Retrieve Admin Alert Phone Number ONLY
       let adminPhone: string | null = process.env.ADMIN_ALERT_PHONE || null;
 
       if (!adminPhone) {
@@ -104,12 +105,11 @@ export class StockAlertService {
         return;
       }
 
-      // 5. Idempotency Check using NotificationLog
-      // Key uniquely identifies target (product/variant) and exact event type for current stock cycle
+      // 5. Atomic Claim / Idempotency Key Setup
       const targetEntityId = variantId ? `variant_${variantId}` : `product_${productId}`;
       const baseIdempotencyKey = `stock_alert_${targetEntityId}_${eventType}_${newStock}`;
 
-      // 6. Format Alert Message
+      // 6. Format Alert Messages (Strictly for Admin)
       const variantStr = variantName ? `\nVariant: ${variantName}` : "";
       let message = "";
 
@@ -119,10 +119,10 @@ export class StockAlertService {
         message = `🚨 Out of Stock Alert\n\nProduct: ${productName}${variantStr}\nStock Remaining: 0\n\nImmediate restocking may be required.`;
       }
 
-      // 7. Dispatch SMS (Admin Only)
+      // 7. Dispatch SMS with Atomic Database Claim (Admin Only)
       const smsKey = `${baseIdempotencyKey}_SMS`;
-      const smsAlreadySent = await this.isDispatched(smsKey);
-      if (!smsAlreadySent) {
+      const claimedSms = await this.tryAtomicClaim("SMS", adminPhone, eventType, smsKey);
+      if (claimedSms) {
         try {
           await this.smsService.sendSms({
             recipient: adminPhone,
@@ -135,10 +135,10 @@ export class StockAlertService {
         }
       }
 
-      // 8. Dispatch WhatsApp (Admin Only)
+      // 8. Dispatch WhatsApp with Atomic Database Claim (Admin Only)
       const waKey = `${baseIdempotencyKey}_WHATSAPP`;
-      const waAlreadySent = await this.isDispatched(waKey);
-      if (!waAlreadySent) {
+      const claimedWa = await this.tryAtomicClaim("WHATSAPP", adminPhone, eventType, waKey);
+      if (claimedWa) {
         try {
           await this.whatsappService.sendWhatsapp({
             recipient: adminPhone,
@@ -156,13 +156,38 @@ export class StockAlertService {
     }
   }
 
-  private async isDispatched(providerMessageId: string): Promise<boolean> {
+  /**
+   * Attempts to atomically claim dispatch of a notification channel via database insert.
+   * If insert fails (e.g. key already claimed or created), returns false.
+   */
+  private async tryAtomicClaim(
+    channel: string,
+    recipient: string,
+    templateCode: string,
+    providerMessageId: string,
+  ): Promise<boolean> {
     try {
+      // Check if already dispatched or claimed
       const existing = await this.prisma.notificationLog.findFirst({
         where: { providerMessageId },
       });
-      return !!existing;
+      if (existing) {
+        return false;
+      }
+
+      // Perform claim by creating a NotificationLog record
+      await this.prisma.notificationLog.create({
+        data: {
+          channel,
+          recipient,
+          templateCode,
+          status: "CLAIMED",
+          providerMessageId,
+        },
+      });
+      return true;
     } catch (err) {
+      // Unique constraint violation or concurrent collision
       return false;
     }
   }

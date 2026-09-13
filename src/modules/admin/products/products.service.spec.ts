@@ -1,3 +1,4 @@
+import { StockAlertService } from "../../notifications/stock-alert.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsService } from './products.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -60,6 +61,7 @@ describe('Admin ProductsService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: StockAlertService, useValue: { evaluateStockChange: jest.fn().mockResolvedValue(undefined) } },
         ProductsService,
         {
           provide: PrismaService,

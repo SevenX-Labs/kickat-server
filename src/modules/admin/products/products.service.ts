@@ -1,3 +1,4 @@
+import { StockAlertService } from "../../notifications/stock-alert.service";
 import {
   BadRequestException,
   Injectable,
@@ -208,6 +209,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
+    private readonly stockAlertService: StockAlertService,
   ) {}
 
   /**
@@ -887,6 +889,8 @@ export class ProductsService {
       );
     }
 
+    const stockEvents: Array<{ productId: string; variantId?: string | null; previousStock: number; newStock: number }> = [];
+
     const updatedProduct = await this.prisma.$transaction(async (tx) => {
       // 1. Update main product fields
       await tx.product.update({
@@ -1030,6 +1034,9 @@ export class ProductsService {
         // Upsert variants
         for (const v of relocatedVariants) {
           if (v.id) {
+            const curV = await tx.productVariant.findUnique({ where: { id: v.id }, select: { stock: true } });
+            const pStock = curV ? curV.stock : 0;
+            const newVStock = v.stock ?? 0;
             await tx.productVariant.update({
               where: { id: v.id },
               data: {
@@ -1037,11 +1044,14 @@ export class ProductsService {
                 sku: v.sku || null,
                 price: v.price,
                 discountPrice: v.discountPrice || null,
-                stock: v.stock ?? 0,
+                stock: newVStock,
                 attributes: v.attributes || {},
                 imageUrl: v.imageUrl || null,
               },
             });
+            if (pStock !== newVStock) {
+              stockEvents.push({ productId: id, variantId: v.id, previousStock: pStock, newStock: newVStock });
+            }
           } else {
             await tx.productVariant.create({
               data: {
@@ -1327,17 +1337,38 @@ export class ProductsService {
    * PATCH /api/v1/admin/products/:id/stock
    * Update main stock and/or variant stocks
    */
-  async updateStock(id: string, dto: UpdateProductStockDto) {
+    async updateStock(id: string, dto: UpdateProductStockDto) {
     const existing = await this.prisma.product.findFirst({
       where: { id, deletedAt: null },
       include: { variants: true },
     });
 
     if (!existing) {
-      throw new NotFoundException('Product not found');
+      throw new NotFoundException("Product not found");
     }
 
+    const stockEvents: Array<{ productId: string; variantId?: string | null; previousStock: number; newStock: number }> = [];
+
     await this.prisma.$transaction(async (tx) => {
+      if (dto.variantStocks && dto.variantStocks.length > 0) {
+        for (const vs of dto.variantStocks) {
+          const curV = await tx.productVariant.findUnique({ where: { id: vs.variantId }, select: { stock: true } });
+          const pStock = curV ? curV.stock : 0;
+          await tx.productVariant.update({
+            where: { id: vs.variantId },
+            data: { stock: vs.stock },
+          });
+          if (pStock !== vs.stock) {
+            stockEvents.push({ productId: id, variantId: vs.variantId, previousStock: pStock, newStock: vs.stock });
+          }
+        }
+      } else if (dto.stock !== undefined) {
+        const curP = await tx.product.findUnique({ where: { id }, select: { stock: true } });
+        const pStock = curP ? curP.stock : 0;
+        if (pStock !== dto.stock) {
+          stockEvents.push({ productId: id, previousStock: pStock, newStock: dto.stock });
+        }
+      }
       if (dto.variantStocks && dto.variantStocks.length > 0) {
         for (const vs of dto.variantStocks) {
           await tx.productVariant.update({
@@ -1371,6 +1402,10 @@ export class ProductsService {
         });
       }
     });
+
+    for (const evt of stockEvents) {
+      this.stockAlertService.evaluateStockChange(evt).catch(() => {});
+    }
 
     const updated = await this.prisma.product.findUnique({
       where: { id },
