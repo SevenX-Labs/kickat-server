@@ -64,10 +64,14 @@ describe('OrdersService', () => {
     prisma = {
       order: {
         findMany: jest.fn().mockResolvedValue([mockOrder]),
+        findFirst: jest.fn(),
         count: jest.fn().mockResolvedValue(1),
         findUnique: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      refundAudit: {
+        findMany: jest.fn(),
       },
       orderReturn: {
         create: jest.fn(),
@@ -252,6 +256,51 @@ describe('OrdersService', () => {
       await expect(service.reorder(mockUserId, mockOrderId)).rejects.toThrow(
         ConflictException,
       );
+    });
+  });
+
+
+  describe('getOrderRefundHistory', () => {
+    it('should throw NotFoundException if order does not exist or belongs to another user', async () => {
+      prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getOrderRefundHistory('usr-1', 'ord-999'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should return customer refund history for order owner without sensitive admin IDs', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: 'ord-1',
+        orderNumber: 'ORD-1001',
+        userId: 'usr-1',
+        grandTotal: 1500,
+      });
+
+      prisma.refundAudit.findMany.mockResolvedValue([
+        {
+          id: 'ref-1',
+          orderId: 'ord-1',
+          amount: 1500,
+          currency: 'INR',
+          refundMethod: 'COD',
+          status: 'COD_REFUNDED',
+          provider: 'MANUAL',
+          transactionReference: 'TXN123456',
+          initiatedByAdminId: 'secret-admin-id-123',
+          initiatedAt: new Date(),
+          completedAt: new Date(),
+          failedAt: null,
+          failureReason: null,
+        },
+      ]);
+
+      const res = await service.getOrderRefundHistory('usr-1', 'ord-1');
+
+      expect(res.success).toBe(true);
+      expect(res.summary.totalRefunded).toBe(1500);
+      expect((res.data[0] as any).initiatedByAdminId).toBeUndefined();
+      expect(res.data[0].transactionReference).toBe('TXN123456');
     });
   });
 

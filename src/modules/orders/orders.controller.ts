@@ -91,6 +91,17 @@ export class OrdersController {
   }
 
   /**
+   * GET /orders/:id/refunds
+   */
+  @Get(':id/refunds')
+  async getOrderRefundHistory(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getOrderRefundHistory(userId, id);
+  }
+
+  /**
    * GET /orders/:id/tracking-live
    */
   @Get(':id/tracking-live')

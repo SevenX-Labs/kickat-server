@@ -175,6 +175,64 @@ export class OrdersService {
   }
 
   /**
+   * GET /orders/:id/refunds
+   */
+  async getOrderRefundHistory(userId: string, id: string) {
+    const order = await this.prisma.order.findFirst({
+      where: {
+        OR: [{ id }, { orderNumber: id }],
+        userId,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const audits = await this.prisma.refundAudit.findMany({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalRefunded = audits
+      .filter((a) => a.status === 'REFUNDED' || a.status === 'COD_REFUNDED')
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const pendingRefund = audits
+      .filter((a) => a.status === 'REFUND_INITIATED')
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const failedRefund = audits
+      .filter((a) => a.status === 'FAILED')
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    return {
+      success: true,
+      summary: {
+        totalRefundable: order.grandTotal,
+        totalRefunded: Number(totalRefunded.toFixed(2)),
+        pendingRefund: Number(pendingRefund.toFixed(2)),
+        failedRefund: Number(failedRefund.toFixed(2)),
+      },
+      data: audits.map((a) => ({
+        id: a.id,
+        orderId: a.orderId,
+        orderNumber: order.orderNumber,
+        amount: a.amount,
+        currency: a.currency,
+        refundMethod: a.refundMethod,
+        status: a.status,
+        provider: a.provider,
+        transactionReference: a.transactionReference,
+        initiatedAt: a.initiatedAt,
+        completedAt: a.completedAt,
+        failedAt: a.failedAt,
+        failureReason: a.failureReason,
+      })),
+    };
+  }
+
+  /**
    * GET /orders/:id/timeline
    */
   async getOrderTimeline(userId: string, id: string) {

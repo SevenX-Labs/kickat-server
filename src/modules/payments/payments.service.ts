@@ -826,39 +826,163 @@ export class PaymentsService {
           eventType === 'refund.created' ||
           eventType === 'refund.speed_changed'
         ) {
-          await this.prisma.$transaction(async (tx) => {
-            await tx.order.update({
-              where: { id: payment.orderId },
-              data: {
-                orderStatus: 'RETURNED',
-              },
-            });
-          });
+          const refundId = refundEntity?.id;
+          const idempotencyKey = refundId
+            ? `razorpay_refund_${refundId}_processed`
+            : `razorpay_refund_${payment.orderId}_processed`;
 
-          if (eventType === 'refund.processed') {
+          const existingAudit = refundId
+            ? await this.prisma.refundAudit.findFirst({
+                where: {
+                  OR: [
+                    { idempotencyKey },
+                    { providerRefundId: refundId, status: 'REFUNDED' },
+                  ],
+                },
+              })
+            : null;
+
+          if (!existingAudit || existingAudit.status !== 'REFUNDED') {
             const rAmt = refundEntity?.amount ? refundEntity.amount / 100 : payment.amount;
+
+            await this.prisma.$transaction(async (tx) => {
+              await tx.order.update({
+                where: { id: payment.orderId },
+                data: {
+                  orderStatus: 'RETURNED',
+                  paymentStatus: PaymentStatusEnum.REFUNDED,
+                },
+              });
+
+              const pendingAudit = await tx.refundAudit.findFirst({
+                where: {
+                  orderId: payment.orderId,
+                  status: 'REFUND_INITIATED',
+                },
+                orderBy: { createdAt: 'desc' },
+              });
+
+              if (pendingAudit) {
+                await tx.refundAudit.update({
+                  where: { id: pendingAudit.id },
+                  data: {
+                    status: 'REFUNDED',
+                    providerRefundId: refundId || pendingAudit.providerRefundId,
+                    completedAt: new Date(),
+                    actorType: pendingAudit.initiatedByAdminId ? 'ADMIN' : 'RAZORPAY_WEBHOOK',
+                    idempotencyKey,
+                  },
+                });
+              } else {
+                await tx.refundAudit.create({
+                  data: {
+                    orderId: payment.orderId,
+                    userId: payment.userId,
+                    paymentId: payment.id,
+                    amount: rAmt,
+                    currency: 'INR',
+                    refundMethod: 'ONLINE',
+                    status: 'REFUNDED',
+                    provider: 'RAZORPAY',
+                    providerRefundId: refundId || null,
+                    actorType: 'RAZORPAY_WEBHOOK',
+                    initiatedAt: new Date(),
+                    completedAt: new Date(),
+                    idempotencyKey,
+                  },
+                });
+              }
+            });
+
+            if (eventType === 'refund.processed') {
+              this.notificationsService.notifyRefundStatus({
+                orderId: payment.orderId,
+                orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+                userId: payment.userId,
+                status: 'ONLINE_REFUND_SUCCESS',
+                refundAmount: rAmt,
+              });
+            }
+          }
+        } else if (eventType === 'refund.failed') {
+          const refundId = refundEntity?.id;
+          const idempotencyKey = refundId
+            ? `razorpay_refund_${refundId}_failed`
+            : `razorpay_refund_${payment.orderId}_failed`;
+
+          const existingAudit = refundId
+            ? await this.prisma.refundAudit.findFirst({
+                where: {
+                  OR: [
+                    { idempotencyKey },
+                    { providerRefundId: refundId, status: 'FAILED' },
+                  ],
+                },
+              })
+            : null;
+
+          if (!existingAudit) {
+            const failureReason =
+              refundEntity?.error_description ||
+              refundEntity?.error_reason ||
+              'Razorpay refund failed';
+            const failureCode = refundEntity?.error_code || null;
+
+            await this.prisma.$transaction(async (tx) => {
+              const pendingAudit = await tx.refundAudit.findFirst({
+                where: {
+                  orderId: payment.orderId,
+                  status: 'REFUND_INITIATED',
+                },
+                orderBy: { createdAt: 'desc' },
+              });
+
+              if (pendingAudit) {
+                await tx.refundAudit.update({
+                  where: { id: pendingAudit.id },
+                  data: {
+                    status: 'FAILED',
+                    providerRefundId: refundId || pendingAudit.providerRefundId,
+                    failedAt: new Date(),
+                    failureReason,
+                    failureCode,
+                    actorType: pendingAudit.initiatedByAdminId ? 'ADMIN' : 'RAZORPAY_WEBHOOK',
+                    idempotencyKey,
+                  },
+                });
+              } else {
+                await tx.refundAudit.create({
+                  data: {
+                    orderId: payment.orderId,
+                    userId: payment.userId,
+                    paymentId: payment.id,
+                    amount: refundEntity?.amount ? refundEntity.amount / 100 : payment.amount,
+                    currency: 'INR',
+                    refundMethod: 'ONLINE',
+                    status: 'FAILED',
+                    provider: 'RAZORPAY',
+                    providerRefundId: refundId || null,
+                    actorType: 'RAZORPAY_WEBHOOK',
+                    initiatedAt: new Date(),
+                    failedAt: new Date(),
+                    failureReason,
+                    failureCode,
+                    idempotencyKey,
+                  },
+                });
+              }
+            });
+
+            this.logger.warn(
+              `Razorpay refund failed for paymentId=${payment.id}, orderId=${payment.orderId}. Reason: ${failureReason}`,
+            );
             this.notificationsService.notifyRefundStatus({
               orderId: payment.orderId,
               orderNumber: (payment as any).order?.orderNumber || payment.orderId,
               userId: payment.userId,
-              status: 'ONLINE_REFUND_SUCCESS',
-              refundAmount: rAmt,
+              status: 'ONLINE_REFUND_FAILED',
             });
           }
-        } else if (eventType === 'refund.failed') {
-          this.logger.warn(
-            `Razorpay refund failed for paymentId=${payment.id}, orderId=${payment.orderId}. Reason: ${
-              refundEntity?.error_description ||
-              refundEntity?.error_reason ||
-              'Unknown error'
-            }`,
-          );
-          this.notificationsService.notifyRefundStatus({
-            orderId: payment.orderId,
-            orderNumber: (payment as any).order?.orderNumber || payment.orderId,
-            userId: payment.userId,
-            status: 'ONLINE_REFUND_FAILED',
-          });
         }
       }
     }

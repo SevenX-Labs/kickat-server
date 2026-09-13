@@ -433,7 +433,7 @@ export class OrdersService {
    * POST /api/v1/admin/orders/:id/confirm-cod-refund
    * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
    */
-  async confirmCodRefund(id: string, dto: ConfirmCodRefundDto) {
+  async confirmCodRefund(id: string, dto: ConfirmCodRefundDto, adminId?: string) {
     const order = await this.findOrderByIdOrNumber(id);
 
     if ((order.paymentMethod as string) !== "COD") {
@@ -507,6 +507,26 @@ export class OrdersService {
         },
       });
 
+      await tx.refundAudit.create({
+        data: {
+          orderId: order.id,
+          orderReturnId: returnRecord.id,
+          userId: order.userId,
+          amount: refundAmount,
+          currency: "INR",
+          refundMethod: "COD",
+          status: "COD_REFUNDED",
+          provider: "MANUAL",
+          transactionReference: dto.transactionReference,
+          actorType: adminId ? "ADMIN" : "SYSTEM",
+          initiatedByAdminId: adminId || null,
+          confirmedByAdminId: adminId || null,
+          initiatedAt: now,
+          completedAt: now,
+          idempotencyKey: `cod_refund_${returnRecord.id}`,
+        },
+      });
+
       return updatedReturn;
     });
 
@@ -535,7 +555,7 @@ export class OrdersService {
     };
   }
 
-  async processRefund(id: string, dto: AdminRefundOrderDto) {
+  async processRefund(id: string, dto: AdminRefundOrderDto, adminId?: string) {
     const order = await this.findOrderByIdOrNumber(id);
 
     const refundAmount = dto.amount ?? order.grandTotal;
@@ -549,6 +569,16 @@ export class OrdersService {
         `Refund amount (₹${refundAmount}) cannot exceed order total (₹${order.grandTotal})`,
       );
     }
+
+    const returnRecord = await this.prisma.orderReturn.findFirst({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const paymentRecord = await this.prisma.payment.findFirst({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'desc' },
+    });
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Update any open returns on this order to completed/refunded
@@ -564,6 +594,25 @@ export class OrdersService {
           data: { failureReason: `Refunded: ${dto.reason}` },
         });
       }
+
+      // 3. Create persistent RefundAudit record in REFUND_INITIATED state
+      await tx.refundAudit.create({
+        data: {
+          orderId: order.id,
+          orderReturnId: returnRecord?.id || null,
+          userId: order.userId,
+          paymentId: paymentRecord?.id || null,
+          amount: refundAmount,
+          currency: 'INR',
+          refundMethod: dto.refundMethod || (order.paymentMethod === 'COD' ? 'COD' : 'ORIGINAL_PAYMENT'),
+          status: 'REFUND_INITIATED',
+          provider: order.paymentMethod === 'COD' ? 'MANUAL' : 'RAZORPAY',
+          actorType: adminId ? 'ADMIN' : 'SYSTEM',
+          initiatedByAdminId: adminId || null,
+          initiatedAt: new Date(),
+          idempotencyKey: `admin_refund_${order.id}_${Date.now()}`,
+        },
+      });
     });
 
     this.notificationsService.notifyRefundStatus({
@@ -599,6 +648,59 @@ export class OrdersService {
    * GET /api/v1/admin/orders/:id/invoice/pdf
    * Generate downloadable PDF invoice
    */
+  async getOrderRefundHistory(id: string) {
+    const order = await this.findOrderByIdOrNumber(id);
+
+    const audits = await this.prisma.refundAudit.findMany({
+      where: { orderId: order.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalRefunded = audits
+      .filter((a) => a.status === 'REFUNDED' || a.status === 'COD_REFUNDED')
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const pendingRefund = audits
+      .filter((a) => a.status === 'REFUND_INITIATED')
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    const failedRefund = audits
+      .filter((a) => a.status === 'FAILED')
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    return {
+      success: true,
+      summary: {
+        totalRefundable: order.grandTotal,
+        totalRefunded: Number(totalRefunded.toFixed(2)),
+        pendingRefund: Number(pendingRefund.toFixed(2)),
+        failedRefund: Number(failedRefund.toFixed(2)),
+      },
+      data: audits.map((a) => ({
+        id: a.id,
+        orderId: a.orderId,
+        orderNumber: order.orderNumber,
+        orderReturnId: a.orderReturnId,
+        amount: a.amount,
+        currency: a.currency,
+        refundMethod: a.refundMethod,
+        status: a.status,
+        provider: a.provider,
+        providerRefundId: a.providerRefundId,
+        transactionReference: a.transactionReference,
+        actorType: a.actorType,
+        initiatedByAdminId: a.initiatedByAdminId,
+        confirmedByAdminId: a.confirmedByAdminId,
+        initiatedAt: a.initiatedAt,
+        completedAt: a.completedAt,
+        failedAt: a.failedAt,
+        failureReason: a.failureReason,
+        failureCode: a.failureCode,
+        createdAt: a.createdAt,
+      })),
+    };
+  }
+
   async getOrderInvoicePdf(id: string) {
     const order = await this.findOrderByIdOrNumber(id);
 

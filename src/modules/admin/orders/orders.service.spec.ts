@@ -30,6 +30,13 @@ describe('Admin OrdersService', () => {
     payment: {
       updateMany: jest.fn(),
       create: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    refundAudit: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
     },
     orderReturn: {
       updateMany: jest.fn(),
@@ -302,29 +309,79 @@ describe('Admin OrdersService', () => {
   });
 
   describe('processRefund', () => {
-    it('should process full refund and resolve return requests', async () => {
+    it('should process full refund and create RefundAudit record', async () => {
       const existingOrder = {
         id: 'ord-1',
         orderNumber: 'ORD-1001',
+        userId: 'usr-1',
         grandTotal: 1500,
+        paymentMethod: PaymentMethodEnum.CARD,
         paymentStatus: PaymentStatusEnum.COMPLETED,
       };
 
       prisma.order.findFirst.mockResolvedValue(existingOrder);
+      prisma.orderReturn.findFirst.mockResolvedValue({ id: 'ret-1' });
+      prisma.payment.findFirst.mockResolvedValue({ id: 'pay-1' });
       prisma.orderReturn.updateMany.mockResolvedValue({ count: 1 });
       prisma.payment.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await service.processRefund('ord-1', {
         reason: 'Damaged item',
-      });
+      }, 'admin-123');
 
       expect(result.success).toBe(true);
       expect(result.data.refundAmount).toBe(1500);
       expect(result.data.reason).toBe('Damaged item');
-      expect(prisma.orderReturn.updateMany).toHaveBeenCalledWith({
-        where: { orderId: 'ord-1', status: 'INITIATED' },
-        data: { status: 'REFUNDED' },
+      expect(prisma.refundAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderId: 'ord-1',
+            userId: 'usr-1',
+            amount: 1500,
+            status: 'REFUND_INITIATED',
+            initiatedByAdminId: 'admin-123',
+          }),
+        }),
+      );
+    });
+
+    it('should get order refund history for admin', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: 'ord-1',
+        orderNumber: 'ORD-1001',
+        grandTotal: 1500,
       });
+
+      prisma.refundAudit.findMany.mockResolvedValue([
+        {
+          id: 'ref-1',
+          orderId: 'ord-1',
+          orderReturnId: 'ret-1',
+          amount: 1500,
+          currency: 'INR',
+          refundMethod: 'COD',
+          status: 'COD_REFUNDED',
+          provider: 'MANUAL',
+          providerRefundId: null,
+          transactionReference: 'TXN999',
+          actorType: 'ADMIN',
+          initiatedByAdminId: 'admin-1',
+          confirmedByAdminId: 'admin-1',
+          initiatedAt: new Date(),
+          completedAt: new Date(),
+          failedAt: null,
+          failureReason: null,
+          failureCode: null,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const res = await service.getOrderRefundHistory('ord-1');
+
+      expect(res.success).toBe(true);
+      expect(res.summary.totalRefunded).toBe(1500);
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].transactionReference).toBe('TXN999');
     });
 
     it('should throw BadRequestException if refund amount exceeds grand total', async () => {

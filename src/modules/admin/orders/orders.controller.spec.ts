@@ -19,6 +19,8 @@ describe('Admin OrdersController', () => {
     updateOrderStatus: jest.fn(),
     cancelOrder: jest.fn(),
     processRefund: jest.fn(),
+    confirmCodRefund: jest.fn(),
+    getOrderRefundHistory: jest.fn(),
     getOrderInvoice: jest.fn(),
     getPackingSlip: jest.fn(),
   };
@@ -89,15 +91,25 @@ describe('Admin OrdersController', () => {
     expect(mockOrdersService.cancelOrder).toHaveBeenCalledWith('ord-1', dto);
   });
 
-  it('processRefund should delegate to service', async () => {
+  it('processRefund should delegate to service with authenticated adminId', async () => {
     const expected = { success: true, message: 'Refunded' };
     mockOrdersService.processRefund.mockResolvedValue(expected);
 
     const dto: AdminRefundOrderDto = { reason: 'Returned item' };
-    const result = await controller.processRefund('ord-1', dto);
+    const result = await controller.processRefund('ord-1', dto, 'admin-123');
 
     expect(result).toBe(expected);
-    expect(mockOrdersService.processRefund).toHaveBeenCalledWith('ord-1', dto);
+    expect(mockOrdersService.processRefund).toHaveBeenCalledWith('ord-1', dto, 'admin-123');
+  });
+
+  it('getOrderRefundHistory should delegate to service', async () => {
+    const expected = { success: true, data: [] };
+    mockOrdersService.getOrderRefundHistory.mockResolvedValue(expected);
+
+    const result = await controller.getOrderRefundHistory('ord-1');
+
+    expect(result).toBe(expected);
+    expect(mockOrdersService.getOrderRefundHistory).toHaveBeenCalledWith('ord-1');
   });
 
   it('getOrderInvoice should delegate to service', async () => {

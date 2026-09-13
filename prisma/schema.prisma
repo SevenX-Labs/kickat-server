@@ -120,6 +120,7 @@ model User {
   notifications     Notification[]
   auditLogs         AuditLog[]
   recentlyViewed    RecentlyViewed[]
+  refundAudits      RefundAudit[]
 
   @@map("users")
 }
@@ -518,6 +519,7 @@ model Order {
   items                OrderItem[]
   payments             Payment[]
   returns              OrderReturn[]
+  refundAudits         RefundAudit[]
 
   @@index([userId])
   @@index([orderStatus])
@@ -589,6 +591,7 @@ model OrderReturn {
   updatedAt            DateTime          @updatedAt
   order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items              OrderReturnItem[]
+  refundAudits       RefundAudit[]
 
   @@index([orderId])
   @@index([userId])
@@ -844,4 +847,41 @@ model Testimonial {
 
   @@index([isActive, order])
   @@map("testimonials")
+}
+
+
+model RefundAudit {
+  id                   String       @id @default(uuid())
+  orderId              String
+  orderReturnId        String?
+  userId               String
+  paymentId            String?
+  amount               Float
+  currency             String       @default("INR")
+  refundMethod         String
+  status               String
+  provider             String
+  providerRefundId     String?
+  transactionReference String?
+  actorType            String       @default("ADMIN")
+  initiatedByAdminId   String?
+  confirmedByAdminId   String?
+  initiatedAt          DateTime     @default(now())
+  completedAt          DateTime?
+  failedAt             DateTime?
+  failureReason        String?
+  failureCode          String?
+  idempotencyKey       String?      @unique
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  order                Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderReturn          OrderReturn? @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([orderReturnId])
+  @@index([providerRefundId])
+  @@index([status])
+  @@map("refund_audits")
 }

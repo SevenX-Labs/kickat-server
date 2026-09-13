@@ -10,7 +10,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
-import { AdminAuth } from '../../../common';
+import { AdminAuth, CurrentUser } from '../../../common';
 import {
   AdminCancelOrderDto,
   AdminOrdersQueryDto,
@@ -121,17 +121,24 @@ export class OrdersController {
     return this.ordersService.confirmReturnReceived(returnId);
   }
 
+  @Get(':id/refunds')
+  async getOrderRefundHistory(@Param('id') id: string) {
+    return this.ordersService.getOrderRefundHistory(id);
+  }
+
   async confirmCodRefund(
     @Param("id") id: string,
     @Body() dto: ConfirmCodRefundDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.ordersService.confirmCodRefund(id, dto);
+    return this.ordersService.confirmCodRefund(id, dto, adminId);
   }
 
   async processRefund(
     @Param('id') id: string,
     @Body() dto: AdminRefundOrderDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.ordersService.processRefund(id, dto);
+    return this.ordersService.processRefund(id, dto, adminId);
   }
 }

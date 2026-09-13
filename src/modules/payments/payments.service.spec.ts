@@ -53,6 +53,11 @@ describe('PaymentsService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
       },
+      refundAudit: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
       $transaction: jest.fn((callback) => callback(prisma)),
     };
 
@@ -492,7 +497,7 @@ describe('PaymentsService', () => {
       expect(prisma.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: mockOrderId },
-          data: { orderStatus: 'RETURNED' },
+          data: expect.objectContaining({ orderStatus: 'RETURNED' }),
         }),
       );
       expect(res.success).toBe(true);
