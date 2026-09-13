@@ -46,13 +46,13 @@ export class EmailService {
     const fromAddress =
       this.configService.get<string>('RESEND_FROM') ||
       this.configService.get<string>('SMTP_FROM') ||
-      'Kickat <support@kickat.co.in>';
+      'KickAt <support@kickat.co.in>';
 
     const htmlContent = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
       <h2 style="color: #1a1a1a; margin-top: 0;">${params.subject}</h2>
       <p style="color: #4a4a4a; font-size: 16px; line-height: 1.5;">${params.body}</p>
       <hr style="border: 0; border-top: 1px solid #eeeeee; margin: 20px 0;" />
-      <p style="color: #888888; font-size: 12px; text-align: center;">Kickat Ecommerce Notifications</p>
+      <p style="color: #888888; font-size: 12px; text-align: center;">KickAt Notifications</p>
     </div>`;
 
     if (resendApiKey) {

@@ -139,7 +139,7 @@ export class NotificationsService {
       case 'ORDER_STATUS_DELIVERED':
         return {
           title: `Order Delivered - ${orderRef}`,
-          message: `${nameStr}your order ${orderRef} has been delivered. Thank you for shopping with Kickat!`,
+          message: `${nameStr}your order ${orderRef} has been delivered. Thank you for shopping with KickAt!`,
         };
       case 'ORDER_STATUS_CANCELLED':
         return {
