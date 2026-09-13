@@ -8,16 +8,16 @@ import {
   Param,
   Post,
   Query,
-} from '@nestjs/common';
-import { WishlistService } from './wishlist.service';
-import { WishlistQueryDto } from './dto/wishlist-query.dto';
-import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
-import { WishlistProductIdParamDto } from './dto/wishlist-product-id-param.dto';
-import { MoveToCartDto } from './dto/move-to-cart.dto';
-import { Auth, CurrentUser } from '../../common';
+} from "@nestjs/common";
+import { WishlistService } from "./wishlist.service";
+import { WishlistQueryDto } from "./dto/wishlist-query.dto";
+import { AddToWishlistDto } from "./dto/add-to-wishlist.dto";
+import { WishlistProductIdParamDto } from "./dto/wishlist-product-id-param.dto";
+import { MoveToCartDto } from "./dto/move-to-cart.dto";
+import { Auth, CurrentUser } from "../../common";
 
 @Auth()
-@Controller('wishlist')
+@Controller("wishlist")
 export class WishlistController {
   constructor(private readonly wishlistService: WishlistService) {}
 
@@ -26,7 +26,7 @@ export class WishlistController {
    */
   @Get()
   async getWishlist(
-    @CurrentUser('id') userId: string,
+    @CurrentUser("id") userId: string,
     @Query() query: WishlistQueryDto,
   ) {
     return this.wishlistService.getWishlist(userId, query);
@@ -37,7 +37,7 @@ export class WishlistController {
    */
   @Post()
   async addToWishlist(
-    @CurrentUser('id') userId: string,
+    @CurrentUser("id") userId: string,
     @Body() dto: AddToWishlistDto,
   ) {
     return this.wishlistService.addToWishlist(userId, dto);
@@ -46,29 +46,32 @@ export class WishlistController {
   /**
    * DELETE /wishlist/:productId
    */
-  @Delete(':productId')
+  @Delete(":productId")
   @HttpCode(HttpStatus.OK)
   async removeFromWishlist(
-    @CurrentUser('id') userId: string,
+    @CurrentUser("id") userId: string,
     @Param() params: WishlistProductIdParamDto,
+    @Query("variantId") variantId?: string,
   ) {
-    return this.wishlistService.removeFromWishlist(userId, params.productId);
+    return this.wishlistService.removeFromWishlist(userId, params.productId, variantId);
   }
 
   /**
    * POST /wishlist/:productId/move-to-cart
    */
-  @Post(':productId/move-to-cart')
+  @Post(":productId/move-to-cart")
   @HttpCode(HttpStatus.OK)
   async moveToCart(
-    @CurrentUser('id') userId: string,
+    @CurrentUser("id") userId: string,
     @Param() params: WishlistProductIdParamDto,
     @Body() dto: MoveToCartDto,
+    @Query("variantId") variantId?: string,
   ) {
     return this.wishlistService.moveToCart(
       userId,
       params.productId,
       dto.quantity,
+      variantId,
     );
   }
 }

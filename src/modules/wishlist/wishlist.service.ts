@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { WishlistQueryDto } from './dto/wishlist-query.dto';
-import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
+} from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { WishlistQueryDto } from "./dto/wishlist-query.dto";
+import { AddToWishlistDto } from "./dto/add-to-wishlist.dto";
 
 @Injectable()
 export class WishlistService {
@@ -22,7 +23,7 @@ export class WishlistService {
     const [items, total] = await Promise.all([
       this.prisma.wishlistItem.findMany({
         where: { userId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip,
         take: limit,
         include: {
@@ -53,36 +54,47 @@ export class WishlistService {
    * POST /wishlist
    */
   async addToWishlist(userId: string, dto: AddToWishlistDto) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: dto.productId },
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, deletedAt: null, status: "ACTIVE" },
     });
 
     if (!product) {
-      throw new NotFoundException('Product not found');
+      throw new NotFoundException("Product not found");
     }
 
-    if (dto.variantId) {
+    if (product.type === "SIMPLE") {
+      if (dto.variantId) {
+        throw new BadRequestException("variantId must not be provided for SIMPLE products");
+      }
+    } else if (product.type === "VARIABLE") {
+      if (!dto.variantId) {
+        throw new BadRequestException("variantId is required for VARIABLE products");
+      }
       const variant = await this.prisma.productVariant.findFirst({
         where: { id: dto.variantId, productId: dto.productId },
       });
       if (!variant) {
-        throw new NotFoundException('Product variant not found');
+        throw new BadRequestException("Product variant not found or does not belong to this product");
       }
     }
 
     const existing = await this.prisma.wishlistItem.findFirst({
-      where: { userId, productId: dto.productId },
+      where: {
+        userId,
+        productId: dto.productId,
+        variantId: dto.variantId ? dto.variantId : null,
+      },
     });
 
     if (existing) {
-      throw new ConflictException('Product already in wishlist');
+      throw new ConflictException("Product variant is already in wishlist");
     }
 
     const item = await this.prisma.wishlistItem.create({
       data: {
         userId,
         productId: dto.productId,
-        variantId: dto.variantId,
+        variantId: dto.variantId || null,
       },
       include: {
         product: true,
@@ -92,7 +104,7 @@ export class WishlistService {
 
     return {
       success: true,
-      message: 'Product added to wishlist',
+      message: "Product added to wishlist",
       item,
     };
   }
@@ -100,13 +112,17 @@ export class WishlistService {
   /**
    * DELETE /wishlist/:productId
    */
-  async removeFromWishlist(userId: string, productId: string) {
+  async removeFromWishlist(userId: string, productId: string, variantId?: string) {
     const existing = await this.prisma.wishlistItem.findFirst({
-      where: { userId, productId },
+      where: {
+        userId,
+        productId,
+        variantId: variantId ? variantId : null,
+      },
     });
 
     if (!existing) {
-      throw new NotFoundException('Product not in wishlist');
+      throw new NotFoundException("Product variant not in wishlist");
     }
 
     await this.prisma.wishlistItem.delete({
@@ -115,21 +131,25 @@ export class WishlistService {
 
     return {
       success: true,
-      message: 'Product removed from wishlist',
+      message: "Product removed from wishlist",
     };
   }
 
   /**
    * POST /wishlist/:productId/move-to-cart
    */
-  async moveToCart(userId: string, productId: string, quantity: number = 1) {
+  async moveToCart(userId: string, productId: string, quantity: number = 1, variantId?: string) {
     const wishlistItem = await this.prisma.wishlistItem.findFirst({
-      where: { userId, productId },
+      where: {
+        userId,
+        productId,
+        variantId: variantId ? variantId : null,
+      },
       include: { product: true, variant: true },
     });
 
     if (!wishlistItem) {
-      throw new NotFoundException('Product not in wishlist');
+      throw new NotFoundException("Product variant not in wishlist");
     }
 
     const availableStock = wishlistItem.variant
@@ -137,7 +157,7 @@ export class WishlistService {
       : wishlistItem.product.stock;
 
     if (availableStock < quantity) {
-      throw new ConflictException('Product is out of stock');
+      throw new ConflictException("Product is out of stock");
     }
 
     // Add or update cart item
@@ -172,7 +192,7 @@ export class WishlistService {
 
     return {
       success: true,
-      message: 'Product moved to cart successfully',
+      message: "Product moved to cart successfully",
     };
   }
 }
