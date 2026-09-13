@@ -65,6 +65,7 @@ enum PaymentStatusEnum {
   PENDING
   COMPLETED
   FAILED
+  REFUNDED
 }
 
 enum ProductStatusEnum {
@@ -576,13 +577,16 @@ model Payment {
 }
 
 model OrderReturn {
-  id                 String            @id @default(uuid())
-  orderId            String
-  userId             String
-  pickupInstructions String?
-  status             String            @default("INITIATED")
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  id                   String            @id @default(uuid())
+  orderId              String
+  userId               String
+  pickupInstructions   String?
+  status               String            @default("INITIATED")
+  refundAmount         Float?
+  transactionReference String?
+  refundedAt           DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
   order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items              OrderReturnItem[]
 

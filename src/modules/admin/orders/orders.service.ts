@@ -394,6 +394,11 @@ export class OrdersService {
    * POST /api/v1/admin/orders/:id/confirm-cod-refund
    * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
    */
+  
+  /**
+   * POST /api/v1/admin/orders/:id/confirm-cod-refund
+   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
+   */
   async confirmCodRefund(id: string, dto: ConfirmCodRefundDto) {
     const order = await this.findOrderByIdOrNumber(id);
 
@@ -428,7 +433,9 @@ export class OrdersService {
       );
     }
 
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
+    const now = new Date();
+
+    const result = await this.prisma.$transaction(async (tx) => {
       const updateResult = await tx.order.updateMany({
         where: {
           id: order.id,
@@ -436,7 +443,7 @@ export class OrdersService {
         },
         data: {
           orderStatus: OrderStatusEnum.RETURNED,
-          paymentStatus: PaymentStatusEnum.FAILED,
+          paymentStatus: PaymentStatusEnum.REFUNDED,
         },
       });
 
@@ -444,9 +451,14 @@ export class OrdersService {
         throw new ConflictException("Order is already marked as returned / refunded");
       }
 
-      await tx.orderReturn.updateMany({
-        where: { orderId: order.id },
-        data: { status: "COD_REFUNDED" },
+      const updatedReturn = await tx.orderReturn.update({
+        where: { id: returnRecord.id },
+        data: {
+          status: "COD_REFUNDED",
+          refundAmount,
+          transactionReference: dto.transactionReference,
+          refundedAt: now,
+        },
       });
 
       await tx.payment.create({
@@ -456,12 +468,12 @@ export class OrdersService {
           amount: refundAmount,
           currency: "INR",
           paymentMethod: order.paymentMethod,
-          status: PaymentStatusEnum.FAILED,
+          status: PaymentStatusEnum.REFUNDED,
           failureReason: `COD Refund: ${dto.transactionReference}. Notes: ${dto.notes || "N/A"}`,
         },
       });
 
-      return await tx.order.findUnique({ where: { id: order.id } });
+      return updatedReturn;
     });
 
     return {
@@ -470,11 +482,11 @@ export class OrdersService {
       data: {
         orderId: order.id,
         orderNumber: order.orderNumber,
-        refundAmount: Number(refundAmount.toFixed(2)),
+        refundAmount: Number((result?.refundAmount ?? refundAmount).toFixed(2)),
         currency: "INR",
-        transactionReference: dto.transactionReference,
+        transactionReference: result?.transactionReference ?? dto.transactionReference,
         notes: dto.notes || null,
-        refundedAt: updatedOrder?.updatedAt || new Date(),
+        refundedAt: result?.refundedAt ?? now,
         status: "COD_REFUNDED",
       },
     };
