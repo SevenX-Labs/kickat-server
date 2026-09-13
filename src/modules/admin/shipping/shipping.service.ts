@@ -1,3 +1,6 @@
+import { ConfigService } from '@nestjs/config';
+import { NullShippingProvider } from './providers/null-shipping.provider';
+import { ShippingProvider } from './providers/shipping-provider.interface';
 import {
   BadRequestException,
   Injectable,
@@ -20,7 +23,19 @@ const UUID_V4_REGEX =
 export class ShippingService {
   private readonly logger = new Logger(ShippingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  private shippingProvider: ShippingProvider;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+    private readonly nullShippingProvider: NullShippingProvider,
+  ) {
+    this.shippingProvider = this.nullShippingProvider;
+  }
+
+  getShippingProvider(): ShippingProvider {
+    return this.shippingProvider;
+  }
 
   /**
    * Helper to find order by UUID, orderNumber, or trackingNumber

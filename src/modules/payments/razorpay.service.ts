@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import Razorpay from 'razorpay';
@@ -22,9 +22,15 @@ export class RazorpayService {
       });
     } else {
       this.logger.warn(
-        'Razorpay credentials missing. Operating in fallback mock mode.',
+        'Razorpay credentials missing. Operating in fallback mock mode for non-production environments.',
       );
     }
+  }
+
+  public isProduction(): boolean {
+    const env = (this.configService.get<string>('NODE_ENV') || '').toLowerCase();
+    const mode = (this.configService.get<string>('RAZORPAY_MODE') || '').toLowerCase();
+    return env === 'production' || mode === 'production';
   }
 
   getKeyId(): string {
@@ -37,6 +43,12 @@ export class RazorpayService {
     receipt: string;
     notes?: Record<string, string>;
   }): Promise<{ id: string; amount: number; currency: string }> {
+    if (this.isProduction() && !this.razorpay) {
+      throw new BadRequestException(
+        'Online payments are disabled. Missing Razorpay production credentials.',
+      );
+    }
+
     if (this.razorpay) {
       try {
         const order = await this.razorpay.orders.create({
@@ -65,11 +77,69 @@ export class RazorpayService {
     };
   }
 
+  async createRefund(params: {
+    paymentId: string;
+    amountInPaise: number;
+    notes?: Record<string, string>;
+  }): Promise<{ id: string; amount: number; status: string }> {
+    if (this.isProduction() && !this.razorpay) {
+      throw new BadRequestException(
+        'Razorpay refund unavailable. Missing Razorpay production credentials.',
+      );
+    }
+
+    if (this.razorpay) {
+      try {
+        const refund = await this.razorpay.payments.refund(params.paymentId, {
+          amount: Math.round(params.amountInPaise),
+          notes: params.notes,
+        });
+        return {
+          id: refund.id,
+          amount: Number(refund.amount),
+          status: refund.status || 'processed',
+        };
+      } catch (error) {
+        this.logger.error('Failed to create Razorpay refund:', error);
+        throw error;
+      }
+    }
+
+    // Development/test mock fallback
+    const mockId = `rfnd_mock_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    return {
+      id: mockId,
+      amount: Math.round(params.amountInPaise),
+      status: 'processed',
+    };
+  }
+
   verifySignature(params: {
     razorpayOrderId: string;
     razorpayPaymentId: string;
     signature: string;
   }): boolean {
+    const isProd = this.isProduction();
+
+    if (isProd) {
+      if (
+        !params.signature ||
+        params.signature.startsWith('mock_sig_') ||
+        params.signature === `valid_sig_${params.razorpayOrderId}`
+      ) {
+        return false;
+      }
+      if (!this.keySecret) {
+        return false;
+      }
+      const generatedSignature = crypto
+        .createHmac('sha256', this.keySecret)
+        .update(`${params.razorpayOrderId}|${params.razorpayPaymentId}`)
+        .digest('hex');
+
+      return generatedSignature === params.signature;
+    }
+
     if (this.keySecret) {
       const generatedSignature = crypto
         .createHmac('sha256', this.keySecret)
@@ -79,12 +149,11 @@ export class RazorpayService {
       return generatedSignature === params.signature;
     }
 
-    // Fallback mock check if keys are not set or for unit testing
+    // Fallback mock check if keys are not set or for unit testing in dev
     if (params.signature.startsWith('mock_sig_')) {
       return true;
     }
 
-    // If key secret is not set, compute with dummy secret or check length
     const dummySignature = crypto
       .createHmac('sha256', 'dummy_secret')
       .update(`${params.razorpayOrderId}|${params.razorpayPaymentId}`)
@@ -105,7 +174,12 @@ export class RazorpayService {
       return false;
     }
 
-    if (params.signature.startsWith('mock_wh_sig_')) {
+    const isProd = this.isProduction();
+    if (isProd && params.signature.startsWith('mock_wh_sig_')) {
+      return false;
+    }
+
+    if (!isProd && params.signature.startsWith('mock_wh_sig_')) {
       return true;
     }
 
@@ -113,11 +187,20 @@ export class RazorpayService {
       params.secret ||
       this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET') ||
       this.keySecret ||
-      'mock_webhook_secret';
+      (isProd ? null : 'mock_webhook_secret');
+
+    if (!webhookSecret) {
+      return false;
+    }
 
     const bodyBuffer = Buffer.isBuffer(params.rawBody)
       ? params.rawBody
-      : Buffer.from(typeof params.rawBody === 'string' ? params.rawBody : JSON.stringify(params.rawBody), 'utf8');
+      : Buffer.from(
+          typeof params.rawBody === 'string'
+            ? params.rawBody
+            : JSON.stringify(params.rawBody || {}),
+          'utf8',
+        );
 
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)

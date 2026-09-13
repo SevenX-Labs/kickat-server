@@ -32,6 +32,12 @@ export const DEFAULT_PAYMENT_SETTINGS = {
   card: {
     enabled: true,
   },
+  wallet: {
+    enabled: true,
+  },
+  netbanking: {
+    enabled: true,
+  },
 };
 
 export const DEFAULT_TAX_SETTINGS = {
@@ -352,6 +358,12 @@ export class SettingsService {
           },
           card: {
             enabled: Boolean(payment.card?.enabled ?? true),
+          },
+          wallet: {
+            enabled: Boolean(payment.wallet?.enabled ?? true),
+          },
+          netbanking: {
+            enabled: Boolean(payment.netbanking?.enabled ?? true),
           },
         },
       },

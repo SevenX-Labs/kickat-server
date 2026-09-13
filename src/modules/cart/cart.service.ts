@@ -63,6 +63,11 @@ export function calculateFeesHelper(
   let extraFeeAmount = 0;
   let extraFeeName: string | null = null;
   const configuredExtraFee = Number(delivery?.extraFeeAmount ?? 0);
+  if (delivery?.extraFeeEnabled) {
+    if (!delivery?.extraFeeName || !delivery.extraFeeName.trim()) {
+      throw new BadRequestException('extraFeeName is required when extra fee is enabled');
+    }
+  }
   if (delivery?.extraFeeEnabled && configuredExtraFee > 0) {
     const isCompulsory = Boolean(delivery?.isExtraFeeCompulsory ?? true);
     if (isCompulsory || applyOptionalExtraFee) {

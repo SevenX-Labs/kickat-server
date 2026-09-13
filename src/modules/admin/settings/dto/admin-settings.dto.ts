@@ -84,6 +84,16 @@ export class UpdatePaymentSettingsDto {
   @ValidateNested()
   @Type(() => SimpleGatewayConfigDto)
   card?: SimpleGatewayConfigDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SimpleGatewayConfigDto)
+  wallet?: SimpleGatewayConfigDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SimpleGatewayConfigDto)
+  netbanking?: SimpleGatewayConfigDto;
 }
 
 export class UpdateTaxSettingsDto {

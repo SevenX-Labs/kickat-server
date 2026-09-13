@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ShippingService } from './shipping.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
+import { NullShippingProvider } from './providers/null-shipping.provider';
 import { NotFoundException } from '@nestjs/common';
 import { OrderStatusEnum } from '@prisma/client';
 import {
@@ -27,6 +29,11 @@ describe('Admin ShippingService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShippingService,
+        NullShippingProvider,
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn() },
+        },
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -64,11 +71,11 @@ describe('Admin ShippingService', () => {
 
       prisma.order.findMany.mockResolvedValue(mockOrders);
       prisma.order.count
-        .mockResolvedValueOnce(1) // total
-        .mockResolvedValueOnce(0) // pending assignment
-        .mockResolvedValueOnce(1) // in transit
-        .mockResolvedValueOnce(0) // delivered
-        .mockResolvedValueOnce(0); // rto
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0);
 
       const query: AdminShipmentsQueryDto = {
         page: 1,
