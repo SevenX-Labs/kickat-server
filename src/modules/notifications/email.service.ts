@@ -43,10 +43,10 @@ export class EmailService {
     let errorMessage: string | undefined = undefined;
 
     const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
-    const smtpFrom = this.configService.get<string>('SMTP_FROM');
-    const resendFrom =
+    const fromAddress =
       this.configService.get<string>('RESEND_FROM') ||
-      (resendApiKey ? 'Kickat <onboarding@resend.dev>' : smtpFrom || 'Kickat <support@kickat.co.in>');
+      this.configService.get<string>('SMTP_FROM') ||
+      'Kickat <support@kickat.co.in>';
 
     const htmlContent = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
       <h2 style="color: #1a1a1a; margin-top: 0;">${params.subject}</h2>
@@ -64,7 +64,7 @@ export class EmailService {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: resendFrom,
+            from: fromAddress,
             to: [params.recipient],
             subject: params.subject,
             text: params.body,
@@ -74,20 +74,19 @@ export class EmailService {
 
         const resData: any = await response.json();
         if (response.ok && resData?.id) {
-          this.logger.log(`[RESEND SUCCESS] MessageId: ${resData.id}`);
+          this.logger.log(`[API EMAIL SUCCESS] MessageId: ${resData.id}`);
         } else {
-          this.logger.error(`[RESEND ERROR] Failed to send to ${params.recipient}:`, resData);
+          this.logger.error(`[API EMAIL ERROR] Failed to send to ${params.recipient}:`, resData);
           status = 'FAILED';
           errorMessage = resData?.message || JSON.stringify(resData);
         }
       } catch (err: any) {
-        this.logger.error(`[RESEND API ERROR] Exception sending to ${params.recipient}:`, err);
+        this.logger.error(`[API EMAIL ERROR] Exception sending to ${params.recipient}:`, err);
         status = 'FAILED';
-        errorMessage = err instanceof Error ? err.message : 'Resend API error';
+        errorMessage = err instanceof Error ? err.message : 'Send error';
       }
     } else if (this.transporter) {
       try {
-        const fromAddress = smtpFrom || 'Kickat <support@kickat.co.in>';
         const info = await this.transporter.sendMail({
           from: fromAddress,
           to: params.recipient,
@@ -99,7 +98,7 @@ export class EmailService {
       } catch (err: any) {
         this.logger.error(`[SMTP ERROR] Failed to send email to ${params.recipient}:`, err);
         status = 'FAILED';
-        errorMessage = err instanceof Error ? err.message : 'SMTP send error';
+        errorMessage = err instanceof Error ? err.message : 'Send error';
       }
     }
 
