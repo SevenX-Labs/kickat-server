@@ -1,3 +1,4 @@
+import { NotificationsService } from "../notifications/notifications.service";
 import { SettingsService } from "../admin/settings/settings.service";
 import {
   BadRequestException,
@@ -23,6 +24,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private validateUuid(id: string, paramName: string = 'id'): string {
@@ -365,6 +367,7 @@ export class OrdersService {
    */
   async cancelOrder(userId: string, id: string, dto: CancelOrderDto) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
+    const oldStatus = order.orderStatus;
 
     const nonCancellableStatuses: OrderStatusEnum[] = [
       OrderStatusEnum.PACKED,
@@ -422,6 +425,14 @@ export class OrdersService {
         id: order.id,
         orderStatus: OrderStatusEnum.CANCELLED,
       };
+    });
+
+    this.notificationsService.notifyOrderStatusChange({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      userId: order.userId,
+      oldStatus,
+      newStatus: 'CANCELLED',
     });
 
     return {

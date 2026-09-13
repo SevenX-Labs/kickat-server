@@ -1,3 +1,4 @@
+import { NotificationsService } from "../notifications/notifications.service";
 import { calculateFeesHelper, roundCurrency } from "../cart/cart.service";
 import {
   BadRequestException,
@@ -19,6 +20,7 @@ export class CheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async computeFees(
@@ -414,6 +416,14 @@ export class CheckoutService {
         });
 
         return createdOrder;
+      });
+
+      this.notificationsService.notifyOrderPlaced({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        grandTotal: order.grandTotal,
+        paymentMethod: order.paymentMethod,
       });
 
       return {

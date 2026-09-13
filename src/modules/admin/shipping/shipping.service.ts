@@ -1,3 +1,4 @@
+import { NotificationsService } from "../../notifications/notifications.service";
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
 import { ShippingProvider } from './providers/shipping-provider.interface';
@@ -29,6 +30,7 @@ export class ShippingService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly nullShippingProvider: NullShippingProvider,
+    private readonly notificationsService: NotificationsService,
   ) {
     this.shippingProvider = this.nullShippingProvider;
   }
@@ -359,6 +361,17 @@ export class ShippingService {
       },
     });
 
+    this.notificationsService.notifyOrderStatusChange({
+      orderId: updated.id,
+      orderNumber: updated.orderNumber,
+      userId: updated.userId,
+      oldStatus: order.orderStatus,
+      newStatus: updated.orderStatus,
+      trackingNumber: updated.trackingNumber,
+      courierPartner: updated.courierPartner,
+      estimatedDelivery: updated.estimatedDelivery,
+    });
+
     return {
       success: true,
       message: `Courier ${dto.courierPartner} and AWB ${finalAwb} assigned successfully`,
@@ -398,6 +411,17 @@ export class ShippingService {
     const isRTO =
       dto.status === OrderStatusEnum.RETURN_INITIATED ||
       dto.status === OrderStatusEnum.RETURNED;
+
+    this.notificationsService.notifyOrderStatusChange({
+      orderId: updated.id,
+      orderNumber: updated.orderNumber,
+      userId: updated.userId,
+      oldStatus: order.orderStatus,
+      newStatus: updated.orderStatus,
+      trackingNumber: updated.trackingNumber,
+      courierPartner: updated.courierPartner,
+      estimatedDelivery: updated.estimatedDelivery,
+    });
 
     return {
       success: true,

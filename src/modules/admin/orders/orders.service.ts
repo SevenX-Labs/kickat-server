@@ -1,3 +1,4 @@
+import { NotificationsService } from "../../notifications/notifications.service";
 import {
   BadRequestException,
   ConflictException,
@@ -23,7 +24,10 @@ const UUID_V4_REGEX =
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   /**
    * Helper to find order by UUID or orderNumber
@@ -261,6 +265,7 @@ export class OrdersService {
    */
   async updateOrderStatus(id: string, dto: UpdateOrderStatusDto) {
     const order = await this.findOrderByIdOrNumber(id);
+    const oldStatus = order.orderStatus;
 
     const updated = await this.prisma.order.update({
       where: { id: order.id },
@@ -277,6 +282,17 @@ export class OrdersService {
       },
     });
 
+    this.notificationsService.notifyOrderStatusChange({
+      orderId: updated.id,
+      orderNumber: updated.orderNumber,
+      userId: updated.userId,
+      oldStatus,
+      newStatus: updated.orderStatus,
+      trackingNumber: updated.trackingNumber,
+      courierPartner: updated.courierPartner,
+      estimatedDelivery: updated.estimatedDelivery,
+    });
+
     return {
       success: true,
       message: `Order status updated to ${dto.status}`,
@@ -290,6 +306,7 @@ export class OrdersService {
    */
   async cancelOrder(id: string, dto: AdminCancelOrderDto) {
     const order = await this.findOrderByIdOrNumber(id);
+    const oldStatus = order.orderStatus;
 
     if (order.orderStatus === OrderStatusEnum.CANCELLED) {
       throw new BadRequestException('Order is already cancelled');
@@ -331,6 +348,14 @@ export class OrdersService {
       });
 
       return updated;
+    });
+
+    this.notificationsService.notifyOrderStatusChange({
+      orderId: updatedOrder.id,
+      orderNumber: updatedOrder.orderNumber,
+      userId: updatedOrder.userId,
+      oldStatus,
+      newStatus: 'CANCELLED',
     });
 
     return {
@@ -375,6 +400,13 @@ export class OrdersService {
     const updated = await this.prisma.orderReturn.update({
       where: { id: returnId },
       data: { status: "RETURN_RECEIVED" },
+    });
+
+    this.notificationsService.notifyReturnStatus({
+      orderId: returnRecord.order.id,
+      orderNumber: returnRecord.order.orderNumber,
+      userId: returnRecord.order.userId,
+      status: "RETURN_RECEIVED",
     });
 
     return {
@@ -476,6 +508,15 @@ export class OrdersService {
       return updatedReturn;
     });
 
+    this.notificationsService.notifyRefundStatus({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      userId: order.userId,
+      status: "COD_REFUND_SUCCESS",
+      refundAmount: result?.refundAmount ?? refundAmount,
+      transactionReference: dto.transactionReference,
+    });
+
     return {
       success: true,
       message: "COD refund marked as successful",
@@ -521,6 +562,14 @@ export class OrdersService {
           data: { failureReason: `Refunded: ${dto.reason}` },
         });
       }
+    });
+
+    this.notificationsService.notifyRefundStatus({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      userId: order.userId,
+      status: "ONLINE_REFUND_INITIATED",
+      refundAmount,
     });
 
     return {

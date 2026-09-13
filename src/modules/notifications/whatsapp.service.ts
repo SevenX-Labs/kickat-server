@@ -11,9 +11,10 @@ export class WhatsappService {
     recipient: string;
     message: string;
     templateCode?: string;
+    providerMessageId?: string;
   }) {
     this.logger.log(`[WHATSAPP DISPATCH] To: ${params.recipient} | Message: ${params.message}`);
-    const providerMessageId = `msg_wa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const providerMessageId = params.providerMessageId || `msg_wa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     try {
       await this.prisma.notificationLog.create({

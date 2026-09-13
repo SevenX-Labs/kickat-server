@@ -1,3 +1,4 @@
+import { NotificationsService } from "../notifications/notifications.service";
 import {
   BadRequestException,
   ConflictException,
@@ -23,6 +24,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly razorpayService: RazorpayService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private validateIdempotencyKey(key?: string): string {
@@ -733,6 +735,7 @@ export class PaymentsService {
             ...(razorpayPaymentId ? [{ razorpayPaymentId }] : []),
           ],
         },
+        include: { order: { select: { orderNumber: true } } },
       });
 
       if (payment) {
@@ -771,6 +774,13 @@ export class PaymentsService {
                 },
               });
             });
+
+            this.notificationsService.notifyPaymentSuccess({
+              orderId: payment.orderId,
+              orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+              userId: payment.userId,
+              grandTotal: payment.amount,
+            });
           }
         } else if (eventType === 'payment.failed') {
           if (payment.status !== PaymentStatusEnum.COMPLETED) {
@@ -804,6 +814,12 @@ export class PaymentsService {
                 },
               });
             });
+
+            this.notificationsService.notifyPaymentFailed({
+              orderId: payment.orderId,
+              orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+              userId: payment.userId,
+            });
           }
         } else if (
           eventType === 'refund.processed' ||
@@ -818,6 +834,17 @@ export class PaymentsService {
               },
             });
           });
+
+          if (eventType === 'refund.processed') {
+            const rAmt = refundEntity?.amount ? refundEntity.amount / 100 : payment.amount;
+            this.notificationsService.notifyRefundStatus({
+              orderId: payment.orderId,
+              orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+              userId: payment.userId,
+              status: 'ONLINE_REFUND_SUCCESS',
+              refundAmount: rAmt,
+            });
+          }
         } else if (eventType === 'refund.failed') {
           this.logger.warn(
             `Razorpay refund failed for paymentId=${payment.id}, orderId=${payment.orderId}. Reason: ${
@@ -826,6 +853,12 @@ export class PaymentsService {
               'Unknown error'
             }`,
           );
+          this.notificationsService.notifyRefundStatus({
+            orderId: payment.orderId,
+            orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+            userId: payment.userId,
+            status: 'ONLINE_REFUND_FAILED',
+          });
         }
       }
     }
