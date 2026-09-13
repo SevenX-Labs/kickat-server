@@ -1,3 +1,4 @@
+import { StockAlertService } from "./stock-alert.service";
 import { Module } from '@nestjs/common';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
@@ -11,6 +12,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
   imports: [PrismaModule],
   controllers: [NotificationsController],
   providers: [
+    StockAlertService,
     NotificationsService,
     EmailService,
     SmsService,
@@ -18,6 +20,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
     InAppService,
   ],
   exports: [
+    StockAlertService,
     NotificationsService,
     EmailService,
     SmsService,

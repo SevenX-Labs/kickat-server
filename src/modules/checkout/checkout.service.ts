@@ -1,3 +1,4 @@
+import { StockAlertService } from "../notifications/stock-alert.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { calculateFeesHelper, roundCurrency } from "../cart/cart.service";
 import {
@@ -21,6 +22,7 @@ export class CheckoutService {
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
+    private readonly stockAlertService: StockAlertService,
   ) {}
 
   private async computeFees(
@@ -340,10 +342,17 @@ export class CheckoutService {
 
     try {
       // Execute atomic stock deduction, order creation, cart clearing, and reservation fulfillment in one transaction
+      const stockChangeEvents: Array<{ productId: string; variantId?: string | null; previousStock: number; newStock: number; productName?: string; variantName?: string | null }> = [];
       const order = await this.prisma.$transaction(async (tx) => {
         // 1. Atomic conditional stock deduction for each item in the order
         for (const item of cartItems) {
           if (item.variantId) {
+            const currentVariant = await tx.productVariant.findUnique({
+              where: { id: item.variantId },
+              select: { stock: true, name: true, product: { select: { name: true } } },
+            });
+            const prevStock = currentVariant ? currentVariant.stock : 0;
+
             const updated = await tx.productVariant.updateMany({
               where: {
                 id: item.variantId,
@@ -354,12 +363,29 @@ export class CheckoutService {
               },
             });
 
+            if (updated.count > 0) {
+              stockChangeEvents.push({
+                productId: item.productId,
+                variantId: item.variantId,
+                previousStock: prevStock,
+                newStock: prevStock - item.quantity,
+                productName: item.product.name,
+                variantName: item.variant?.name,
+              });
+            }
+
             if (updated.count === 0) {
               throw new ConflictException(
                 `Insufficient stock for ${item.product.name} (${item.variant?.name || 'selected variant'})`,
               );
             }
           } else {
+            const currentProduct = await tx.product.findUnique({
+              where: { id: item.productId },
+              select: { stock: true, name: true },
+            });
+            const prevStock = currentProduct ? currentProduct.stock : 0;
+
             const updated = await tx.product.updateMany({
               where: {
                 id: item.productId,
@@ -369,6 +395,15 @@ export class CheckoutService {
                 stock: { decrement: item.quantity },
               },
             });
+
+            if (updated.count > 0) {
+              stockChangeEvents.push({
+                productId: item.productId,
+                previousStock: prevStock,
+                newStock: prevStock - item.quantity,
+                productName: item.product.name,
+              });
+            }
 
             if (updated.count === 0) {
               throw new ConflictException(

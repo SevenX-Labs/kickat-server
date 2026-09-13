@@ -1,3 +1,4 @@
+import { StockAlertService } from "../notifications/stock-alert.service";
 import { InvoicePdfService } from "./invoice-pdf.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { SettingsService } from "../admin/settings/settings.service";
@@ -26,6 +27,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
+    private readonly stockAlertService: StockAlertService,
     private readonly invoicePdfService: InvoicePdfService,
   ) {}
 
@@ -423,6 +425,8 @@ export class OrdersService {
       );
     }
 
+    const restoredEvents: Array<{ productId: string; variantId?: string | null; previousStock: number; newStock: number }> = [];
+
     const updatedOrder = await this.prisma.$transaction(async (tx) => {
       const updateRes = await tx.order.updateMany({
         where: {
@@ -447,14 +451,35 @@ export class OrdersService {
       // Atomically restore deducted stock for all order items
       for (const item of order.items) {
         if (item.variantId) {
+          const curVariant = await tx.productVariant.findUnique({
+            where: { id: item.variantId },
+            select: { stock: true },
+          });
+          const pStock = curVariant ? curVariant.stock : 0;
           await tx.productVariant.update({
             where: { id: item.variantId },
             data: { stock: { increment: item.quantity } },
           });
+          restoredEvents.push({
+            productId: item.productId,
+            variantId: item.variantId,
+            previousStock: pStock,
+            newStock: pStock + item.quantity,
+          });
         } else {
+          const curProduct = await tx.product.findUnique({
+            where: { id: item.productId },
+            select: { stock: true },
+          });
+          const pStock = curProduct ? curProduct.stock : 0;
           await tx.product.update({
             where: { id: item.productId },
             data: { stock: { increment: item.quantity } },
+          });
+          restoredEvents.push({
+            productId: item.productId,
+            previousStock: pStock,
+            newStock: pStock + item.quantity,
           });
         }
       }
@@ -464,6 +489,10 @@ export class OrdersService {
         orderStatus: OrderStatusEnum.CANCELLED,
       };
     });
+
+    for (const evt of restoredEvents) {
+      this.stockAlertService.evaluateStockChange(evt).catch(() => {});
+    }
 
     this.notificationsService.notifyOrderStatusChange({
       orderId: order.id,

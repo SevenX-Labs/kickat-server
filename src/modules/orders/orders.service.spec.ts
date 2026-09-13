@@ -1,3 +1,4 @@
+import { StockAlertService } from "../notifications/stock-alert.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { InvoicePdfService } from "./invoice-pdf.service";
 import { SettingsService } from "../admin/settings/settings.service";
@@ -94,6 +95,7 @@ describe('OrdersService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: StockAlertService, useValue: { evaluateStockChange: jest.fn().mockResolvedValue(undefined) } },
         { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
         { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from("pdf-data")) } },
         OrdersService,
