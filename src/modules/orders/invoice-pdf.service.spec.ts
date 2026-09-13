@@ -1,3 +1,4 @@
+import { PrismaService } from "../../prisma/prisma.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { InvoicePdfService } from './invoice-pdf.service';
 
@@ -6,7 +7,7 @@ describe('InvoicePdfService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [InvoicePdfService],
+      providers: [InvoicePdfService, { provide: PrismaService, useValue: { systemSetting: { findFirst: jest.fn() } } }],
     }).compile();
 
     service = module.get<InvoicePdfService>(InvoicePdfService);

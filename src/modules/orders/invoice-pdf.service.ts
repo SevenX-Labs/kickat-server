@@ -54,14 +54,16 @@ export interface InvoicePdfData {
 }
 
 export interface StoreSettingsData {
-  gstNumber?: string;
-  address?: string;
-  storeName?: string;
-  storeEmail?: string;
-  storePhone?: string;
-  gstin?: string;
-  pan?: string;
-  storeAddress?: string;
+  gstNumber?: string | null;
+  gstin?: string | null;
+  pan?: string | null;
+  address?: string | null;
+  storeAddress?: string | null;
+  storeName?: string | null;
+  storeEmail?: string | null;
+  supportEmail?: string | null;
+  storePhone?: string | null;
+  supportPhone?: string | null;
 }
 
 function numberToWordsINR(num: number): string {
@@ -154,6 +156,29 @@ export class InvoicePdfService {
 
         // Check whether HSN data exists across items
         const hasHsnData = orderData.items.some((item) => !!item.hsnCode);
+
+        // WATERMARK (Low Opacity Background Paw Print & KickAt Text)
+        doc.save();
+        doc.opacity(0.04);
+
+        // Draw Paw Print Graphic at center (X: 297.64, Y: 380)
+        const wx = 297.64;
+        const wy = 370;
+
+        // Main Paw Pad (Large oval)
+        doc.fillColor("#64748B");
+        doc.ellipse(wx, wy, 45, 36).fill();
+
+        // Toe Pads (4 small ovals)
+        doc.ellipse(wx - 45, wy - 35, 14, 18).fill();
+        doc.ellipse(wx - 18, wy - 52, 14, 18).fill();
+        doc.ellipse(wx + 18, wy - 52, 14, 18).fill();
+        doc.ellipse(wx + 45, wy - 35, 14, 18).fill();
+
+        // Watermark Text below paw print
+        doc.fillColor("#0F172A").fontSize(42).font("Helvetica-Bold").text("KickAt", wx - 150, wy + 55, { width: 300, align: "center" });
+        doc.restore();
+
 
         // 1. TOP BRAND ACCENT BAR
         doc.rect(40, 40, 515, 4).fill(brandOrange);
