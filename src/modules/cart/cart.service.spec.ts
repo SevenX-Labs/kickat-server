@@ -66,6 +66,47 @@ describe("CartService & Fee Calculation Engine", () => {
   });
 
   describe("calculateFeesHelper GST Precision & Rounding Edge Cases", () => {
+    it("should calculate GST on Selling Price (₹900) instead of MRP (₹1,000) for ONLINE & COD checkouts", () => {
+      const delivery = { deliveryFeeEnabled: true, deliveryFee: 50, freeDeliveryThreshold: 1500 };
+      const tax = { gstEnabled: true, gstPercentage: 10 };
+      const paymentSettings = { cod: { enabled: true, extraFee: 90 } };
+
+      // Selling Price = 900 (MRP = 1000)
+      const onlineFees = calculateFeesHelper(900, delivery, tax, false, "ONLINE", paymentSettings);
+      expect(onlineFees.subtotal).toBe(900);
+      expect(onlineFees.gstAmount).toBe(90); // 10% of 900, NOT 1000
+      expect(onlineFees.deliveryFee).toBe(50);
+      expect(onlineFees.codFee).toBe(0);
+      expect(onlineFees.grandTotal).toBe(1040); // 900 + 90 + 50 + 0
+
+      const codFees = calculateFeesHelper(900, delivery, tax, false, "COD", paymentSettings);
+      expect(codFees.subtotal).toBe(900);
+      expect(codFees.gstAmount).toBe(90);
+      expect(codFees.deliveryFee).toBe(50);
+      expect(codFees.codFee).toBe(90);
+      expect(codFees.grandTotal).toBe(1130); // 900 + 90 + 50 + 90
+    });
+
+    it("should return GST = 0 when GST is disabled in admin settings", () => {
+      const delivery = { deliveryFeeEnabled: true, deliveryFee: 50, freeDeliveryThreshold: 1500 };
+      const taxDisabled = { gstEnabled: false, gstPercentage: 10 };
+      const fees = calculateFeesHelper(900, delivery, taxDisabled, false, "ONLINE");
+
+      expect(fees.gstAmount).toBe(0);
+      expect(fees.grandTotal).toBe(950); // 900 + 50
+    });
+
+    it("should accurately scale GST for multiple quantities (SP=₹900, Qty=2, GST=10% => Subtotal=1800, GST=180)", () => {
+      const delivery = { deliveryFeeEnabled: true, deliveryFee: 50, freeDeliveryThreshold: 1500 };
+      const tax = { gstEnabled: true, gstPercentage: 10 };
+
+      const fees = calculateFeesHelper(1800, delivery, tax, false, "ONLINE");
+      expect(fees.subtotal).toBe(1800);
+      expect(fees.gstAmount).toBe(180);
+      expect(fees.deliveryFee).toBe(0); // Subtotal 1800 >= 1500 threshold
+      expect(fees.grandTotal).toBe(1980);
+    });
+
     it("should round GST accurately for subtotal=333.33 and gstPercentage=18", () => {
       const delivery = {
         deliveryFeeEnabled: true,
