@@ -128,6 +128,10 @@ export class UpdateTaxSettingsDto {
   @IsOptional()
   @IsBoolean({ message: 'gstAppliesToDelivery must be a boolean' })
   gstAppliesToDelivery?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: 'taxInclusive must be a boolean' })
+  taxInclusive?: boolean;
 }
 
 export class UpdateDeliverySettingsDto {
