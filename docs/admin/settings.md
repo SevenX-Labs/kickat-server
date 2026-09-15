@@ -1,6 +1,6 @@
-# Admin System & Store Settings API Specification
+# Admin Store Configuration & Platform Settings Specification
 
-All configuration endpoints are served under `/api/v1/admin/settings` and require Admin Authentication (`@AdminAuth()`).
+All store configuration endpoints are served under `/api/v1/admin/settings` and require Admin Authentication (`@AdminAuth()`), except for public store metadata served under `/api/v1/settings/public`.
 
 ---
 
@@ -8,15 +8,13 @@ All configuration endpoints are served under `/api/v1/admin/settings` and requir
 
 1. [Architecture & Frontend Integration Overview](#architecture--frontend-integration-overview)
 2. [Endpoints Overview](#endpoints-overview)
-3. [Endpoint Specifications](#endpoint-specifications)
-   - [1. Retrieve Consolidated Settings (with Masked Secrets)](#1-retrieve-consolidated-settings)
-   - [2. Bulk Update All Settings Groups](#2-bulk-update-all-settings-groups)
-   - [3. General Platform Settings](#3-general-platform-settings)
-   - [4. Store Profile & Legal Information](#4-store-profile--legal-information)
-   - [5. Payment Gateway Configuration (Razorpay & COD)](#5-payment-gateway-configuration)
-   - [6. Tax & GST Computation Rules](#6-tax--gst-computation-rules)
-   - [7. Delivery & Shipping Fee Rules](#7-delivery--shipping-fee-rules)
-4. [Frontend Integration Guide (TypeScript & Axios)](#frontend-integration-guide-typescript--axios)
+3. [Setting Groups & Schemas](#setting-groups--schemas)
+   - [1. General & Maintenance Settings](#1-general--maintenance-settings)
+   - [2. Payment Gateway Configuration](#2-payment-gateway-configuration)
+   - [3. Tax & GST Computation Rules](#3-tax--gst-computation-rules)
+   - [4. Delivery & Shipping Fee Rules](#4-delivery--shipping-fee-rules)
+4. [Public Store Configuration API](#public-store-configuration-api)
+5. [Frontend Integration Guide (TypeScript & Axios)](#frontend-integration-guide-typescript--axios)
 
 ---
 
@@ -25,7 +23,7 @@ All configuration endpoints are served under `/api/v1/admin/settings` and requir
 - **Base URL:** `https://api.kickat.co.in/api/v1/admin/settings` (or `http://localhost:3000/api/v1/admin/settings` in development)
 - **Content Type:** `application/json`
 - **Authentication Scheme:** `Authorization: Bearer <accessToken>`
-- **Secret Masking:** Secret keys (such as `keySecret` for Razorpay or SMTP passwords) are automatically masked as `••••••••` in `GET` responses to prevent exposure in client consoles.
+- **Secret Masking:** Sensitive credentials (such as Razorpay `keySecret`, Stripe secret keys, and SMTP passwords) are automatically masked as `••••••••` in GET responses to safeguard production secrets.
 
 ---
 
@@ -33,26 +31,46 @@ All configuration endpoints are served under `/api/v1/admin/settings` and requir
 
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/admin/settings` | Yes (`Bearer`) | Retrieve all store configurations across all groups |
-| `PATCH` | `/api/v1/admin/settings` | Yes (`Bearer`) | Bulk update configurations across multiple groups |
-| `GET` | `/api/v1/admin/settings/general` | Yes (`Bearer`) | General platform settings (store name, maintenance mode, SMTP) |
-| `PATCH` | `/api/v1/admin/settings/general` | Yes (`Bearer`) | Update general platform settings |
-| `GET` | `/api/v1/admin/settings/store` | Yes (`Bearer`) | Store identity, warehouse address, currency, support contact |
-| `PATCH` | `/api/v1/admin/settings/store` | Yes (`Bearer`) | Update store identity details |
-| `GET` | `/api/v1/admin/settings/payment` | Yes (`Bearer`) | Payment gateway settings (Razorpay keys, COD limits) |
-| `PATCH` | `/api/v1/admin/settings/payment` | Yes (`Bearer`) | Update payment configurations |
-| `GET` | `/api/v1/admin/settings/tax` | Yes (`Bearer`) | Tax calculation rules, default GST rate, HSN codes |
-| `PATCH` | `/api/v1/admin/settings/tax` | Yes (`Bearer`) | Update GST tax settings |
-| `GET` | `/api/v1/admin/settings/delivery` | Yes (`Bearer`) | Delivery pricing, free shipping threshold, estimated ETAs |
-| `PATCH` | `/api/v1/admin/settings/delivery` | Yes (`Bearer`) | Update shipping fee rules |
+| `GET` | `/api/v1/admin/settings` | Admin | Retrieve consolidated store settings across all 4 groups |
+| `PATCH` | `/api/v1/admin/settings` | Admin | Bulk update configurations across multiple groups |
+| `GET` | `/api/v1/admin/settings/general` | Admin | General store settings (name, support email, maintenance mode) |
+| `PATCH` | `/api/v1/admin/settings/general` | Admin | Update general store settings |
+| `GET` | `/api/v1/admin/settings/payment` | Admin | Payment gateway configurations (Razorpay, Stripe, COD limits) |
+| `PATCH` | `/api/v1/admin/settings/payment` | Admin | Update payment gateway configurations |
+| `GET` | `/api/v1/admin/settings/tax` | Admin | Tax calculation rules, default GST percent, tax-inclusive flags |
+| `PATCH` | `/api/v1/admin/settings/tax` | Admin | Update tax & GST rules |
+| `GET` | `/api/v1/admin/settings/delivery` | Admin | Delivery pricing, free shipping threshold, estimated ETAs |
+| `PATCH` | `/api/v1/admin/settings/delivery` | Admin | Update shipping fee & delivery rules |
+| `GET` | `/api/v1/settings/public` | Public | Store public identity (social links, support phone/email, maintenance mode) |
 
 ---
 
-## Endpoint Specifications
+## Setting Groups & Schemas
 
-### 1. Payment Gateway Configuration (`GET` & `PATCH` `/settings/payment`)
+### 1. General & Maintenance Settings (`GET` & `PATCH` `/settings/general`)
 
-#### Expected Success Response (`200 OK`)
+#### Sample Response Body
+```json
+{
+  "success": true,
+  "data": {
+    "storeName": "Kickat Pet Care",
+    "supportEmail": "support@kickat.co.in",
+    "supportPhone": "+919876543210",
+    "maintenanceMode": false,
+    "socialLinks": {
+      "instagram": "https://instagram.com/kickat_india",
+      "facebook": "https://facebook.com/kickatindia"
+    }
+  }
+}
+```
+
+---
+
+### 2. Payment Gateway Configuration (`GET` & `PATCH` `/settings/payment`)
+
+#### Sample Response Body
 ```json
 {
   "success": true,
@@ -74,9 +92,25 @@ All configuration endpoints are served under `/api/v1/admin/settings` and requir
 
 ---
 
-### 2. Delivery Settings (`GET` & `PATCH` `/settings/delivery`)
+### 3. Tax & GST Computation Rules (`GET` & `PATCH` `/settings/tax`)
 
-#### Expected Success Response (`200 OK`)
+#### Sample Response Body
+```json
+{
+  "success": true,
+  "data": {
+    "defaultTaxRate": 18.0,
+    "taxInclusive": false,
+    "gstin": "27AAAAA0000A1Z5"
+  }
+}
+```
+
+---
+
+### 4. Delivery & Shipping Fee Rules (`GET` & `PATCH` `/settings/delivery`)
+
+#### Sample Response Body
 ```json
 {
   "success": true,
@@ -92,16 +126,41 @@ All configuration endpoints are served under `/api/v1/admin/settings` and requir
 
 ---
 
+## Public Store Configuration API
+
+- **HTTP Method:** `GET`
+- **Endpoint:** `/api/v1/settings/public`
+- **Auth:** None (Public)
+
+#### Expected Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "data": {
+    "storeName": "Kickat Pet Care",
+    "supportEmail": "support@kickat.co.in",
+    "supportPhone": "+919876543210",
+    "maintenanceMode": false,
+    "socialLinks": {
+      "instagram": "https://instagram.com/kickat_india",
+      "facebook": "https://facebook.com/kickatindia"
+    }
+  }
+}
+```
+
+---
+
 ## Frontend Integration Guide (TypeScript & Axios)
 
 ```typescript
 // services/adminSettingsService.ts
 import axios from "axios";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.kickat.co.in/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.kickat.co.in/api/v1";
 
 const settingsApi = axios.create({
-  baseURL: `${BASE_URL}/admin/settings`,
+  baseURL: `${API_BASE}/admin/settings`,
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
@@ -135,16 +194,6 @@ export const AdminSettingsService = {
     return res.data;
   },
 
-  async getStore() {
-    const res = await settingsApi.get("/store");
-    return res.data;
-  },
-
-  async updateStore(payload: any) {
-    const res = await settingsApi.patch("/store", payload);
-    return res.data;
-  },
-
   async getPayment() {
     const res = await settingsApi.get("/payment");
     return res.data;
@@ -172,6 +221,11 @@ export const AdminSettingsService = {
 
   async updateDelivery(payload: any) {
     const res = await settingsApi.patch("/delivery", payload);
+    return res.data;
+  },
+
+  async getPublicSettings() {
+    const res = await axios.get(`${API_BASE}/settings/public`);
     return res.data;
   },
 };
