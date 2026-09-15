@@ -24,6 +24,9 @@ export const DEFAULT_GENERAL_SETTINGS = {
 export const DEFAULT_PAYMENT_SETTINGS = {
   cod: {
     enabled: true,
+    minOrderAmount: 200,
+    maxOrderAmount: 10000,
+    extraFeeEnabled: false,
     extraFee: 0,
   },
   upi: {
@@ -351,6 +354,9 @@ export class SettingsService {
         payment: {
           cod: {
             enabled: Boolean(payment.cod?.enabled ?? true),
+            minOrderAmount: Number(payment.cod?.minOrderAmount ?? 200),
+            maxOrderAmount: Number(payment.cod?.maxOrderAmount ?? 10000),
+            extraFeeEnabled: Boolean(payment.cod?.extraFeeEnabled ?? false),
             extraFee: Number(payment.cod?.extraFee ?? 0),
           },
           upi: {

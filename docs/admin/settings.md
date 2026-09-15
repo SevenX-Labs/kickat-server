@@ -70,25 +70,40 @@ All store configuration endpoints are served under `/api/v1/admin/settings` and 
 
 ### 2. Payment Gateway Configuration (`GET` & `PATCH` `/settings/payment`)
 
-#### Sample Response Body
+#### Request / Response Body Schema
 ```json
 {
   "success": true,
   "data": {
-    "razorpay": {
-      "enabled": true,
-      "keyId": "rzp_live_k8214ha",
-      "keySecret": "••••••••",
-      "webhookSecret": "••••••••"
-    },
     "cod": {
       "enabled": true,
       "minOrderAmount": 200.0,
-      "maxOrderAmount": 10000.0
+      "maxOrderAmount": 10000.0,
+      "extraFeeEnabled": true,
+      "extraFee": 50.0
+    },
+    "upi": {
+      "enabled": true
+    },
+    "card": {
+      "enabled": true
+    },
+    "wallet": {
+      "enabled": true
+    },
+    "netbanking": {
+      "enabled": true
     }
   }
 }
 ```
+
+#### Field Descriptions for Cash-on-Delivery (COD):
+- **`cod.enabled`** (*boolean*): Master toggle to enable or disable COD at checkout.
+- **`cod.minOrderAmount`** (*number*): Minimum cart subtotal in ₹ required to use COD (e.g. ₹200).
+- **`cod.maxOrderAmount`** (*number*): Maximum cart subtotal in ₹ allowed for COD (e.g. ₹10,000).
+- **`cod.extraFeeEnabled`** (*boolean*): Toggle to enable or disable extra COD handling fee.
+- **`cod.extraFee`** (*number*): Additional fixed COD handling charge in ₹ added to order grand total when enabled (e.g. ₹50).
 
 ---
 

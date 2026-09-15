@@ -58,8 +58,22 @@ export class CodConfigDto {
   enabled?: boolean;
 
   @IsOptional()
+  @IsNumber({}, { message: 'minOrderAmount must be a number' })
+  @Min(0, { message: 'minOrderAmount cannot be negative' })
+  minOrderAmount?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'maxOrderAmount must be a number' })
+  @Min(0, { message: 'maxOrderAmount cannot be negative' })
+  maxOrderAmount?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'extraFeeEnabled must be a boolean' })
+  extraFeeEnabled?: boolean;
+
+  @IsOptional()
   @IsNumber({}, { message: 'extraFee must be a number' })
-  @Min(0, { message: 'extraFee must be a non-negative number' })
+  @Min(0, { message: 'extraFee cannot be negative' })
   extraFee?: number;
 }
 
