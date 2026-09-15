@@ -128,13 +128,13 @@ export class UploadController {
 
   /**
    * POST /api/v1/admin/upload/product
-   * Explicit convenience endpoint for product images (Enforces 2MB min, 3MB max)
+   * Explicit convenience endpoint for product images (Max 5MB)
    */
   @Post('product')
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload single product image (Enforces 2MB min, 3MB max)',
+    summary: 'Upload single product image (Max 3MB)',
   })
   @UseInterceptors(
     FileInterceptor('file', {
@@ -322,14 +322,14 @@ export class UploadController {
 
   /**
    * POST /api/v1/admin/upload/multiple/product
-   * Explicit convenience endpoint for multiple product images (Enforces 2MB min, 3MB max per file)
+   * Explicit convenience endpoint for multiple product images (Max 5MB per file)
    */
   @Post('multiple/product')
   @HttpCode(HttpStatus.OK)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary:
-      'Upload multiple product images in batch (Enforces 2MB min, 3MB max per file)',
+      'Upload multiple product images in batch (Max 3MB per file)',
   })
   @UseInterceptors(
     FilesInterceptor('files', 10, {

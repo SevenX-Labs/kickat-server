@@ -42,34 +42,29 @@ describe('UploadService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('Product Image Size Limits (2MB min, 3MB max)', () => {
-    it('should reject a product image smaller than 2MB', () => {
-      const file = createMockFile(1.5);
-      expect(() =>
-        service.validateFile(file, undefined, undefined, 'product'),
-      ).toThrow(BadRequestException);
-      expect(() =>
-        service.validateFile(file, undefined, undefined, 'product'),
-      ).toThrow(
-        /smaller than the minimum required limit of 2 MB for product images/,
-      );
-    });
-
-    it('should accept a product image between 2MB and 3MB', () => {
-      const file = createMockFile(2.5);
+  describe('Product Image Size Limits (0MB min, 5MB max)', () => {
+    it('should accept small product images (e.g. 0.1MB or 1.5MB)', () => {
+      const file = createMockFile(0.5);
       expect(() =>
         service.validateFile(file, undefined, undefined, 'product'),
       ).not.toThrow();
     });
 
-    it('should reject a product image larger than 3MB', () => {
-      const file = createMockFile(3.5);
+    it('should accept a product image up to 5MB', () => {
+      const file = createMockFile(4.5);
+      expect(() =>
+        service.validateFile(file, undefined, undefined, 'product'),
+      ).not.toThrow();
+    });
+
+    it('should reject a product image larger than 5MB', () => {
+      const file = createMockFile(5.5);
       expect(() =>
         service.validateFile(file, undefined, undefined, 'product'),
       ).toThrow(BadRequestException);
       expect(() =>
         service.validateFile(file, undefined, undefined, 'product'),
-      ).toThrow(/exceeds the maximum allowed limit of 3 MB for product images/);
+      ).toThrow(/exceeds the maximum allowed limit of 5 MB for product images/);
     });
   });
 
@@ -129,10 +124,10 @@ describe('UploadService', () => {
     it('should return product limits when type is product', () => {
       const res = service.getUploadConfig('product');
       expect(res.success).toBe(true);
-      expect(res.config.minFileSizeMb).toBe(2);
-      expect(res.config.maxFileSizeMb).toBe(3);
-      expect(res.config.product.minFileSizeMb).toBe(2);
-      expect(res.config.product.maxFileSizeMb).toBe(3);
+      expect(res.config.minFileSizeMb).toBe(0);
+      expect(res.config.maxFileSizeMb).toBe(5);
+      expect(res.config.product.minFileSizeMb).toBe(0);
+      expect(res.config.product.maxFileSizeMb).toBe(5);
     });
 
     it('should return default limits when type is not product', () => {
