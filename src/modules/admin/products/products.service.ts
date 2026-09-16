@@ -61,20 +61,22 @@ function normalizeVariants(variants?: any[]): any[] | undefined {
   let defaultIdx = defaultIndices.length === 1 ? defaultIndices[0] : 0;
 
   return variants.map((v, idx) => {
-    let rawImages = Array.isArray(v.images) && v.images.length > 0
-      ? Array.from(new Set(v.images.filter((img: any) => typeof img === "string" && img.trim().length > 0)))
-      : v.imageUrl
-        ? [v.imageUrl]
-        : [];
+    let rawImages: string[] = [];
+
+    if (Array.isArray(v.images) && v.images.length > 0) {
+      const filtered = v.images
+        .filter((img: any) => typeof img === "string" && img.trim().length > 0)
+        .map((img: string) => String(img).trim());
+      rawImages = Array.from(new Set(filtered));
+    } else if (v.imageUrl && typeof v.imageUrl === "string" && v.imageUrl.trim().length > 0) {
+      rawImages = [v.imageUrl.trim()];
+    }
 
     if (rawImages.length > 5) {
       throw new BadRequestException("A maximum of 5 images per variant is allowed");
     }
 
-    const primaryImg = rawImages[0] || v.imageUrl || null;
-    if (primaryImg && rawImages.length === 0) {
-      rawImages = [primaryImg];
-    }
+    const primaryImg = rawImages.length > 0 ? rawImages[0] : null;
 
     return {
       ...v,
@@ -94,21 +96,11 @@ async function prepareVariantsForSave(variants: any[] | undefined, uploadService
         v.images || [],
         "products",
       );
-      let primaryUrl = v.imageUrl
-        ? (await uploadService.relocateToNamespace(v.imageUrl, "products")) || v.imageUrl
-        : null;
-      if (!primaryUrl && relocatedImages.length > 0) {
-        primaryUrl = relocatedImages[0];
-      }
-      const finalImages = relocatedImages.length > 0
-        ? relocatedImages
-        : primaryUrl
-          ? [primaryUrl]
-          : [];
+      const primaryUrl = relocatedImages.length > 0 ? relocatedImages[0] : null;
       return {
         ...v,
-        images: finalImages,
-        imageUrl: primaryUrl || finalImages[0] || null,
+        images: relocatedImages,
+        imageUrl: primaryUrl,
       };
     }),
   );
@@ -849,21 +841,7 @@ export class ProductsService {
         )) || dto.imageUrl;
     }
 
-    const relocatedVariants = dto.variants
-      ? await Promise.all(
-          dto.variants.map(async (v) => ({
-            ...v,
-            imageUrl: v.imageUrl
-              ? (await this.uploadService.relocateToNamespace(
-                  v.imageUrl,
-                  'products',
-                )) || v.imageUrl
-              : v.imageUrl,
-          })),
-        )
-      : undefined;
-
-    // Gallery diff cleanup calculation
+        // Gallery diff cleanup calculation
     let imagesToDelete: string[] = [];
     if (relocatedImages !== undefined) {
       const existingImages = existing.images || [];
@@ -874,13 +852,15 @@ export class ProductsService {
 
       // Do NOT delete image if still referenced by any remaining variant
       const remainingVariantImages = new Set<string>();
-      if (relocatedVariants) {
-        for (const v of relocatedVariants) {
+      const variantsToCheck = preparedVariants || existing.variants;
+      if (variantsToCheck) {
+        for (const v of variantsToCheck) {
           if (v.imageUrl) remainingVariantImages.add(v.imageUrl);
-        }
-      } else if (existing.variants) {
-        for (const v of existing.variants) {
-          if (v.imageUrl) remainingVariantImages.add(v.imageUrl);
+          if (Array.isArray(v.images)) {
+            for (const img of v.images) {
+              if (img) remainingVariantImages.add(img);
+            }
+          }
         }
       }
 
@@ -1018,8 +998,8 @@ export class ProductsService {
       }
 
       // 2. Update variants if provided
-      if (relocatedVariants) {
-        const providedVariantIds = relocatedVariants
+      if (preparedVariants) {
+        const providedVariantIds = preparedVariants
           .map((v) => v.id)
           .filter((vid): vid is string => !!vid);
 
@@ -1032,7 +1012,7 @@ export class ProductsService {
         });
 
         // Upsert variants
-        for (const v of relocatedVariants) {
+        for (const v of preparedVariants) {
           if (v.id) {
             const curV = await tx.productVariant.findUnique({ where: { id: v.id }, select: { stock: true } });
             const pStock = curV ? curV.stock : 0;
@@ -1047,6 +1027,8 @@ export class ProductsService {
                 stock: newVStock,
                 attributes: v.attributes || {},
                 imageUrl: v.imageUrl || null,
+                images: v.images || [],
+                isDefault: v.isDefault ?? false,
               },
             });
             if (pStock !== newVStock) {
@@ -1063,6 +1045,8 @@ export class ProductsService {
                 stock: v.stock ?? 0,
                 attributes: v.attributes || {},
                 imageUrl: v.imageUrl || null,
+                images: v.images || [],
+                isDefault: v.isDefault ?? false,
               },
             });
           }
@@ -1183,6 +1167,11 @@ export class ProductsService {
     if (Array.isArray(existing.variants)) {
       for (const v of existing.variants) {
         if (v.imageUrl) imageUrls.push(v.imageUrl);
+        if (Array.isArray(v.images)) {
+          for (const img of v.images) {
+            if (img && typeof img === "string") imageUrls.push(img);
+          }
+        }
       }
     }
 
@@ -1301,6 +1290,11 @@ export class ProductsService {
       if (Array.isArray(prod.variants)) {
         for (const v of prod.variants) {
           if (v.imageUrl) imageUrls.push(v.imageUrl);
+          if (Array.isArray(v.images)) {
+            for (const img of v.images) {
+              if (img && typeof img === "string") imageUrls.push(img);
+            }
+          }
         }
       }
     }

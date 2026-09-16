@@ -16,17 +16,19 @@ describe('Admin ProductsService', () => {
   let service: ProductsService;
   let prisma: any;
   let uploadService: any;
+  
+  const createMockUploadService = () => ({
 
-  const mockUploadService = {
     deleteFileByUrl: jest.fn().mockResolvedValue(true),
     deleteFilesByUrls: jest.fn().mockResolvedValue(1),
     relocateToNamespace: jest.fn((url) => Promise.resolve(url)),
     relocateMultipleToNamespace: jest.fn((urls) => Promise.resolve(urls || [])),
-  };
+  });
 
-  const mockPrismaService = {
+  const createMockPrismaService = () => {
+    const mockPrisma: any = {
     product: {
-      findMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -37,6 +39,7 @@ describe('Admin ProductsService', () => {
       deleteMany: jest.fn(),
     },
     productVariant: {
+      findUnique: jest.fn(),
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
@@ -55,29 +58,22 @@ describe('Admin ProductsService', () => {
     cartItem: {
       count: jest.fn().mockResolvedValue(0),
     },
-    $transaction: jest.fn((callback) => callback(mockPrismaService)),
+    $transaction: jest.fn((callback) => callback(mockPrisma)),
+    };
+    return mockPrisma;
   };
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        { provide: StockAlertService, useValue: { evaluateStockChange: jest.fn().mockResolvedValue(undefined) } },
-        ProductsService,
-        {
-          provide: PrismaService,
-          useValue: mockPrismaService,
-        },
-        {
-          provide: UploadService,
-          useValue: mockUploadService,
-        },
-      ],
-    }).compile();
+    const mockStockAlertService = { evaluateStockChange: jest.fn().mockResolvedValue(undefined) };
 
-    service = module.get<ProductsService>(ProductsService);
-    prisma = module.get<PrismaService>(PrismaService);
-    uploadService = module.get<UploadService>(UploadService);
+  beforeEach(() => {
     jest.clearAllMocks();
+    prisma = createMockPrismaService();
+    uploadService = createMockUploadService();
+    service = new ProductsService(
+      prisma as any,
+      uploadService as any,
+      mockStockAlertService as any,
+    );
   });
 
   it('should be defined', () => {
@@ -619,8 +615,8 @@ describe('Admin ProductsService', () => {
         dto.images,
         'products',
       );
-      expect(uploadService.relocateToNamespace).toHaveBeenCalledWith(
-        'https://supabase/upload/general/var1.png',
+      expect(uploadService.relocateMultipleToNamespace).toHaveBeenCalledWith(
+        ['https://supabase/upload/general/var1.png'],
         'products',
       );
     });
