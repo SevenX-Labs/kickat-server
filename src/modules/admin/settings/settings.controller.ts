@@ -3,19 +3,22 @@ import {
   Controller,
   Get,
   Patch,
-} from '@nestjs/common';
-import { SettingsService } from './settings.service';
-import { AdminAuth } from '../../../common';
+  Post,
+} from "@nestjs/common";
+import { SettingsService } from "./settings.service";
+import { AdminAuth, CurrentUser } from "../../../common";
+import { Admin } from "@prisma/client";
+import { AdminChangePasswordDto } from "../auth/dto/admin-change-password.dto";
 import {
   UpdateAllSettingsDto,
   UpdateDeliverySettingsDto,
   UpdateGeneralSettingsDto,
   UpdatePaymentSettingsDto,
   UpdateTaxSettingsDto,
-} from './dto/admin-settings.dto';
+} from "./dto/admin-settings.dto";
 
 @AdminAuth()
-@Controller('admin/settings')
+@Controller("admin/settings")
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
@@ -38,9 +41,21 @@ export class SettingsController {
   }
 
   /**
+   * POST /api/v1/admin/settings/change-password
+   * Authenticated Admin Password Change Endpoint
+   */
+  @Post("change-password")
+  async changePassword(
+    @CurrentUser() admin: Admin,
+    @Body() dto: AdminChangePasswordDto
+  ) {
+    return this.settingsService.changePassword(admin, dto);
+  }
+
+  /**
    * GET /api/v1/admin/settings/general
    */
-  @Get('general')
+  @Get("general")
   async getGeneralSettings() {
     return this.settingsService.getGeneralSettings();
   }
@@ -48,7 +63,7 @@ export class SettingsController {
   /**
    * PATCH /api/v1/admin/settings/general
    */
-  @Patch('general')
+  @Patch("general")
   async updateGeneralSettings(@Body() dto: UpdateGeneralSettingsDto) {
     return this.settingsService.updateGeneralSettings(dto);
   }
@@ -56,7 +71,6 @@ export class SettingsController {
   /**
    * GET /api/v1/admin/settings/payment
    */
-  @Get('payment')
   async getPaymentSettings() {
     return this.settingsService.getPaymentSettings();
   }
@@ -64,7 +78,7 @@ export class SettingsController {
   /**
    * PATCH /api/v1/admin/settings/payment
    */
-  @Patch('payment')
+  @Patch("payment")
   async updatePaymentSettings(@Body() dto: UpdatePaymentSettingsDto) {
     return this.settingsService.updatePaymentSettings(dto);
   }
@@ -72,7 +86,7 @@ export class SettingsController {
   /**
    * GET /api/v1/admin/settings/tax
    */
-  @Get('tax')
+  @Get("tax")
   async getTaxSettings() {
     return this.settingsService.getTaxSettings();
   }
@@ -80,7 +94,7 @@ export class SettingsController {
   /**
    * PATCH /api/v1/admin/settings/tax
    */
-  @Patch('tax')
+  @Patch("tax")
   async updateTaxSettings(@Body() dto: UpdateTaxSettingsDto) {
     return this.settingsService.updateTaxSettings(dto);
   }
@@ -88,7 +102,6 @@ export class SettingsController {
   /**
    * GET /api/v1/admin/settings/delivery
    */
-  @Get('delivery')
   async getDeliverySettings() {
     return this.settingsService.getDeliverySettings();
   }
@@ -96,13 +109,13 @@ export class SettingsController {
   /**
    * PATCH /api/v1/admin/settings/delivery
    */
-  @Patch('delivery')
+  @Patch("delivery")
   async updateDeliverySettings(@Body() dto: UpdateDeliverySettingsDto) {
     return this.settingsService.updateDeliverySettings(dto);
   }
 }
 
-@Controller('settings')
+@Controller("settings")
 export class PublicSettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
@@ -110,7 +123,7 @@ export class PublicSettingsController {
    * GET /api/v1/settings/public
    * Returns socialLinks, supportEmail, supportPhone, maintenanceMode
    */
-  @Get('public')
+  @Get("public")
   async getPublicSettings() {
     return this.settingsService.getPublicGeneralSettings();
   }

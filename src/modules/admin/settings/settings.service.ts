@@ -1,5 +1,8 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service";
+import { Admin } from "@prisma/client";
+import * as bcrypt from "bcrypt";
+import { AdminChangePasswordDto } from "../auth/dto/admin-change-password.dto";
 import {
   UpdateAllSettingsDto,
   UpdateDeliverySettingsDto,
@@ -177,6 +180,43 @@ export class SettingsService {
     await Promise.all(updates);
 
     return this.getAllSettings();
+  }
+
+  /**
+   * POST /api/v1/admin/settings/change-password
+   * Authenticated Admin Password Reset within Settings
+   */
+  async changePassword(admin: Admin, dto: AdminChangePasswordDto) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException("passwords do not match");
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException(
+        "New password must be different from current password"
+      );
+    }
+
+    const isCurrentValid = await bcrypt.compare(
+      dto.currentPassword,
+      admin.password
+    );
+
+    if (!isCurrentValid) {
+      throw new UnauthorizedException("wrong current password");
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+
+    await this.prisma.admin.update({
+      where: { id: admin.id },
+      data: { password: hashedPassword },
+    });
+
+    return {
+      success: true,
+      message: "Password changed successfully",
+    };
   }
 
   /**
