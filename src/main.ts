@@ -204,7 +204,7 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
   logger.log(`Kickat backend server is running on port ${port} [Environment: ${process.env.NODE_ENV || 'development'}]`);
 }

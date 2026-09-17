@@ -59,16 +59,44 @@ export class AuthController {
   @Get('callback/google')
   async googleCallback(
     @Query('code') code: string,
+    @Query('error') error: string,
     @Req() req: any,
-    @Res({ passthrough: true }) res: any,
+    @Res() res: any,
   ) {
-    if (!code) {
-      throw new BadRequestException('Authorization code missing from Google callback');
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      this.configService.get<string>('CLIENT_URL') ||
+      'http://localhost:3000';
+
+    if (error) {
+      return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(error)}`);
     }
-    const redirectUri =
-      this.configService.get<string>('GOOGLE_CALLBACK_URL') ||
-      'http://localhost:3000/api/v1/auth/callback/google';
-    return this.authService.googleAuth({ code, redirectUri }, req, res);
+
+    if (!code) {
+      return res.redirect(
+        `${frontendUrl}/login?error=${encodeURIComponent('Authorization code missing from Google callback')}`,
+      );
+    }
+
+    try {
+      const redirectUri =
+        this.configService.get<string>('GOOGLE_CALLBACK_URL') ||
+        'http://localhost:3000/api/v1/auth/callback/google';
+
+      const result = await this.authService.googleAuth(
+        { code, redirectUri },
+        req,
+        res,
+      );
+
+      const targetPath = `${frontendUrl}/auth/callback/google?token=${encodeURIComponent(result.accessToken)}&isNewUser=${result.isNewUser ? 'true' : 'false'}`;
+      return res.redirect(targetPath);
+    } catch (err: any) {
+      const msg = err?.message || 'Google authentication failed';
+      return res.redirect(
+        `${frontendUrl}/login?error=${encodeURIComponent(msg)}`,
+      );
+    }
   }
 
   @Throttle({
