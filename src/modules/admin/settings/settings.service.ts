@@ -9,6 +9,10 @@ import {
 } from "./dto/admin-settings.dto";
 
 export const DEFAULT_GENERAL_SETTINGS = {
+  storeName: "Kickat",
+  supportEmail: "support@kickat.co.in",
+  supportPhone: "+91 98765 43210",
+  maintenanceMode: false,
   socialLinks: {
     instagram: "",
     facebook: "",
@@ -16,14 +20,17 @@ export const DEFAULT_GENERAL_SETTINGS = {
     twitter: "",
     linkedin: "",
   },
-  supportEmail: "support@kickat.co.in",
-  supportPhone: "+91 98765 43210",
-  maintenanceMode: false,
 };
 
 export const DEFAULT_PAYMENT_SETTINGS = {
+  razorpay: {
+    enabled: true,
+  },
   cod: {
     enabled: true,
+    minOrderAmount: 0,
+    maxOrderAmount: 50000,
+    extraFeeEnabled: false,
     extraFee: 0,
   },
   upi: {
@@ -45,12 +52,15 @@ export const DEFAULT_TAX_SETTINGS = {
   gstNumber: null,
   gstPercentage: 0,
   gstAppliesToDelivery: false,
+  taxInclusive: false,
 };
 
 export const DEFAULT_DELIVERY_SETTINGS = {
   deliveryFeeEnabled: true,
   deliveryFee: 50,
   freeDeliveryThreshold: 499,
+  estimatedDays: 3,
+  courierDefault: "Delhivery",
   extraFeeEnabled: false,
   extraFeeName: null,
   extraFeeAmount: 0,
@@ -75,7 +85,20 @@ export class SettingsService {
       return { ...defaults };
     }
 
-    return { ...defaults, ...(setting.value as any) };
+    const val = setting.value as any;
+    return {
+      ...defaults,
+      ...val,
+      ...(defaults.socialLinks && val.socialLinks && {
+        socialLinks: { ...defaults.socialLinks, ...val.socialLinks },
+      }),
+      ...(defaults.cod && val.cod && {
+        cod: { ...defaults.cod, ...val.cod },
+      }),
+      ...(defaults.razorpay && val.razorpay && {
+        razorpay: { ...defaults.razorpay, ...val.razorpay },
+      }),
+    };
   }
 
   async getDeliverySettingsRaw() {
@@ -209,9 +232,17 @@ export class SettingsService {
    */
   async updatePaymentSettings(dto: UpdatePaymentSettingsDto) {
     const existing = await this.getRawSettingGroup("payment", DEFAULT_PAYMENT_SETTINGS);
+    const dtoAny = dto as any;
 
     const merged = {
       ...existing,
+      ...dto,
+      ...(dtoAny.razorpay && {
+        razorpay: {
+          ...existing.razorpay,
+          ...dtoAny.razorpay,
+        },
+      }),
       ...(dto.cod && {
         cod: {
           ...existing.cod,
@@ -228,6 +259,18 @@ export class SettingsService {
         card: {
           ...existing.card,
           ...dto.card,
+        },
+      }),
+      ...(dto.wallet && {
+        wallet: {
+          ...existing.wallet,
+          ...dto.wallet,
+        },
+      }),
+      ...(dto.netbanking && {
+        netbanking: {
+          ...existing.netbanking,
+          ...dto.netbanking,
         },
       }),
     };
@@ -314,7 +357,7 @@ export class SettingsService {
 
   /**
    * GET /api/v1/settings/public
-   * Public general settings for customer frontend (social links, contact info, maintenance mode)
+   * Public general settings for customer frontend (social links, contact info, maintenance mode, delivery & payment rules)
    */
   async getPublicGeneralSettings() {
     const [general, delivery, tax, payment] = await Promise.all([
@@ -328,6 +371,7 @@ export class SettingsService {
       success: true,
       data: {
         general: {
+          storeName: general.storeName || DEFAULT_GENERAL_SETTINGS.storeName,
           socialLinks: general.socialLinks || DEFAULT_GENERAL_SETTINGS.socialLinks,
           supportEmail: general.supportEmail || DEFAULT_GENERAL_SETTINGS.supportEmail,
           supportPhone: general.supportPhone || DEFAULT_GENERAL_SETTINGS.supportPhone,
@@ -337,6 +381,8 @@ export class SettingsService {
           deliveryFeeEnabled: Boolean(delivery.deliveryFeeEnabled),
           deliveryFee: Number(delivery.deliveryFee ?? 0),
           freeDeliveryThreshold: Number(delivery.freeDeliveryThreshold ?? 0),
+          estimatedDays: Number(delivery.estimatedDays ?? 3),
+          courierDefault: delivery.courierDefault || "Delhivery",
           extraFeeEnabled: Boolean(delivery.extraFeeEnabled),
           extraFeeName: delivery.extraFeeName || null,
           extraFeeAmount: Number(delivery.extraFeeAmount ?? 0),
@@ -347,10 +393,17 @@ export class SettingsService {
           gstPercentage: Number(tax.gstPercentage ?? 0),
           gstNumber: tax.gstNumber || null,
           gstAppliesToDelivery: Boolean(tax.gstAppliesToDelivery),
+          taxInclusive: Boolean(tax.taxInclusive),
         },
         payment: {
+          razorpay: {
+            enabled: Boolean(payment.razorpay?.enabled ?? true),
+          },
           cod: {
             enabled: Boolean(payment.cod?.enabled ?? true),
+            minOrderAmount: Number(payment.cod?.minOrderAmount ?? 0),
+            maxOrderAmount: Number(payment.cod?.maxOrderAmount ?? 50000),
+            extraFeeEnabled: Boolean(payment.cod?.extraFeeEnabled),
             extraFee: Number(payment.cod?.extraFee ?? 0),
           },
           upi: {
