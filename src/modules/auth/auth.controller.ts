@@ -66,7 +66,7 @@ export class AuthController {
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ||
       this.configService.get<string>('CLIENT_URL') ||
-      'http://localhost:3000';
+      (process.env.NODE_ENV === 'production' ? 'https://kickat.co.in' : 'http://localhost:3001');
 
     if (error) {
       return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(error)}`);
