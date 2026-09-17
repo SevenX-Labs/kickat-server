@@ -714,6 +714,7 @@ model Admin {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   sessions    AdminSession[]
+  vaultCredentials AdminVaultCredential[]
   resetTokens AdminResetToken[]
 
   @@map("admins")
@@ -884,4 +885,24 @@ model RefundAudit {
   @@index([providerRefundId])
   @@index([status])
   @@map("refund_audits")
+}
+
+
+model AdminVaultCredential {
+  id              String   @id @default(uuid())
+  adminId         String
+  title           String
+  usernameOrEmail String
+  password        String
+  url             String?
+  notes           String?
+  category        String   @default("General")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([category])
+  @@map("admin_vault_credentials")
 }
