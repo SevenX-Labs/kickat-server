@@ -611,6 +611,51 @@ export class AuthService {
     };
   }
 
+  /**
+   * Helper to parse JWT duration string (e.g. '30d', '60d', '7d', '24h', '15m') into milliseconds.
+   * Enforces a minimum specified threshold (default 30 days = 2,592,000,000 ms).
+   */
+  private parseDurationToMs(
+    durationStr: string,
+    minDays: number = 30,
+  ): { ms: number; durationStr: string } {
+    const minMs = minDays * 24 * 60 * 60 * 1000;
+    let ms = minMs;
+    let effectiveDurationStr = durationStr;
+
+    if (durationStr) {
+      const match = durationStr.trim().match(/^(\d+)([smhdvw])?$/i);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        const unit = (match[2] || 'd').toLowerCase();
+        switch (unit) {
+          case 's':
+            ms = val * 1000;
+            break;
+          case 'm':
+            ms = val * 60 * 1000;
+            break;
+          case 'h':
+            ms = val * 60 * 60 * 1000;
+            break;
+          case 'd':
+            ms = val * 24 * 60 * 60 * 1000;
+            break;
+          case 'w':
+            ms = val * 7 * 24 * 60 * 60 * 1000;
+            break;
+        }
+      }
+    }
+
+    if (ms < minMs) {
+      ms = minMs;
+      effectiveDurationStr = minDays + "d";
+    }
+
+    return { ms, durationStr: effectiveDurationStr };
+  }
+
   private async generateTokensAndRespond(
     user: User,
     res: Response,
@@ -630,8 +675,12 @@ export class AuthService {
 
     const accessTokenExpiresIn =
       this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') || '15m';
-    const refreshTokenExpiresIn =
+    const rawRefreshTokenExpiresIn =
       this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '30d';
+
+    // Enforce at least 30 days login limit for customer sessions
+    const { ms: refreshTokenMs, durationStr: refreshTokenExpiresIn } =
+      this.parseDurationToMs(rawRefreshTokenExpiresIn, 30);
 
     const accessToken = this.jwtService.sign(payload, {
       secret: accessTokenSecret,
@@ -648,8 +697,7 @@ export class AuthService {
     );
 
     const tokenHash = this.hashToken(refreshToken);
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const expiresAt = new Date(Date.now() + thirtyDaysMs);
+    const expiresAt = new Date(Date.now() + refreshTokenMs);
 
     await this.prisma.refreshToken.create({
       data: {
@@ -660,11 +708,12 @@ export class AuthService {
       },
     });
 
+    // Set refresh token in HttpOnly cookie with rolling 30-day maxAge
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: thirtyDaysMs,
+      sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax',
+      maxAge: refreshTokenMs,
     });
 
     return {
