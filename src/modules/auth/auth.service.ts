@@ -519,11 +519,14 @@ export class AuthService {
 
   private getCookieOptions(maxAge?: number) {
     const isProd = process.env.NODE_ENV === 'production';
-    const cookieDomain = this.configService.get<string>('COOKIE_DOMAIN') || undefined;
+    const cookieDomain =
+      this.configService.get<string>('COOKIE_DOMAIN') ||
+      (isProd ? '.kickat.co.in' : undefined);
     return {
       httpOnly: true,
       secure: isProd,
       sameSite: (isProd ? 'none' : 'lax') as any,
+      path: '/',
       ...(cookieDomain ? { domain: cookieDomain } : {}),
       ...(maxAge ? { maxAge } : {}),
     };
