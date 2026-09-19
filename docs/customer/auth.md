@@ -8,123 +8,83 @@ All customer authentication endpoints are served under `/api/v1/auth`.
 
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/auth/otp/send` | No | Request 6-digit Mobile OTP via SMS (1 min validity) |
-| `POST` | `/api/v1/auth/otp/verify` | No | Verify Mobile OTP; sets `isPhoneVerified: true`, issues tokens |
-| `POST` | `/api/v1/auth/google` | No | Authenticate via Google OAuth ID token / code; sets `isEmailVerified: true` |
-| `GET` | `/api/v1/auth/login/google` | No | Browser redirect to Google OAuth login consent screen |
-| `GET` | `/api/v1/auth/callback/google` | No | Google OAuth redirect callback handler |
-| `POST` | `/api/v1/auth/refresh` | Cookie | Rotate 30-day `refreshToken` cookie & issue new Bearer `accessToken` |
-| `POST` | `/api/v1/auth/logout` | Yes | Revoke current refresh token family & clear cookie |
-| `POST` | `/api/v1/auth/logout-all` | Yes | Revoke all active sessions across all devices |
+| `POST` | `/api/v1/auth/otp/send` | No | Send OTP to mobile number |
+| `POST` | `/api/v1/auth/otp/verify` | No | Verify mobile OTP and login/register |
+| `POST` | `/api/v1/auth/email-otp/send` | No | Send OTP to email address |
+| `POST` | `/api/v1/auth/email-otp/verify` | No | Verify email OTP |
+| `GET`  | `/api/v1/auth/login/google` | No | Redirect to Google OAuth consent screen |
+| `POST` | `/api/v1/auth/google` | No | Authenticate via Google ID token (direct) |
+| `POST` | `/api/v1/auth/refresh` | No | Refresh access token using cookie |
+| `POST` | `/api/v1/auth/logout` | Yes | Logout current device session |
+| `POST` | `/api/v1/auth/logout-all` | Yes | Logout all active sessions for user |
 
 ---
 
-## Endpoint Details
+## Detailed Endpoints
 
-### 1. Send Mobile OTP
-`POST /api/v1/auth/otp/send`
-- **Request Body**:
-```json
-{
-  "phone": "+919876543210"
-}
-```
-- **Response (`200 OK`)**:
-```json
-{
-  "success": true,
-  "message": "OTP sent successfully"
-}
-```
+### 1. Mobile OTP Authentication
 
----
+#### Send OTP
+- **POST** `/api/v1/auth/otp/send`
+- **Request Body:**
+  ```json
+  {
+    "phone": "+919876543210"
+  }
+  ```
+- **Response (200 OK):** `{ "success": true, "message": "OTP sent successfully" }`
 
-### 2. Verify Mobile OTP
-`POST /api/v1/auth/otp/verify`
-- **Request Body**:
-```json
-{
-  "phone": "+919876543210",
-  "otp": "123456"
-}
-```
-- **Response (`200 OK`)**:
-- **Sets Cookie**: `refreshToken=<token>; HttpOnly; Path=/; SameSite=Strict; Max-Age=2592000`
-```json
-{
-  "success": true,
-  "accessToken": "eyJhbGciOiJIUzI1Ni...",
-  "isNewUser": true,
-  "user": {
-    "id": "f8d22384-912a-4c2e-b153-9a3c109d7e5f",
+#### Verify OTP
+- **POST** `/api/v1/auth/otp/verify`
+- **Request Body:**
+  ```json
+  {
     "phone": "+919876543210",
-    "isPhoneVerified": true,
-    "profileCompleted": false
+    "otp": "123456"
   }
-}
-```
-
----
-
-### 3. Google OAuth Login
-`POST /api/v1/auth/google`
-- **Request Body**:
-```json
-{
-  "token": "4/0AeaYSH...",
-  "redirectUri": "http://localhost:3000/api/v1/auth/callback/google"
-}
-```
-- **Response (`200 OK`)**:
-```json
-{
-  "success": true,
-  "accessToken": "eyJhbGciOiJIUzI1...",
-  "isNewUser": false,
-  "user": {
-    "id": "c1a23b45-6789-40de-f123-456789abcdef",
-    "email": "user@gmail.com",
-    "isEmailVerified": true,
-    "isPhoneVerified": false
+  ```
+- **Response (200 OK):**
+  ```json
+  {
+    "success": true,
+    "accessToken": "eyJ...",
+    "isNewUser": false,
+    "user": { "id": "uuid", "phone": "+919876543210" }
   }
-}
-```
+  ```
+  *(Note: A `refreshToken` is securely set as an HTTP-only cookie)*
 
----
+### 2. Email OTP Authentication
 
-### 4. Refresh Access Token
-`POST /api/v1/auth/refresh`
-- **Headers**: `Cookie: refreshToken=<token>`
-- **Response (`200 OK`)**:
-```json
-{
-  "success": true,
-  "accessToken": "eyJhbGciOiJIUzI1..."
-}
-```
+#### Send Email OTP
+- **POST** `/api/v1/auth/email-otp/send`
+- **Request Body:** `{ "email": "user@example.com" }`
 
----
+#### Verify Email OTP
+- **POST** `/api/v1/auth/email-otp/verify`
+- **Request Body:** `{ "email": "user@example.com", "otp": "123456" }`
+- **Response:** Similar to mobile OTP verify.
 
-### 5. Logout Session
-`POST /api/v1/auth/logout`
-- **Headers**: `Authorization: Bearer <accessToken>`, `Cookie: refreshToken=<token>`
-- **Response (`200 OK`)**:
-```json
-{
-  "success": true,
-  "message": "Logged out successfully"
-}
-```
+### 3. Google OAuth Authentication
 
----
+#### Direct Token Authentication
+- **POST** `/api/v1/auth/google`
+- **Request Body:** `{ "idToken": "google_jwt_token_here" }`
+- **Response:** Returns `accessToken` and sets `refreshToken` cookie.
 
-### 6. Logout All Devices
-`POST /api/v1/auth/logout-all`
-- **Headers**: `Authorization: Bearer <accessToken>`
-- **Response (`200 OK`)**:
-```json
-{
-  "success": true,
-  "message": "All sessions revoked successfully"
-}
-```
+### 4. Session Management
+
+#### Refresh Token
+- **POST** `/api/v1/auth/refresh`
+- **Headers/Cookies:** Requires `refreshToken` cookie.
+- **Response (200 OK):** `{ "success": true, "accessToken": "new_eyJ..." }`
+
+#### Logout
+- **POST** `/api/v1/auth/logout`
+- **Headers:** `Authorization: Bearer <accessToken>`
+- **Response (200 OK):** `{ "success": true, "message": "Logged out successfully" }`
+
+#### Logout All Devices
+- **POST** `/api/v1/auth/logout-all`
+- **Headers:** `Authorization: Bearer <accessToken>`
+- **Response (200 OK):** `{ "success": true, "message": "Logged out from all devices" }`

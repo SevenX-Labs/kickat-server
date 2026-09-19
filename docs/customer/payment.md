@@ -1,74 +1,65 @@
-# Customer Payments API Specification
+# Customer Payment API Specification
 
-All payment processing endpoints are served under `/api/v1/payments`.
+All payment processing endpoints are served under `/api/v1/payments`. This handles online gateway integrations (e.g., Razorpay) and COD verifications.
 
 ---
 
 ## Endpoints Overview
 
-| Method | Endpoint | Auth Required | Idempotent | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/payments/create-order` | Yes | 🔒 Yes (`Idempotency-Key`) | Create payment transaction & Razorpay order |
-| `POST` | `/api/v1/payments/verify` | Yes | No | Verify Razorpay HMAC signature & finalize payment |
-| `POST` | `/api/v1/payments/retry` | Yes | 🔒 Yes (`Idempotency-Key`) | Retry failed/pending payment (30 min window) |
-| `GET` | `/api/v1/payments/:id` | Yes | No | Get payment transaction details by ID |
-| `POST` | `/api/v1/payments/cod/confirm` | Yes | 🔒 Yes (`Idempotency-Key`) | Confirm Cash on Delivery payment |
-| `POST` | `/api/v1/payments/webhook` | No | Public | Razorpay webhook callback listener |
+| Method | Endpoint | Auth Required | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/payments/create-order` | Yes | Initialize gateway order (Razorpay Order ID) |
+| `POST` | `/api/v1/payments/verify` | Yes | Verify frontend payment success signature |
+| `POST` | `/api/v1/payments/retry` | Yes | Retry a failed payment |
+| `GET` | `/api/v1/payments/:id` | Yes | Get payment status/details |
+| `POST` | `/api/v1/payments/cod/confirm` | Yes | Confirm COD order with OTP if required |
+| `POST` | `/api/v1/payments/webhook` | No | Public webhook for Razorpay server-to-server callbacks |
 
 ---
 
-## Detailed Endpoints
+## Endpoint Details
 
 ### 1. Create Payment Order
-`POST /api/v1/payments/create-order`
-- **Headers**: `Authorization: Bearer <accessToken>`, `Idempotency-Key: <UUID v4>`
-- **Request Body**:
-```json
-{
-  "orderId": "22222222-2222-4222-8222-222222222222",
-  "paymentMethod": "upi",
-  "upiId": "user@okaxis",
-  "walletProvider": "gpay",
-  "bankCode": "HDFC",
-  "saveCard": false
-}
-```
+- **POST** `/api/v1/payments/create-order`
+- **Headers:** `idempotency-key: <uuid>`
+- **Request Body:**
+  ```json
+  {
+    "orderId": "uuid" // Internal DB Order ID created from /checkout/place-order
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "providerOrderId": "order_Fxxxxxx", // Razorpay Order ID
+    "amount": 150000, // Amount in lowest denomination (paise)
+    "currency": "INR",
+    "key": "rzp_test_xxxxxx"
+  }
+  ```
 
----
-
-### 2. Verify Razorpay Payment Signature
-`POST /api/v1/payments/verify`
-- **Request Body**:
-```json
-{
-  "razorpayOrderId": "order_mock_12345",
-  "razorpayPaymentId": "pay_mock_67890",
-  "signature": "generated_hmac_hex_signature",
-  "orderId": "22222222-2222-4222-8222-222222222222"
-}
-```
-
----
+### 2. Verify Payment
+Called by the frontend immediately after the Razorpay checkout script succeeds.
+- **POST** `/api/v1/payments/verify`
+- **Request Body:**
+  ```json
+  {
+    "orderId": "uuid",
+    "razorpay_payment_id": "pay_Fxxxxxx",
+    "razorpay_order_id": "order_Fxxxxxx",
+    "razorpay_signature": "signature_hash"
+  }
+  ```
+- **Response:** `{ "success": true, "message": "Payment verified and order confirmed" }`
 
 ### 3. Retry Payment
-`POST /api/v1/payments/retry`
-- **Headers**: `Idempotency-Key: <UUID v4>`
-- **Request Body**:
-```json
-{
-  "orderId": "22222222-2222-4222-8222-222222222222",
-  "paymentMethod": "card"
-}
-```
+- **POST** `/api/v1/payments/retry`
+- **Headers:** `idempotency-key: <uuid>`
+- **Request Body:** `{ "orderId": "uuid" }`
+- **Description:** Generates a new `providerOrderId` for a previously failed or pending payment.
 
----
-
-### 4. Confirm COD Payment
-`POST /api/v1/payments/cod/confirm`
-- **Headers**: `Idempotency-Key: <UUID v4>`
-- **Request Body**:
-```json
-{
-  "orderId": "22222222-2222-4222-8222-222222222222"
-}
-```
+### 4. Webhook (Server-to-Server)
+- **POST** `/api/v1/payments/webhook`
+- **Headers:** `x-razorpay-signature`, `x-razorpay-event-id`
+- **Description:** Handles async payment captures, failures, and refunds directly from the payment gateway.

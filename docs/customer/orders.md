@@ -1,6 +1,6 @@
-# Customer Orders & Returns API Specification
+# Customer Orders API Specification
 
-Endpoints for order tracking, status timeline, tax invoice, cancellation, returns under `/api/v1/orders` and `/api/v1/returns`.
+All customer order endpoints are served under `/api/v1/orders` and return endpoints under `/api/v1/returns`.
 
 ---
 
@@ -8,14 +8,48 @@ Endpoints for order tracking, status timeline, tax invoice, cancellation, return
 
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/orders` | Yes | List user orders with status and date filters |
-| `GET` | `/api/v1/orders/:id` | Yes | Detailed order details |
-| `GET` | `/api/v1/orders/:id/timeline` | Yes | Order status progression timeline |
-| `GET` | `/api/v1/orders/:id/tracking` | Yes | Package tracking & carrier info |
-| `GET` | `/api/v1/orders/:id/tracking-live` | Yes | Real-time agent GPS location tracking |
-| `GET` | `/api/v1/orders/:id/invoice` | Yes | Tax invoice data and PDF URL |
-| `PATCH` | `/api/v1/orders/:id/cancel` | Yes | Cancel order prior to packing |
-| `POST` | `/api/v1/orders/:id/return` | Yes | Request item return within 7 days |
-| `POST` | `/api/v1/orders/:id/reorder` | Yes | Re-add past order items to shopping cart |
-| `GET` | `/api/v1/returns` | Yes | List user return requests |
-| `GET` | `/api/v1/returns/:id` | Yes | Get single return request details |
+| `GET` | `/api/v1/orders` | Yes | Get paginated order history |
+| `GET` | `/api/v1/orders/:id` | Yes | Get detailed order summary |
+| `POST` | `/api/v1/orders/:id/cancel` | Yes | Cancel a pending/confirmed order |
+| `POST` | `/api/v1/orders/:id/return` | Yes | Request a return for a delivered order |
+| `POST` | `/api/v1/orders/:id/reorder` | Yes | Add order items back to cart |
+| `GET` | `/api/v1/returns` | Yes | Get paginated returns history |
+| `GET` | `/api/v1/returns/:id` | Yes | Get single return request status |
+
+---
+
+## Endpoint Details
+
+### 1. Order History & Details
+
+#### Get All Orders
+- **GET** `/api/v1/orders`
+- **Query Params:** `page`, `limit`, `status` (e.g., DELIVERED, PENDING)
+- **Response:** Paginated list of user's past orders.
+
+#### Get Order by ID
+- **GET** `/api/v1/orders/:id`
+- **Response:** Comprehensive order payload including items, shipping address, payment status, timeline history, and return eligibility window.
+
+### 2. Post-Purchase Actions
+
+#### Cancel Order
+- **POST** `/api/v1/orders/:id/cancel`
+- **Request Body:** `{ "reason": "Changed my mind" }`
+- **Constraints:** Order can only be cancelled if its status is `PENDING` or `CONFIRMED`.
+
+#### Return Order
+- **POST** `/api/v1/orders/:id/return`
+- **Request Body:** 
+  ```json
+  {
+    "items": [{ "orderItemId": "uuid", "quantity": 1 }],
+    "reason": "Defective item",
+    "images": ["url1", "url2"]
+  }
+  ```
+- **Constraints:** Order must be `DELIVERED` and within the return window.
+
+#### Reorder
+- **POST** `/api/v1/orders/:id/reorder`
+- **Description:** Adds all items from the previous order to the active cart (ignores out of stock items).
