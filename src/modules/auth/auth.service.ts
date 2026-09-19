@@ -516,6 +516,19 @@ export class AuthService {
   /**
    * POST /auth/refresh
    */
+
+  private getCookieOptions(maxAge?: number) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieDomain = this.configService.get<string>('COOKIE_DOMAIN') || undefined;
+    return {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: (isProd ? 'none' : 'lax') as any,
+      ...(cookieDomain ? { domain: cookieDomain } : {}),
+      ...(maxAge ? { maxAge } : {}),
+    };
+  }
+
   async refreshToken(refreshTokenString: string | undefined, res: Response) {
     if (!refreshTokenString) {
       throw new UnauthorizedException('Missing, invalid, or reused refresh token');
@@ -541,7 +554,7 @@ export class AuthService {
           where: { familyId: tokenRecord.familyId },
           data: { isRevoked: true },
         });
-        res.clearCookie('refreshToken');
+        res.clearCookie('refreshToken', this.getCookieOptions());
         throw new UnauthorizedException('Missing, invalid, or reused refresh token');
       }
 
@@ -560,7 +573,7 @@ export class AuthService {
 
       return this.generateTokensAndRespond(user, res, tokenRecord.familyId);
     } catch (error) {
-      res.clearCookie('refreshToken');
+      res.clearCookie('refreshToken', this.getCookieOptions());
       throw new UnauthorizedException('Missing, invalid, or reused refresh token');
     }
   }
@@ -577,7 +590,7 @@ export class AuthService {
       });
     }
 
-    res.clearCookie('refreshToken');
+    res.clearCookie('refreshToken', this.getCookieOptions());
     return {
       success: true,
       message: 'Logged out successfully',
@@ -603,7 +616,7 @@ export class AuthService {
       data: { isRevoked: true },
     });
 
-    res.clearCookie('refreshToken');
+    res.clearCookie('refreshToken', this.getCookieOptions());
 
     return {
       success: true,
@@ -709,12 +722,7 @@ export class AuthService {
     });
 
     // Set refresh token in HttpOnly cookie with rolling 30-day maxAge
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax',
-      maxAge: refreshTokenMs,
-    });
+    res.cookie('refreshToken', refreshToken, this.getCookieOptions(refreshTokenMs));
 
     return {
       success: true,
