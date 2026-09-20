@@ -18,6 +18,7 @@ import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
+import { CreatePaymentMethodDto } from './dto/create-payment-method.dto';
 import { Auth, CurrentUser } from '../../common';
 
 @Controller('profile')
@@ -150,5 +151,42 @@ export class ProfileController {
     @Param('id') petId: string,
   ) {
     return this.profileService.deletePet(userId, petId);
+  }
+
+  @Auth()
+  @Get('payment-methods')
+  @HttpCode(HttpStatus.OK)
+  async getPaymentMethods(@CurrentUser('id') userId: string) {
+    return this.profileService.getPaymentMethods(userId);
+  }
+
+  @Auth()
+  @Post('payment-methods')
+  @HttpCode(HttpStatus.CREATED)
+  async addPaymentMethod(
+    @CurrentUser('id') userId: string,
+    @Body() dto: CreatePaymentMethodDto,
+  ) {
+    return this.profileService.addPaymentMethod(userId, dto);
+  }
+
+  @Auth()
+  @Delete('payment-methods/:id')
+  @HttpCode(HttpStatus.OK)
+  async deletePaymentMethod(
+    @CurrentUser('id') userId: string,
+    @Param('id') methodId: string,
+  ) {
+    return this.profileService.deletePaymentMethod(userId, methodId);
+  }
+
+  @Auth()
+  @Patch('payment-methods/:id/default')
+  @HttpCode(HttpStatus.OK)
+  async setDefaultPaymentMethod(
+    @CurrentUser('id') userId: string,
+    @Param('id') methodId: string,
+  ) {
+    return this.profileService.setDefaultPaymentMethod(userId, methodId);
   }
 }

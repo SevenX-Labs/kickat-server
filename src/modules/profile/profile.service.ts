@@ -11,6 +11,7 @@ import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
+import { CreatePaymentMethodDto, SavedPaymentMethodTypeDto } from './dto/create-payment-method.dto';
 
 @Injectable()
 export class ProfileService {
@@ -379,6 +380,142 @@ export class ProfileService {
     return {
       success: true,
       message: 'Pet profile deleted successfully',
+    };
+  }
+
+  /**
+   * GET /profile/payment-methods
+   */
+  async getPaymentMethods(userId: string) {
+    const methods = await this.prisma.userPaymentMethod.findMany({
+      where: { userId },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    return {
+      success: true,
+      count: methods.length,
+      methods: methods.map((m) => ({
+        ...m,
+        accountNumber: m.accountNumber
+          ? `XXXXXX${m.accountNumber.slice(-4)}`
+          : null,
+      })),
+    };
+  }
+
+  /**
+   * POST /profile/payment-methods
+   */
+  async addPaymentMethod(userId: string, dto: CreatePaymentMethodDto) {
+    if (dto.type === SavedPaymentMethodTypeDto.UPI && !dto.upiId) {
+      throw new BadRequestException('upiId is required for UPI payment method');
+    }
+
+    if (dto.type === SavedPaymentMethodTypeDto.BANK_ACCOUNT && (!dto.accountNumber || !dto.ifscCode)) {
+      throw new BadRequestException('accountNumber and ifscCode are required for BANK_ACCOUNT');
+    }
+
+    const existingCount = await this.prisma.userPaymentMethod.count({
+      where: { userId },
+    });
+
+    const isDefault = dto.isDefault || existingCount === 0;
+
+    if (isDefault) {
+      await this.prisma.userPaymentMethod.updateMany({
+        where: { userId },
+        data: { isDefault: false },
+      });
+    }
+
+    const paymentMethod = await this.prisma.userPaymentMethod.create({
+      data: {
+        userId,
+        type: dto.type as any,
+        upiId: dto.upiId || null,
+        accountNumber: dto.accountNumber || null,
+        ifscCode: dto.ifscCode ? dto.ifscCode.toUpperCase() : null,
+        accountHolderName: dto.accountHolderName || null,
+        bankName: dto.bankName || null,
+        cardLast4: dto.cardLast4 || null,
+        cardNetwork: dto.cardNetwork || null,
+        isDefault,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Payment method saved successfully',
+      method: {
+        ...paymentMethod,
+        accountNumber: paymentMethod.accountNumber
+          ? `XXXXXX${paymentMethod.accountNumber.slice(-4)}`
+          : null,
+      },
+    };
+  }
+
+  /**
+   * DELETE /profile/payment-methods/:id
+   */
+  async deletePaymentMethod(userId: string, methodId: string) {
+    const existing = await this.prisma.userPaymentMethod.findFirst({
+      where: { id: methodId, userId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Payment method not found');
+    }
+
+    await this.prisma.userPaymentMethod.delete({
+      where: { id: methodId },
+    });
+
+    if (existing.isDefault) {
+      const firstRemaining = await this.prisma.userPaymentMethod.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (firstRemaining) {
+        await this.prisma.userPaymentMethod.update({
+          where: { id: firstRemaining.id },
+          data: { isDefault: true },
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Payment method deleted successfully',
+    };
+  }
+
+  /**
+   * PATCH /profile/payment-methods/:id/default
+   */
+  async setDefaultPaymentMethod(userId: string, methodId: string) {
+    const existing = await this.prisma.userPaymentMethod.findFirst({
+      where: { id: methodId, userId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Payment method not found');
+    }
+
+    await this.prisma.userPaymentMethod.updateMany({
+      where: { userId },
+      data: { isDefault: false },
+    });
+
+    await this.prisma.userPaymentMethod.update({
+      where: { id: methodId },
+      data: { isDefault: true },
+    });
+
+    return {
+      success: true,
+      message: 'Default payment method updated successfully',
     };
   }
 }
