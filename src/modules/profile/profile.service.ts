@@ -103,6 +103,7 @@ export class ProfileService {
         isNewUser: !user.isProfileComplete,
         profileCompleted: user.isProfileComplete,
         isProfileComplete: user.isProfileComplete,
+        createdAt: user.createdAt,
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         profile: {
