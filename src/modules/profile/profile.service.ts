@@ -41,6 +41,16 @@ export class ProfileService {
 
     const isComplete = hasBasicDetails && hasAddress && hasPet;
 
+    
+    // If user has a googleId but isEmailVerified is false, automatically fix it to true
+    if (user.googleId && !user.isEmailVerified) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { isEmailVerified: true },
+      });
+      user.isEmailVerified = true;
+    }
+
     if (user.isProfileComplete !== isComplete) {
       await this.prisma.user.update({
         where: { id: userId },

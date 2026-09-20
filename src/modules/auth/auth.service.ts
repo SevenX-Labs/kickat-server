@@ -489,6 +489,7 @@ export class AuthService {
           data: {
             googleId: payload.sub,
             name: user.name || payload.name,
+            isEmailVerified: true,
           },
         });
       } else {
@@ -498,7 +499,7 @@ export class AuthService {
             email: payload.email,
             googleId: payload.sub,
             name: payload.name,
-            isEmailVerified: false,
+            isEmailVerified: true,
           },
         });
       }
