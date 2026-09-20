@@ -20,6 +20,10 @@ export class UpdateUserProfileDto {
   email?: string;
 
   @IsOptional()
+  @IsString({ message: 'phone must be a string' })
+  phone?: string;
+
+  @IsOptional()
   @IsEnum(GenderDto, { message: 'gender must be MALE, FEMALE, or PREFER_NOT_TO_SAY' })
   gender?: GenderDto;
 

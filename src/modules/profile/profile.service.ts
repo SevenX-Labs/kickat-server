@@ -146,6 +146,16 @@ export class ProfileService {
       }
     }
 
+    // Check phone uniqueness if phone is changing
+    if (dto.phone && dto.phone !== existingUser.phone) {
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone: dto.phone, NOT: { id: userId } },
+      });
+      if (phoneTaken) {
+        throw new BadRequestException('Phone number is already in use by another account');
+      }
+    }
+
     const dobValue = dto.dob ? new Date(dto.dob) : undefined;
 
     await this.prisma.user.update({
@@ -153,6 +163,7 @@ export class ProfileService {
       data: {
         name: dto.name,
         ...(dto.email && { email: dto.email }),
+        ...(dto.phone && { phone: dto.phone }),
         ...(dto.gender && { gender: dto.gender as any }),
         ...(dobValue && { dob: dobValue }),
       },
