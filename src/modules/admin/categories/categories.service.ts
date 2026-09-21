@@ -558,18 +558,23 @@ export class CategoriesService {
       permanent,
     );
 
-    // 2. Check if any active products are associated with this category or any of its subcategories
-    const productsCount = await this.prisma.product.count({
-      where: {
-        categoryId: { in: categoryIdsToDelete },
-        deletedAt: null,
-      },
-    });
-
-    if (productsCount > 0) {
-      throw new BadRequestException(
-        `Cannot delete category: ${productsCount} product(s) are currently assigned to this category or its subcategories. Please reassign or delete the products first.`,
-      );
+    // 2. Cascade soft-delete or delete any products associated with this category or its subcategories
+    if (permanent) {
+      await this.prisma.product.deleteMany({
+        where: {
+          categoryId: { in: categoryIdsToDelete },
+        },
+      });
+    } else {
+      await this.prisma.product.updateMany({
+        where: {
+          categoryId: { in: categoryIdsToDelete },
+          deletedAt: null,
+        },
+        data: {
+          deletedAt: new Date(),
+        },
+      });
     }
 
     // 3. Find images of all categories being deleted for cleanup

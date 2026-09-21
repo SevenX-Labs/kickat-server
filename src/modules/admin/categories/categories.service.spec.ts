@@ -581,40 +581,26 @@ describe('Admin CategoriesService', () => {
   });
 
   describe('deleteCategory', () => {
-    it('should prevent deletion if products depend on the category or subcategories', async () => {
+    it('should cascade soft-delete category, subcategories, and assigned products', async () => {
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         deletedAt: null,
       });
-      prisma.category.findMany.mockResolvedValue([]); // no subcategories
-      prisma.product.count.mockResolvedValue(5); // 5 dependent products
-
-      await expect(service.deleteCategory('cat-1', false)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(prisma.category.updateMany).not.toHaveBeenCalled();
-      expect(prisma.category.deleteMany).not.toHaveBeenCalled();
-    });
-
-    it('should cascade soft-delete category and subcategories if subcategories exist under the category', async () => {
-      prisma.category.findFirst.mockResolvedValue({
-        id: 'cat-1',
-        deletedAt: null,
-      });
-      // 1st call for getDescendantCategoryIds -> returns sub-1
-      // 2nd call for sub-1 descendants -> returns []
-      // 3rd call for categoriesWithImages -> returns []
       prisma.category.findMany
         .mockResolvedValueOnce([{ id: 'sub-1' }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
-      prisma.product.count.mockResolvedValue(0);
+      prisma.product.updateMany.mockResolvedValue({ count: 5 });
       prisma.category.updateMany.mockResolvedValue({ count: 2 });
 
       const result = await service.deleteCategory('cat-1', false);
 
       expect(result.success).toBe(true);
       expect(result.message).toBe('Category soft-deleted successfully');
+      expect(prisma.product.updateMany).toHaveBeenCalledWith({
+        where: { categoryId: { in: ['cat-1', 'sub-1'] }, deletedAt: null },
+        data: { deletedAt: expect.any(Date) },
+      });
       expect(prisma.category.updateMany).toHaveBeenCalledWith({
         where: { id: { in: ['cat-1', 'sub-1'] } },
         data: { deletedAt: expect.any(Date) },
@@ -630,7 +616,7 @@ describe('Admin CategoriesService', () => {
       prisma.category.findMany
         .mockResolvedValueOnce([]) // no children
         .mockResolvedValueOnce([{ id: 'cat-1', imageUrl: 'https://supabase/upload/category/cat-1.png' }]); // images
-      prisma.product.count.mockResolvedValue(0);
+      prisma.product.updateMany.mockResolvedValue({ count: 0 });
       prisma.category.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await service.deleteCategory('cat-1', false);
@@ -646,7 +632,7 @@ describe('Admin CategoriesService', () => {
       );
     });
 
-    it('should permanently delete category if permanent is true and no dependencies', async () => {
+    it('should permanently delete category and products if permanent is true', async () => {
       prisma.category.findFirst.mockResolvedValue({
         id: 'cat-1',
         deletedAt: null,
@@ -654,13 +640,17 @@ describe('Admin CategoriesService', () => {
       prisma.category.findMany
         .mockResolvedValueOnce([]) // no children
         .mockResolvedValueOnce([]); // no images
-      prisma.product.count.mockResolvedValue(0);
+      prisma.product.deleteMany.mockResolvedValue({ count: 0 });
+      prisma.category.updateMany.mockResolvedValue({ count: 1 });
       prisma.category.deleteMany.mockResolvedValue({ count: 1 });
 
       const result = await service.deleteCategory('cat-1', true);
 
       expect(result.success).toBe(true);
       expect(result.message).toBe('Category permanently deleted');
+      expect(prisma.product.deleteMany).toHaveBeenCalledWith({
+        where: { categoryId: { in: ['cat-1'] } },
+      });
       expect(prisma.category.deleteMany).toHaveBeenCalledWith({
         where: { id: { in: ['cat-1'] } },
       });
