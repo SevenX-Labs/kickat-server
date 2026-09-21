@@ -583,6 +583,12 @@ export class CategoriesService {
 
     // 4. Delete or soft-delete categories (parent + all subcategories)
     if (permanent) {
+      // First disconnect parent-child relations to prevent self-referencing foreign key errors
+      await this.prisma.category.updateMany({
+        where: { id: { in: categoryIdsToDelete } },
+        data: { parentId: null },
+      });
+
       await this.prisma.category.deleteMany({
         where: { id: { in: categoryIdsToDelete } },
       });
