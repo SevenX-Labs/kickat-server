@@ -23,13 +23,19 @@ export class CategoriesService {
   /**
    * Helper to recursively gather category ID and all descendant subcategory IDs
    */
-  private async getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
+  private async getDescendantCategoryIds(
+    rootCategoryId: string,
+    includeSoftDeleted: boolean = false,
+  ): Promise<string[]> {
     const categoryIds: string[] = [rootCategoryId];
 
     const getChildren = async (parentIds: string[]) => {
       if (parentIds.length === 0) return;
       const children = await this.prisma.category.findMany({
-        where: { parentId: { in: parentIds }, deletedAt: null },
+        where: {
+          parentId: { in: parentIds },
+          ...(!includeSoftDeleted && { deletedAt: null }),
+        },
         select: { id: true },
       });
       if (children.length > 0) {
@@ -546,49 +552,58 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    // 1. Check if any active products are associated with this category
+    // 1. Get root category ID and all descendant subcategory IDs
+    const categoryIdsToDelete = await this.getDescendantCategoryIds(
+      id,
+      permanent,
+    );
+
+    // 2. Check if any active products are associated with this category or any of its subcategories
     const productsCount = await this.prisma.product.count({
       where: {
-        categoryId: id,
+        categoryId: { in: categoryIdsToDelete },
         deletedAt: null,
       },
     });
 
     if (productsCount > 0) {
       throw new BadRequestException(
-        `Cannot delete category: ${productsCount} product(s) are currently assigned to this category. Please reassign or delete the products first.`,
+        `Cannot delete category: ${productsCount} product(s) are currently assigned to this category or its subcategories. Please reassign or delete the products first.`,
       );
     }
 
-    // 2. Check if any active subcategories exist under this category
-    const childrenCount = await this.prisma.category.count({
+    // 3. Find images of all categories being deleted for cleanup
+    const categoriesWithImages = await this.prisma.category.findMany({
       where: {
-        parentId: id,
-        deletedAt: null,
+        id: { in: categoryIdsToDelete },
+        imageUrl: { not: null },
       },
+      select: { imageUrl: true },
     });
 
-    if (childrenCount > 0) {
-      throw new BadRequestException(
-        `Cannot delete category: ${childrenCount} subcategory(ies) are attached to it. Please reassign or delete the subcategories first.`,
-      );
-    }
-
-    // 3. Delete category
+    // 4. Delete or soft-delete categories (parent + all subcategories)
     if (permanent) {
-      await this.prisma.category.delete({
-        where: { id },
+      await this.prisma.category.deleteMany({
+        where: { id: { in: categoryIdsToDelete } },
       });
     } else {
-      await this.prisma.category.update({
-        where: { id },
+      await this.prisma.category.updateMany({
+        where: { id: { in: categoryIdsToDelete } },
         data: { deletedAt: new Date() },
       });
     }
 
-    // 4. Delete associated image from storage
-    if (category.imageUrl) {
-      await this.uploadService.deleteFileByUrl(category.imageUrl);
+    // 5. Clean up associated images from storage
+    for (const cat of categoriesWithImages) {
+      if (cat.imageUrl) {
+        try {
+          await this.uploadService.deleteFileByUrl(cat.imageUrl);
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to cleanup category image "${cat.imageUrl}": ${err?.message || err}`,
+          );
+        }
+      }
     }
 
     return {

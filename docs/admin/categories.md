@@ -342,22 +342,15 @@ All administrative category management endpoints are served under `/api/v1/admin
 - **Headers:** `Authorization: Bearer <accessToken>`
 
 #### Error Cases
-- Cannot delete if products exist:
+- Cannot delete if active products are assigned to the category or any of its subcategories:
   ```json
   {
     "success": false,
     "statusCode": 400,
-    "message": "Cannot delete category: 14 products are currently assigned to it. Reassign or delete the products first."
+    "message": "Cannot delete category: 14 product(s) are currently assigned to this category or its subcategories. Please reassign or delete the products first."
   }
   ```
-- Cannot delete if subcategories exist:
-  ```json
-  {
-    "success": false,
-    "statusCode": 400,
-    "message": "Cannot delete category: 2 child subcategories exist under it. Delete or reassign subcategories first."
-  }
-  ```
+  *(Note: Deleting a main/parent category will automatically cascade delete all of its child subcategories unless active products are attached)*
 
 #### Expected Success Response (`200 OK`)
 ```json
