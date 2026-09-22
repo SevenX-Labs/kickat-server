@@ -196,8 +196,13 @@ describe('ReviewsService', () => {
   });
 
   describe('getReviews', () => {
-    it('should return paginated list of reviews', async () => {
+    it('should throw BadRequestException if productId is invalid or missing', async () => {
+      await expect(service.getReviews({ productId: 'invalid-id' } as any)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should return paginated list of reviews for a product', async () => {
       const res = await service.getReviews({
+        productId: mockProductId,
         page: 1,
         limit: 10,
         sort: ReviewSortEnum.NEWEST,

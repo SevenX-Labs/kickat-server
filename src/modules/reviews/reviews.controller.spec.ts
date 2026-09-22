@@ -62,7 +62,7 @@ describe('ReviewsController', () => {
   });
 
   it('should call getReviews', async () => {
-    const query = { page: 1, limit: 10, sort: ReviewSortEnum.NEWEST };
+    const query = { productId: mockProductId, page: 1, limit: 10, sort: ReviewSortEnum.NEWEST };
     const res = await controller.getReviews(query);
     expect(service.getReviews).toHaveBeenCalledWith(query);
     expect(res.success).toBe(true);

@@ -21,7 +21,7 @@ All customer review endpoints are served under `/api/v1/reviews`.
 
 #### Get All Reviews
 - **GET** `/api/v1/reviews`
-- **Query Params:** `productId`, `page`, `limit`, `rating` (e.g., `5`), `sort` (`newest`, `highest`, `lowest`).
+- **Query Params:** `productId` (**Required**, UUID v4), `page`, `limit`, `rating` (e.g., `5`), `sort` (`newest`, `highest`, `lowest`).
 - **Response:** Paginated list of approved reviews for the product.
 
 #### Get Single Review
@@ -35,14 +35,15 @@ All customer review endpoints are served under `/api/v1/reviews`.
 - **Request Body:**
   ```json
   {
-    "productId": "uuid",
-    "rating": 5, // Integer 1-5
-    "title": "Great quality!",
-    "content": "My dog loves this kibble.",
-    "images": ["url1", "url2"] // Optional array of image URLs
+    "productId": "uuid", // Required (UUID v4) - Product being reviewed
+    "orderId": "uuid",   // Required (UUID v4) - Delivered order containing product
+    "rating": 5,          // Required (Integer 1-5)
+    "title": "Great quality!", // Optional (string)
+    "comment": "My dog loves this kibble.", // Required (string, 10-2000 chars)
+    "photos": ["url1", "url2"] // Optional array of photo URLs (max 5)
   }
   ```
-- **Constraints:** The user must have successfully purchased and received the product before submitting a review.
+- **Constraints:** The user must have a delivered order containing the product specified by `productId` and `orderId` before submitting a review. Each product-order pair can only be reviewed once.
 
 #### Mark as Helpful
 - **PATCH** `/api/v1/reviews/:id/helpful` (Also supports `POST`)

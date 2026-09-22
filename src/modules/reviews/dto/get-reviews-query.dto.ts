@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsUUID,
   Max,
@@ -17,9 +18,9 @@ export enum ReviewSortEnum {
 }
 
 export class GetReviewsQueryDto {
-  @IsOptional()
+  @IsNotEmpty({ message: 'productId is required' })
   @IsUUID('4', { message: 'productId must be a valid UUID v4' })
-  productId?: string;
+  productId: string;
 
   @IsOptional()
   @Type(() => Number)

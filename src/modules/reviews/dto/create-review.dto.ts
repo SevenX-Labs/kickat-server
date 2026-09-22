@@ -1,5 +1,6 @@
 import {
   ArrayMaxSize,
+  IsNotEmpty,
   IsArray,
   IsInt,
   IsOptional,
@@ -13,9 +14,11 @@ import {
 } from 'class-validator';
 
 export class CreateReviewDto {
+  @IsNotEmpty({ message: 'productId is required' })
   @IsUUID('4', { message: 'productId must be a valid UUID v4' })
   productId: string;
 
+  @IsNotEmpty({ message: 'orderId is required' })
   @IsUUID('4', { message: 'orderId must be a valid UUID v4' })
   orderId: string;
 

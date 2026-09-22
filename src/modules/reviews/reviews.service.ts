@@ -146,23 +146,18 @@ export class ReviewsService {
    * GET /reviews
    */
   async getReviews(query: GetReviewsQueryDto) {
-    if (query.productId) {
-      this.validateUuid(query.productId, 'productId');
-    }
+    this.validateUuid(query?.productId, 'productId');
 
     const page = query.page && query.page > 0 ? query.page : 1;
     const limit = query.limit && query.limit > 0 ? query.limit : 10;
     const skip = (page - 1) * limit;
 
     const where: any = {
+      productId: query.productId,
       status: ReviewStatusEnum.APPROVED,
       isSpam: false,
       deletedAt: null,
     };
-
-    if (query.productId) {
-      where.productId = query.productId;
-    }
 
     if (query.rating) {
       where.rating = query.rating;
