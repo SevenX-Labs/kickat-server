@@ -353,6 +353,7 @@ model ProductReview {
   product            Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   helpfulVotes       ReviewHelpful[]
 
+  @@unique([orderId, productId])
   @@index([orderId, productId])
   @@index([productId])
   @@index([status])

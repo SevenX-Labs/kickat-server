@@ -1,8 +1,8 @@
 import {
   ArrayMaxSize,
-  IsNotEmpty,
   IsArray,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
@@ -11,35 +11,35 @@ import {
   MaxLength,
   Min,
   MinLength,
-} from 'class-validator';
+} from "class-validator";
 
 export class CreateReviewDto {
-  @IsNotEmpty({ message: 'productId is required' })
-  @IsUUID('4', { message: 'productId must be a valid UUID v4' })
+  @IsNotEmpty({ message: "productId is required" })
+  @IsUUID("4", { message: "productId must be a valid UUID v4" })
   productId: string;
 
-  @IsNotEmpty({ message: 'orderId is required' })
-  @IsUUID('4', { message: 'orderId must be a valid UUID v4' })
+  @IsNotEmpty({ message: "orderId is required" })
+  @IsUUID("4", { message: "orderId must be a valid UUID v4" })
   orderId: string;
 
-  @IsInt({ message: 'rating must be an integer' })
-  @Min(1, { message: 'rating must be between 1 and 5' })
-  @Max(5, { message: 'rating must be between 1 and 5' })
+  @IsInt({ message: "rating must be an integer" })
+  @Min(1, { message: "rating must be between 1 and 5" })
+  @Max(5, { message: "rating must be between 1 and 5" })
   rating: number;
 
   @IsOptional()
-  @IsString({ message: 'title must be a string' })
-  @MaxLength(200, { message: 'title must not exceed 200 characters' })
+  @IsString({ message: "title must be a string" })
+  @MaxLength(200, { message: "title must not exceed 200 characters" })
   title?: string;
 
-  @IsString({ message: 'comment must be a string' })
-  @MinLength(10, { message: 'comment must be at least 10 characters long' })
-  @MaxLength(2000, { message: 'comment must not exceed 2000 characters' })
+  @IsString({ message: "comment must be a string" })
+  @MinLength(10, { message: "comment must be at least 10 characters long" })
+  @MaxLength(2000, { message: "comment must not exceed 2000 characters" })
   comment: string;
 
   @IsOptional()
-  @IsArray({ message: 'photos must be an array' })
-  @ArrayMaxSize(5, { message: 'photos array can contain at most 5 URLs' })
-  @IsString({ each: true, message: 'Each photo must be a valid string or URL' })
+  @IsArray({ message: "photos must be an array" })
+  @ArrayMaxSize(5, { message: "photos array can contain at most 5 URLs" })
+  @IsUrl({}, { each: true, message: "Each photo must be a valid URL" })
   photos?: string[];
 }
