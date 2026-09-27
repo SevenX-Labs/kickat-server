@@ -420,10 +420,7 @@ export class CheckoutService {
             userId,
             addressId: dto.addressId,
             paymentMethod: dto.paymentMethod as any,
-            paymentStatus:
-              dto.paymentMethod === CheckoutPaymentMethodEnum.COD
-                ? 'PENDING'
-                : 'COMPLETED',
+            paymentStatus: 'PENDING',
             orderStatus: 'PLACED',
             subtotal,
             deliveryFee,
