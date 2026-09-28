@@ -191,6 +191,79 @@ describe('Admin OrdersService', () => {
       expect(result.message).toBe('Order status updated to SHIPPED');
       expect(result.data.trackingNumber).toBe('TRK-12345');
     });
+
+    it('should automatically mark COD order payment as COMPLETED when delivered', async () => {
+      const codOrder = {
+        id: 'ord-cod-100',
+        orderNumber: 'ORD-COD-100',
+        orderStatus: OrderStatusEnum.SHIPPED,
+        paymentMethod: PaymentMethodEnum.COD,
+        paymentStatus: PaymentStatusEnum.PENDING,
+      };
+
+      prisma.order.findFirst.mockResolvedValue(codOrder);
+      prisma.order.update.mockResolvedValue({
+        ...codOrder,
+        orderStatus: OrderStatusEnum.DELIVERED,
+        paymentStatus: PaymentStatusEnum.COMPLETED,
+      });
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.updateOrderStatus('ord-cod-100', {
+        status: OrderStatusEnum.DELIVERED,
+      });
+
+      expect(result.success).toBe(true);
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderStatus: OrderStatusEnum.DELIVERED,
+            paymentStatus: PaymentStatusEnum.COMPLETED,
+          }),
+        }),
+      );
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { orderId: 'ord-cod-100', status: PaymentStatusEnum.PENDING },
+        data: { status: PaymentStatusEnum.COMPLETED },
+      });
+    });
+
+    it('should update paymentStatus explicitly when provided in dto', async () => {
+      const order = {
+        id: 'ord-explicit-1',
+        orderNumber: 'ORD-EXP-1',
+        orderStatus: OrderStatusEnum.PROCESSING,
+        paymentMethod: PaymentMethodEnum.CARD,
+        paymentStatus: PaymentStatusEnum.PENDING,
+      };
+
+      prisma.order.findFirst.mockResolvedValue(order);
+      prisma.order.update.mockResolvedValue({
+        ...order,
+        orderStatus: OrderStatusEnum.SHIPPED,
+        paymentStatus: PaymentStatusEnum.COMPLETED,
+      });
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.updateOrderStatus('ord-explicit-1', {
+        status: OrderStatusEnum.SHIPPED,
+        paymentStatus: PaymentStatusEnum.COMPLETED,
+      });
+
+      expect(result.success).toBe(true);
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderStatus: OrderStatusEnum.SHIPPED,
+            paymentStatus: PaymentStatusEnum.COMPLETED,
+          }),
+        }),
+      );
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { orderId: 'ord-explicit-1', status: PaymentStatusEnum.PENDING },
+        data: { status: PaymentStatusEnum.COMPLETED },
+      });
+    });
   });
 
   describe('cancelOrder', () => {

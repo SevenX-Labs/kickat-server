@@ -16,7 +16,7 @@ import {
   ConfirmCodRefundDto,
   UpdateOrderStatusDto,
 } from './dto/admin-order.dto';
-import { OrderStatusEnum, PaymentStatusEnum } from '@prisma/client';
+import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -269,10 +269,21 @@ export class OrdersService {
     const order = await this.findOrderByIdOrNumber(id);
     const oldStatus = order.orderStatus;
 
+    let targetPaymentStatus: PaymentStatusEnum | undefined = dto.paymentStatus;
+    if (
+      !targetPaymentStatus &&
+      dto.status === OrderStatusEnum.DELIVERED &&
+      order.paymentMethod === PaymentMethodEnum.COD &&
+      order.paymentStatus === PaymentStatusEnum.PENDING
+    ) {
+      targetPaymentStatus = PaymentStatusEnum.COMPLETED;
+    }
+
     const updated = await this.prisma.order.update({
       where: { id: order.id },
       data: {
         orderStatus: dto.status,
+        ...(targetPaymentStatus !== undefined && { paymentStatus: targetPaymentStatus }),
         ...(dto.trackingNumber !== undefined && { trackingNumber: dto.trackingNumber }),
         ...(dto.courierPartner !== undefined && { courierPartner: dto.courierPartner }),
         ...(dto.estimatedDelivery !== undefined && {
@@ -283,6 +294,23 @@ export class OrdersService {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+
+    if (targetPaymentStatus === PaymentStatusEnum.COMPLETED) {
+      await this.prisma.payment.updateMany({
+        where: { orderId: order.id, status: PaymentStatusEnum.PENDING },
+        data: { status: PaymentStatusEnum.COMPLETED },
+      });
+    } else if (targetPaymentStatus === PaymentStatusEnum.FAILED) {
+      await this.prisma.payment.updateMany({
+        where: { orderId: order.id, status: PaymentStatusEnum.PENDING },
+        data: { status: PaymentStatusEnum.FAILED },
+      });
+    } else if (targetPaymentStatus === PaymentStatusEnum.REFUNDED) {
+      await this.prisma.payment.updateMany({
+        where: { orderId: order.id },
+        data: { status: PaymentStatusEnum.REFUNDED },
+      });
+    }
 
     this.notificationsService.notifyOrderStatusChange({
       orderId: updated.id,
