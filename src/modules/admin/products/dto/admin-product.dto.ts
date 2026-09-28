@@ -314,6 +314,16 @@ export class ProductSizeGuideDto {
   note?: string;
 }
 
+export class ProductFaqItemDto {
+  @IsString()
+  @IsNotEmpty()
+  question: string;
+
+  @IsString()
+  @IsNotEmpty()
+  answer: string;
+}
+
 export class CreateProductDto {
   @IsOptional()
   @IsEnum(ProductType)
@@ -426,6 +436,12 @@ export class CreateProductDto {
   @ValidateNested()
   @Type(() => ProductSizeGuideDto)
   sizeGuide?: ProductSizeGuideDto;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductFaqItemDto)
+  faqs?: ProductFaqItemDto[];
 
   @IsOptional()
   @IsEnum(ProductStatusEnum)
@@ -566,6 +582,12 @@ export class UpdateProductDto {
   @ValidateNested()
   @Type(() => ProductSizeGuideDto)
   sizeGuide?: ProductSizeGuideDto;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductFaqItemDto)
+  faqs?: ProductFaqItemDto[];
 
   @IsOptional()
   @IsEnum(ProductStatusEnum)

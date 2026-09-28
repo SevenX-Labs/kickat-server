@@ -630,6 +630,7 @@ export class ProductsService {
           feedingGuide: (dto.feedingGuide as any) || null,
           careInstructions: dto.careInstructions || [],
           sizeGuide: (dto.sizeGuide as any) || null,
+          faqs: (dto.faqs as any) || null,
           isTrending: dto.isTrending ?? false,
           isBestSeller: dto.isBestSeller ?? false,
           ...(preparedVariants && preparedVariants.length > 0
@@ -935,6 +936,9 @@ export class ProductsService {
           }),
           ...(dto.sizeGuide !== undefined && {
             sizeGuide: dto.sizeGuide as any,
+          }),
+          ...(dto.faqs !== undefined && {
+            faqs: dto.faqs as any,
           }),
           ...(dto.isTrending !== undefined && { isTrending: dto.isTrending }),
           ...(dto.isBestSeller !== undefined && {

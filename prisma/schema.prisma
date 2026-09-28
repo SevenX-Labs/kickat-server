@@ -265,6 +265,7 @@ model Product {
   feedingGuide      Json?
   careInstructions  String[]           @default([])
   sizeGuide         Json?
+  faqs              Json?
   deletedAt         DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
