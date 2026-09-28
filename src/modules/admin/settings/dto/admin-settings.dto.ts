@@ -7,83 +7,121 @@ import {
   IsUrl,
   Max,
   Min,
+  ValidateIf,
   ValidateNested,
-} from 'class-validator';
-import { Type, Transform } from 'class-transformer';
+} from "class-validator";
+import { Type, Transform } from "class-transformer";
 
 export class SocialLinksDto {
   @IsOptional()
-  @IsUrl({}, { message: 'instagram must be a valid URL' })
+  @Transform(({ value }) => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined))
+  @ValidateIf((_, value) => typeof value === "string" && value.trim() !== "")
+  @IsUrl({}, { message: "instagram must be a valid URL" })
   instagram?: string;
 
   @IsOptional()
-  @IsUrl({}, { message: 'facebook must be a valid URL' })
+  @Transform(({ value }) => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined))
+  @ValidateIf((_, value) => typeof value === "string" && value.trim() !== "")
+  @IsUrl({}, { message: "facebook must be a valid URL" })
   facebook?: string;
 
   @IsOptional()
-  @IsUrl({}, { message: 'youtube must be a valid URL' })
+  @Transform(({ value }) => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined))
+  @ValidateIf((_, value) => typeof value === "string" && value.trim() !== "")
+  @IsUrl({}, { message: "youtube must be a valid URL" })
   youtube?: string;
 
   @IsOptional()
-  @IsUrl({}, { message: 'twitter must be a valid URL' })
+  @Transform(({ value }) => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined))
+  @ValidateIf((_, value) => typeof value === "string" && value.trim() !== "")
+  @IsUrl({}, { message: "twitter must be a valid URL" })
   twitter?: string;
 
   @IsOptional()
-  @IsUrl({}, { message: 'linkedin must be a valid URL' })
+  @Transform(({ value }) => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined))
+  @ValidateIf((_, value) => typeof value === "string" && value.trim() !== "")
+  @IsUrl({}, { message: "linkedin must be a valid URL" })
   linkedin?: string;
 }
 
 export class UpdateGeneralSettingsDto {
+  @IsOptional()
+  @IsString({ message: "storeName must be a string" })
+  storeName?: string;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => SocialLinksDto)
   socialLinks?: SocialLinksDto;
 
   @IsOptional()
-  @IsEmail({}, { message: 'supportEmail must be a valid email address' })
+  @IsEmail({}, { message: "supportEmail must be a valid email address" })
   supportEmail?: string;
 
   @IsOptional()
-  @IsString({ message: 'supportPhone must be a string' })
+  @IsString({ message: "supportPhone must be a string" })
   supportPhone?: string;
 
   @IsOptional()
-  @IsBoolean({ message: 'maintenanceMode must be a boolean' })
+  @IsBoolean({ message: "maintenanceMode must be a boolean" })
   maintenanceMode?: boolean;
+}
+
+export class RazorpayConfigDto {
+  @IsOptional()
+  @IsBoolean({ message: "enabled must be a boolean" })
+  enabled?: boolean;
+
+  @IsOptional()
+  @IsString({ message: "keyId must be a string" })
+  keyId?: string;
+
+  @IsOptional()
+  @IsString({ message: "keySecret must be a string" })
+  keySecret?: string;
+
+  @IsOptional()
+  @IsString({ message: "webhookSecret must be a string" })
+  webhookSecret?: string;
 }
 
 export class CodConfigDto {
   @IsOptional()
-  @IsBoolean({ message: 'enabled must be a boolean' })
+  @IsBoolean({ message: "enabled must be a boolean" })
   enabled?: boolean;
 
   @IsOptional()
-  @IsNumber({}, { message: 'minOrderAmount must be a number' })
-  @Min(0, { message: 'minOrderAmount cannot be negative' })
+  @IsNumber({}, { message: "minOrderAmount must be a number" })
+  @Min(0, { message: "minOrderAmount cannot be negative" })
   minOrderAmount?: number;
 
   @IsOptional()
-  @IsNumber({}, { message: 'maxOrderAmount must be a number' })
-  @Min(0, { message: 'maxOrderAmount cannot be negative' })
+  @IsNumber({}, { message: "maxOrderAmount must be a number" })
+  @Min(0, { message: "maxOrderAmount cannot be negative" })
   maxOrderAmount?: number;
 
   @IsOptional()
-  @IsBoolean({ message: 'extraFeeEnabled must be a boolean' })
+  @IsBoolean({ message: "extraFeeEnabled must be a boolean" })
   extraFeeEnabled?: boolean;
 
   @IsOptional()
-  @IsNumber({}, { message: 'extraFee must be a number' })
-  @Min(0, { message: 'extraFee cannot be negative' })
+  @IsNumber({}, { message: "extraFee must be a number" })
+  @Min(0, { message: "extraFee cannot be negative" })
   extraFee?: number;
 }
 
 export class SimpleGatewayConfigDto {
   @IsOptional()
-  @IsBoolean({ message: 'enabled must be a boolean' })
+  @IsBoolean({ message: "enabled must be a boolean" })
   enabled?: boolean;
 }
 
 export class UpdatePaymentSettingsDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RazorpayConfigDto)
+  razorpay?: RazorpayConfigDto;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => CodConfigDto)
@@ -112,59 +150,68 @@ export class UpdatePaymentSettingsDto {
 
 export class UpdateTaxSettingsDto {
   @IsOptional()
-  @IsBoolean({ message: 'gstEnabled must be a boolean' })
+  @IsBoolean({ message: "gstEnabled must be a boolean" })
   gstEnabled?: boolean;
 
   @IsOptional()
-  @IsString({ message: 'gstNumber must be a string' })
+  @IsString({ message: "gstNumber must be a string" })
   gstNumber?: string;
 
   @IsOptional()
-  @IsNumber({}, { message: 'gstPercentage must be a number' })
-  @Min(0, { message: 'gstPercentage cannot be negative' })
-  @Max(100, { message: 'gstPercentage cannot exceed 100' })
+  @IsNumber({}, { message: "gstPercentage must be a number" })
+  @Min(0, { message: "gstPercentage cannot be negative" })
+  @Max(100, { message: "gstPercentage cannot exceed 100" })
   gstPercentage?: number;
 
   @IsOptional()
-  @IsBoolean({ message: 'gstAppliesToDelivery must be a boolean' })
+  @IsBoolean({ message: "gstAppliesToDelivery must be a boolean" })
   gstAppliesToDelivery?: boolean;
 
   @IsOptional()
-  @IsBoolean({ message: 'taxInclusive must be a boolean' })
+  @IsBoolean({ message: "taxInclusive must be a boolean" })
   taxInclusive?: boolean;
 }
 
 export class UpdateDeliverySettingsDto {
   @IsOptional()
-  @IsBoolean({ message: 'deliveryFeeEnabled must be a boolean' })
+  @IsBoolean({ message: "deliveryFeeEnabled must be a boolean" })
   deliveryFeeEnabled?: boolean;
 
   @IsOptional()
-  @IsNumber({}, { message: 'deliveryFee must be a number' })
-  @Min(0, { message: 'deliveryFee cannot be negative' })
+  @IsNumber({}, { message: "deliveryFee must be a number" })
+  @Min(0, { message: "deliveryFee cannot be negative" })
   deliveryFee?: number;
 
   @IsOptional()
-  @IsNumber({}, { message: 'freeDeliveryThreshold must be a number' })
-  @Min(0, { message: 'freeDeliveryThreshold cannot be negative' })
+  @IsNumber({}, { message: "freeDeliveryThreshold must be a number" })
+  @Min(0, { message: "freeDeliveryThreshold cannot be negative" })
   freeDeliveryThreshold?: number;
 
   @IsOptional()
-  @IsBoolean({ message: 'extraFeeEnabled must be a boolean' })
+  @IsNumber({}, { message: "estimatedDays must be a number" })
+  @Min(0, { message: "estimatedDays cannot be negative" })
+  estimatedDays?: number;
+
+  @IsOptional()
+  @IsString({ message: "courierDefault must be a string" })
+  courierDefault?: string;
+
+  @IsOptional()
+  @IsBoolean({ message: "extraFeeEnabled must be a boolean" })
   extraFeeEnabled?: boolean;
 
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsString({ message: 'extraFeeName must be a string' })
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  @IsString({ message: "extraFeeName must be a string" })
   extraFeeName?: string;
 
   @IsOptional()
-  @IsNumber({}, { message: 'extraFeeAmount must be a number' })
-  @Min(0, { message: 'extraFeeAmount cannot be negative' })
+  @IsNumber({}, { message: "extraFeeAmount must be a number" })
+  @Min(0, { message: "extraFeeAmount cannot be negative" })
   extraFeeAmount?: number;
 
   @IsOptional()
-  @IsBoolean({ message: 'isExtraFeeCompulsory must be a boolean' })
+  @IsBoolean({ message: "isExtraFeeCompulsory must be a boolean" })
   isExtraFeeCompulsory?: boolean;
 }
 

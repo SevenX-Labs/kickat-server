@@ -79,7 +79,7 @@ describe('Admin SettingsService', () => {
       expect(result.data.tax.gstPercentage).toBe(18);
       expect(result.data.delivery.deliveryFee).toBe(50);
       expect(result.data.general).not.toHaveProperty('siteName');
-      expect(result.data.payment).not.toHaveProperty('razorpay');
+      expect(result.data.payment).toHaveProperty('razorpay');
     });
   });
 
@@ -120,7 +120,7 @@ describe('Admin SettingsService', () => {
       expect(result.success).toBe(true);
       expect(result.data.cod.extraFee).toBe(30);
       expect(result.data.card.enabled).toBe(false);
-      expect(result.data).not.toHaveProperty('razorpay');
+      expect(result.data).toHaveProperty('razorpay');
     });
   });
 
