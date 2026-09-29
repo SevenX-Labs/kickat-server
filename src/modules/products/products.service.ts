@@ -58,6 +58,7 @@ export class ProductsService {
         skip,
         take: limit,
         include: {
+          variants: true,
           category: { select: { id: true, name: true, slug: true } },
         },
       }),

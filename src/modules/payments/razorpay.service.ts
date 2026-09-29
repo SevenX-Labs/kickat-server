@@ -70,9 +70,13 @@ export class RazorpayService implements OnModuleInit {
         amount: Number(order.amount),
         currency: order.currency,
       };
-    } catch (error) {
-      this.logger.error('Failed to create Razorpay order:', error);
-      throw error;
+    } catch (error: any) {
+      const desc = error?.error?.description || error?.message || 'Failed to initialize payment gateway order';
+      this.logger.error(`Failed to create Razorpay order: ${desc}`, error);
+      if (error?.statusCode === 401 || desc.toLowerCase().includes('authentication failed')) {
+        throw new BadRequestException('Payment gateway authentication failed. Please verify RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in server environment.');
+      }
+      throw new BadRequestException(desc);
     }
   }
 

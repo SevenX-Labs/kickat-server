@@ -163,6 +163,12 @@ export class CategoriesService {
         orderBy: orderByCondition,
         skip,
         take: limit,
+        include: {
+          variants: true,
+          category: {
+            select: { id: true, name: true, slug: true },
+          },
+        },
       }),
       this.prisma.product.count({ where: whereCondition }),
     ]);
