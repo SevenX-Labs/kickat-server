@@ -231,7 +231,7 @@ export class CheckoutService {
     }
 
     // Check stock reservation
-    const reservation = await this.prisma.stockReservation.findFirst({
+    let reservation = await this.prisma.stockReservation.findFirst({
       where: {
         userId,
         isFulfilled: false,

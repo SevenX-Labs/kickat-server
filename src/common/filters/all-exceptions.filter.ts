@@ -50,7 +50,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = 'Invalid reference or record not found.';
       } else {
         status = HttpStatus.BAD_REQUEST;
-        message = (exception as Error).message || 'Database operation error.';
+        message = (exception as any).message || 'Database operation error.';
       }
     } else if (exception instanceof Error) {
       message = exception.message;
