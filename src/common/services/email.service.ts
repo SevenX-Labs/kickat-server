@@ -1,57 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter | null = null;
 
-  constructor(private readonly configService: ConfigService) {
-    this.initTransporter();
-  }
-
-  private initTransporter() {
-    const user =
-      this.configService.get<string>('SMTP_USER') ||
-      this.configService.get<string>('GMAIL_USER') ||
-      this.configService.get<string>('EMAIL_USER');
-
-    const pass =
-      this.configService.get<string>('SMTP_PASS') ||
-      this.configService.get<string>('GMAIL_PASS') ||
-      this.configService.get<string>('EMAIL_PASS');
-
-    const host =
-      this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
-    const port =
-      parseInt(this.configService.get<string>('SMTP_PORT') || '587', 10);
-
-    if (user && pass) {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure: port === 465, // true for 465, false for other ports
-        auth: {
-          user,
-          pass,
-        },
-      });
-      this.logger.log(`[EMAIL SERVICE] Configured SMTP Transport using account: ${user}`);
-    } else {
-      this.logger.warn(
-        `[EMAIL SERVICE] SMTP credentials missing (SMTP_USER / SMTP_PASS). Emails will be logged to console in dev mode.`,
-      );
-    }
-  }
+  constructor(private readonly configService: ConfigService) {}
 
   /**
-   * Send 6-digit Verification OTP via Email
+   * Send 6-digit Verification OTP via Resend Email API
    */
   async sendOtpEmail(toEmail: string, otp: string): Promise<boolean> {
+    const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
     const from =
-      this.configService.get<string>('SMTP_FROM') ||
-      '"Kickat E-Commerce" <noreply@kickat.com>';
+      this.configService.get<string>('RESEND_FROM') ||
+      'Kickat <support@kickat.co.in>';
 
     const subject = 'Your Kickat Verification Code';
     const htmlContent = `
@@ -72,26 +35,38 @@ export class EmailService {
 
     this.logger.log(`[EMAIL OTP GENERATED] To: ${toEmail} | OTP: ${otp}`);
 
-    if (this.transporter) {
-      try {
-        await this.transporter.sendMail({
-          from,
-          to: toEmail,
-          subject,
-          html: htmlContent,
-        });
-        this.logger.log(`[EMAIL OTP SENT SUCCESS] Email dispatched to ${toEmail}`);
-        return true;
-      } catch (error) {
-        this.logger.error(
-          `[EMAIL OTP SEND ERROR] Failed to send email to ${toEmail}: ${error.message}`,
-          error.stack,
-        );
-        // Do not crash, OTP was logged to console above
-        return false;
-      }
+    if (!resendApiKey) {
+      this.logger.error('[RESEND OTP ERROR] RESEND_API_KEY is missing in environment variables.');
+      return false;
     }
 
-    return true;
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: [toEmail],
+          subject,
+          text: `Your Kickat verification code is ${otp}. It expires in 10 minutes.`,
+          html: htmlContent,
+        }),
+      });
+
+      const resData: any = await response.json();
+      if (response.ok && resData?.id) {
+        this.logger.log(`[RESEND OTP SUCCESS] MessageId: ${resData.id} to ${toEmail}`);
+        return true;
+      } else {
+        this.logger.error(`[RESEND OTP ERROR] Failed to send OTP to ${toEmail}:`, resData);
+        return false;
+      }
+    } catch (error: any) {
+      this.logger.error(`[RESEND OTP EXCEPTION] Failed sending to ${toEmail}:`, error);
+      return false;
+    }
   }
 }

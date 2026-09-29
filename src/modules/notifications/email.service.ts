@@ -1,31 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-  ) {
-    const host = this.configService.get<string>('SMTP_HOST');
-    const port = this.configService.get<number>('SMTP_PORT', 587);
-    const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
-
-    if (host && user && pass) {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port: Number(port),
-        secure: Number(port) === 465,
-        auth: { user, pass },
-      });
-    }
-  }
+  ) {}
 
   async sendEmail(params: {
     recipient: string;
@@ -45,8 +29,7 @@ export class EmailService {
     const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
     const fromAddress =
       this.configService.get<string>('RESEND_FROM') ||
-      this.configService.get<string>('SMTP_FROM') ||
-      'KickAt <support@kickat.co.in>';
+      'Kickat <support@kickat.co.in>';
 
     const htmlContent = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
       <h2 style="color: #1a1a1a; margin-top: 0;">${params.subject}</h2>
@@ -55,7 +38,11 @@ export class EmailService {
       <p style="color: #888888; font-size: 12px; text-align: center;">KickAt Notifications</p>
     </div>`;
 
-    if (resendApiKey) {
+    if (!resendApiKey) {
+      this.logger.error('[RESEND ERROR] RESEND_API_KEY is not configured in environment variables.');
+      status = 'FAILED';
+      errorMessage = 'RESEND_API_KEY is not configured';
+    } else {
       try {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -74,29 +61,14 @@ export class EmailService {
 
         const resData: any = await response.json();
         if (response.ok && resData?.id) {
-          this.logger.log(`[API EMAIL SUCCESS] MessageId: ${resData.id}`);
+          this.logger.log(`[RESEND EMAIL SUCCESS] MessageId: ${resData.id} to ${params.recipient}`);
         } else {
-          this.logger.error(`[API EMAIL ERROR] Failed to send to ${params.recipient}:`, resData);
+          this.logger.error(`[RESEND EMAIL ERROR] Failed to send to ${params.recipient}:`, resData);
           status = 'FAILED';
           errorMessage = resData?.message || JSON.stringify(resData);
         }
       } catch (err: any) {
-        this.logger.error(`[API EMAIL ERROR] Exception sending to ${params.recipient}:`, err);
-        status = 'FAILED';
-        errorMessage = err instanceof Error ? err.message : 'Send error';
-      }
-    } else if (this.transporter) {
-      try {
-        const info = await this.transporter.sendMail({
-          from: fromAddress,
-          to: params.recipient,
-          subject: params.subject,
-          text: params.body,
-          html: htmlContent,
-        });
-        this.logger.log(`[SMTP SUCCESS] MessageId: ${info.messageId}`);
-      } catch (err: any) {
-        this.logger.error(`[SMTP ERROR] Failed to send email to ${params.recipient}:`, err);
+        this.logger.error(`[RESEND EMAIL ERROR] Exception sending to ${params.recipient}:`, err);
         status = 'FAILED';
         errorMessage = err instanceof Error ? err.message : 'Send error';
       }
