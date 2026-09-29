@@ -1,12 +1,14 @@
-import { NotificationsService } from "../../notifications/notifications.service";
+import { NotificationsService } from '../../notifications/notifications.service';
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
+import { ShiprocketProvider } from './providers/shiprocket.provider';
 import { ShippingProvider } from './providers/shipping-provider.interface';
 import {
   BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -31,8 +33,21 @@ export class ShippingService {
     private readonly configService: ConfigService,
     private readonly nullShippingProvider: NullShippingProvider,
     private readonly notificationsService: NotificationsService,
+    @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
   ) {
-    this.shippingProvider = this.nullShippingProvider;
+    const configuredProvider = (
+      this.configService.get<string>('SHIPPING_PROVIDER', '') || ''
+    ).toUpperCase();
+
+    if (configuredProvider === 'SHIPROCKET' && this.shiprocketProvider) {
+      this.shippingProvider = this.shiprocketProvider;
+      this.logger.log('Active shipping provider initialized: SHIPROCKET');
+    } else {
+      this.shippingProvider = this.nullShippingProvider;
+      this.logger.log(
+        'Active shipping provider initialized: NULL (UNCONFIGURED)',
+      );
+    }
   }
 
   getShippingProvider(): ShippingProvider {
@@ -49,10 +64,7 @@ export class ShippingService {
       where: isUuid
         ? { id: identifier }
         : {
-            OR: [
-              { orderNumber: identifier },
-              { trackingNumber: identifier },
-            ],
+            OR: [{ orderNumber: identifier }, { trackingNumber: identifier }],
           },
       include: {
         user: {
@@ -73,7 +85,10 @@ export class ShippingService {
   /**
    * Generates tracking URL based on courier partner and AWB
    */
-  private getCourierTrackingUrl(courier: string | null, awb: string | null): string {
+  private getCourierTrackingUrl(
+    courier: string | null,
+    awb: string | null,
+  ): string {
     if (!awb) return '';
     const c = (courier || '').toLowerCase();
     if (c.includes('delhivery')) {
@@ -107,15 +122,24 @@ export class ShippingService {
     }
 
     if (query.courier) {
-      where.courierPartner = { contains: query.courier.trim(), mode: 'insensitive' };
+      where.courierPartner = {
+        contains: query.courier.trim(),
+        mode: 'insensitive',
+      };
     }
 
     if (query.awbNumber) {
-      where.trackingNumber = { contains: query.awbNumber.trim(), mode: 'insensitive' };
+      where.trackingNumber = {
+        contains: query.awbNumber.trim(),
+        mode: 'insensitive',
+      };
     }
 
     if (query.orderNumber) {
-      where.orderNumber = { contains: query.orderNumber.trim(), mode: 'insensitive' };
+      where.orderNumber = {
+        contains: query.orderNumber.trim(),
+        mode: 'insensitive',
+      };
     }
 
     if (query.isRTO !== undefined) {
@@ -190,7 +214,13 @@ export class ShippingService {
       this.prisma.order.count({
         where: {
           ...where,
-          orderStatus: { in: [OrderStatusEnum.PLACED, OrderStatusEnum.PROCESSING, OrderStatusEnum.PACKED] },
+          orderStatus: {
+            in: [
+              OrderStatusEnum.PLACED,
+              OrderStatusEnum.PROCESSING,
+              OrderStatusEnum.PACKED,
+            ],
+          },
           trackingNumber: null,
         },
       }),
@@ -212,7 +242,9 @@ export class ShippingService {
       this.prisma.order.count({
         where: {
           ...where,
-          orderStatus: { in: [OrderStatusEnum.RETURN_INITIATED, OrderStatusEnum.RETURNED] },
+          orderStatus: {
+            in: [OrderStatusEnum.RETURN_INITIATED, OrderStatusEnum.RETURNED],
+          },
         },
       }),
     ]);
@@ -220,7 +252,10 @@ export class ShippingService {
     const formattedShipments = orders.map((order) => {
       const itemsCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
       const itemsSummary = order.items
-        .map((i) => `${i.productName}${i.variantName ? ` (${i.variantName})` : ''} x${i.quantity}`)
+        .map(
+          (i) =>
+            `${i.productName}${i.variantName ? ` (${i.variantName})` : ''} x${i.quantity}`,
+        )
         .join(', ');
       const isRTO =
         order.orderStatus === OrderStatusEnum.RETURN_INITIATED ||
@@ -243,7 +278,8 @@ export class ShippingService {
           city: order.address?.city || null,
           state: order.address?.state || null,
           pincode: order.address?.pincode || null,
-          fullAddress: `${order.address?.houseFlat || ''} ${order.address?.buildingStreet || ''}, ${order.address?.city || ''} - ${order.address?.pincode || ''}`.trim(),
+          fullAddress:
+            `${order.address?.houseFlat || ''} ${order.address?.buildingStreet || ''}, ${order.address?.city || ''} - ${order.address?.pincode || ''}`.trim(),
         },
         courierPartner: order.courierPartner || 'Unassigned',
         awbNumber: order.trackingNumber || null,
@@ -251,8 +287,12 @@ export class ShippingService {
         isRTO,
         itemsCount,
         itemsSummary,
-        estimatedDelivery: order.estimatedDelivery || order.deliveryDate || null,
-        trackingUrl: this.getCourierTrackingUrl(order.courierPartner, order.trackingNumber),
+        estimatedDelivery:
+          order.estimatedDelivery || order.deliveryDate || null,
+        trackingUrl: this.getCourierTrackingUrl(
+          order.courierPartner,
+          order.trackingNumber,
+        ),
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
       };
@@ -309,14 +349,18 @@ export class ShippingService {
         awbNumber: order.trackingNumber || null,
         status: order.orderStatus,
         isRTO,
-        trackingUrl: this.getCourierTrackingUrl(order.courierPartner, order.trackingNumber),
+        trackingUrl: this.getCourierTrackingUrl(
+          order.courierPartner,
+          order.trackingNumber,
+        ),
         customer: order.user,
         shippingAddress: order.address,
         itemsCount,
         packageItems: order.items,
         deliverySlot: order.deliverySlot || 'Standard Delivery',
         deliveryInstructions: order.deliveryInstructions || null,
-        estimatedDelivery: order.estimatedDelivery || order.deliveryDate || null,
+        estimatedDelivery:
+          order.estimatedDelivery || order.deliveryDate || null,
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
       },
@@ -384,8 +428,12 @@ export class ShippingService {
         estimatedDelivery: updated.estimatedDelivery,
         orderStatus: updated.orderStatus,
         status: updated.orderStatus,
-        trackingUrl: this.getCourierTrackingUrl(updated.courierPartner, updated.trackingNumber),
-        pickupLocation: dto.pickupLocation || 'Kickat Central Warehouse, Mumbai',
+        trackingUrl: this.getCourierTrackingUrl(
+          updated.courierPartner,
+          updated.trackingNumber,
+        ),
+        pickupLocation:
+          dto.pickupLocation || 'Kickat Central Warehouse, Mumbai',
         assignedAt: new Date().toISOString(),
       },
     };
