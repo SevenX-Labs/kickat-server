@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CreateReturnPickupParams,
+  CreateShipmentParams,
+  CreateShipmentResult,
   ReturnPickupResult,
   ReturnStatusUpdate,
   ReturnTrackingResult,
@@ -13,6 +15,69 @@ export interface ShiprocketServiceabilityParams {
   deliveryPostcode: string;
   weight: number;
   cod: boolean;
+}
+
+export interface ShiprocketOrderItemPayload {
+  name: string;
+  sku: string;
+  units: number;
+  selling_price: number;
+  discount?: number;
+  tax?: number;
+  hsn?: number | string;
+}
+
+export interface ShiprocketCreateOrderPayload {
+  order_id: string;
+  order_date: string;
+  pickup_location: string;
+  channel_id?: string;
+  comment?: string;
+  billing_customer_name: string;
+  billing_last_name?: string;
+  billing_address: string;
+  billing_address_2?: string;
+  billing_city: string;
+  billing_pincode: string;
+  billing_state: string;
+  billing_country: string;
+  billing_email: string;
+  billing_phone: string;
+  shipping_is_billing: boolean;
+  shipping_customer_name?: string;
+  shipping_last_name?: string;
+  shipping_address?: string;
+  shipping_address_2?: string;
+  shipping_city?: string;
+  shipping_pincode?: string;
+  shipping_state?: string;
+  shipping_country?: string;
+  shipping_email?: string;
+  shipping_phone?: string;
+  order_items: ShiprocketOrderItemPayload[];
+  payment_method: 'COD' | 'Prepaid';
+  shipping_charges?: number;
+  giftwrap_charges?: number;
+  transaction_charges?: number;
+  total_discount?: number;
+  sub_total: number;
+  length?: number;
+  breadth?: number;
+  height?: number;
+  weight: number;
+}
+
+export interface ShiprocketCreateOrderResponse {
+  order_id?: number | string;
+  shipment_id?: number | string;
+  status?: string;
+  status_code?: number;
+  onboarding_completed_now?: number;
+  awb_code?: string;
+  courier_company_id?: string | number;
+  courier_name?: string;
+  message?: string;
+  [key: string]: unknown;
 }
 
 interface ShiprocketLoginResponse {
@@ -272,6 +337,179 @@ export class ShiprocketProvider implements ShippingProvider {
   }
 
   /**
+   * Creates a forward shipment in Shiprocket via POST /orders/create/adhoc
+   */
+  async createShipment(
+    params: CreateShipmentParams,
+  ): Promise<CreateShipmentResult> {
+    // 1. Pickup location validation
+    const pickupLocation = (
+      params.pickupLocation ||
+      this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', '') ||
+      ''
+    ).trim();
+
+    if (!pickupLocation) {
+      throw new Error(
+        'Shiprocket pickup location is not configured. Specify SHIPROCKET_PICKUP_LOCATION in environment or pass pickupLocation in params.',
+      );
+    }
+
+    // 2. Validate essential customer and address data
+    const rawName = (
+      params.customer.name ||
+      params.shippingAddress.name ||
+      ''
+    ).trim();
+    if (!rawName) {
+      throw new Error(
+        'Customer name is required for Shiprocket shipment creation.',
+      );
+    }
+
+    const rawPhone = (
+      params.customer.phone ||
+      params.shippingAddress.phone ||
+      ''
+    ).trim();
+    const cleanPhone = rawPhone.replace(/\D/g, '');
+    const phone =
+      cleanPhone.length === 12 && cleanPhone.startsWith('91')
+        ? cleanPhone.slice(2)
+        : cleanPhone;
+
+    if (!phone || phone.length < 10) {
+      throw new Error(
+        'Valid customer phone number (minimum 10 digits) is required for Shiprocket shipment creation.',
+      );
+    }
+
+    const houseFlat = params.shippingAddress.houseFlat?.trim();
+    const buildingStreet = params.shippingAddress.buildingStreet?.trim();
+    if (!houseFlat && !buildingStreet) {
+      throw new Error(
+        'Shipping address line is required for Shiprocket shipment creation.',
+      );
+    }
+
+    const city = params.shippingAddress.city?.trim();
+    const state = params.shippingAddress.state?.trim();
+    const pincode = params.shippingAddress.pincode?.trim();
+    if (!city || !state || !pincode) {
+      throw new Error(
+        'Shipping city, state, and pincode are required for Shiprocket shipment creation.',
+      );
+    }
+
+    if (!params.items || params.items.length === 0) {
+      throw new Error(
+        'At least one order item is required for Shiprocket shipment creation.',
+      );
+    }
+
+    // 3. Customer name splitting
+    const nameParts = rawName.split(/\s+/);
+    const firstName = nameParts[0] || 'Customer';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    // 4. Address line assembly
+    const billingAddress = houseFlat || buildingStreet || 'Address Line 1';
+    const address2Parts = [
+      houseFlat && buildingStreet ? buildingStreet : null,
+      params.shippingAddress.landmark?.trim() || null,
+    ].filter(Boolean);
+    const billingAddress2 = address2Parts.join(', ');
+
+    // 5. Payment method mapping
+    const isCod = params.paymentMethod?.toUpperCase() === 'COD';
+    const paymentMethod: 'COD' | 'Prepaid' = isCod ? 'COD' : 'Prepaid';
+
+    // 6. Order items mapping
+    const orderItems: ShiprocketOrderItemPayload[] = params.items.map(
+      (item) => ({
+        name: item.variantName
+          ? `${item.productName} (${item.variantName})`
+          : item.productName,
+        sku: (item.sku || item.productId || 'SKU-ITEM').trim(),
+        units: item.quantity,
+        selling_price: item.price,
+        discount: 0,
+        tax: 0,
+      }),
+    );
+
+    // 7. Date formatting (YYYY-MM-DD HH:mm)
+    const rawDate = params.orderDate ? new Date(params.orderDate) : new Date();
+    const orderDate = rawDate.toISOString().slice(0, 16).replace('T', ' ');
+
+    // 8. Package weight and dimensions
+    const weight =
+      params.packageDetails?.weight && params.packageDetails.weight > 0
+        ? params.packageDetails.weight
+        : 0.5; // Default 0.5 kg
+    const length = params.packageDetails?.length || 10;
+    const breadth = params.packageDetails?.breadth || 10;
+    const height = params.packageDetails?.height || 10;
+
+    const payload: ShiprocketCreateOrderPayload = {
+      order_id: params.orderNumber,
+      order_date: orderDate,
+      pickup_location: pickupLocation,
+      billing_customer_name: firstName,
+      billing_last_name: lastName,
+      billing_address: billingAddress,
+      billing_address_2: billingAddress2 || undefined,
+      billing_city: city,
+      billing_pincode: pincode,
+      billing_state: state,
+      billing_country: params.shippingAddress.country || 'India',
+      billing_email: params.customer.email || 'customer@kickat.in',
+      billing_phone: phone,
+      shipping_is_billing: true,
+      order_items: orderItems,
+      payment_method: paymentMethod,
+      shipping_charges: params.deliveryFee || 0,
+      total_discount: params.discount || 0,
+      sub_total: params.subtotal,
+      length,
+      breadth,
+      height,
+      weight,
+    };
+
+    this.logger.log(
+      `Dispatching Shiprocket forward shipment creation for order ${params.orderNumber} (pickup_location: ${pickupLocation}, payment_method: ${paymentMethod}).`,
+    );
+
+    const res = await this.requestWithAuth<ShiprocketCreateOrderResponse>(
+      '/orders/create/adhoc',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
+
+    const orderId = res.order_id != null ? String(res.order_id) : null;
+    const shipmentId = res.shipment_id != null ? String(res.shipment_id) : null;
+
+    this.logger.log(
+      `Shiprocket order created successfully for ${params.orderNumber}: order_id=${orderId}, shipment_id=${shipmentId}, status=${res.status || 'NEW'}.`,
+    );
+
+    return {
+      isConfigured: true,
+      providerName: this.providerName,
+      orderId,
+      shipmentId,
+      status: res.status || 'NEW',
+      statusCode: typeof res.status_code === 'number' ? res.status_code : null,
+      awbCode: res.awb_code || null,
+      courierName: res.courier_name || null,
+      message: 'Shiprocket forward shipment created successfully',
+    };
+  }
+
+  /**
    * Courier serviceability query
    */
   async checkServiceability<T = unknown>(
@@ -331,7 +569,7 @@ export class ShiprocketProvider implements ShippingProvider {
     });
   }
 
-  cancelReturnPickup(_shipmentId: string): Promise<boolean> {
+  cancelReturnPickup(_shipmentId?: string): Promise<boolean> {
     this.logger.warn(
       `Shiprocket cancelReturnPickup not yet implemented for shipment ${_shipmentId}.`,
     );

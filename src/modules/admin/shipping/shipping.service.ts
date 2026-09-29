@@ -2,7 +2,11 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
 import { ShiprocketProvider } from './providers/shiprocket.provider';
-import { ShippingProvider } from './providers/shipping-provider.interface';
+import {
+  CreateShipmentPackageDetails,
+  CreateShipmentParams,
+  ShippingProvider,
+} from './providers/shipping-provider.interface';
 import {
   BadRequestException,
   Injectable,
@@ -600,6 +604,128 @@ export class ShippingService {
         trackingUrl: this.getCourierTrackingUrl(courier, awb),
         checkpoints: specCheckpoints,
         timeline: checkpoints,
+      },
+    };
+  }
+
+  /**
+   * Creates a forward shipment for an order via the active shipping provider (e.g. Shiprocket)
+   * Enforces idempotency to prevent duplicate shipment creation.
+   */
+  async createShipmentForOrder(
+    orderIdentifier: string,
+    options?: {
+      pickupLocation?: string;
+      packageDetails?: CreateShipmentPackageDetails;
+    },
+  ) {
+    const order = await this.findOrderByAnyIdentifier(orderIdentifier);
+
+    // Idempotency check: prevent duplicate shipment creation if already persisted
+    if (order.shiprocketShipmentId) {
+      this.logger.log(
+        `Shipment already exists for order ${order.orderNumber} (shiprocketShipmentId: ${order.shiprocketShipmentId}). Skipping remote creation.`,
+      );
+      return {
+        success: true,
+        message: 'Shipment already exists for this order',
+        isExisting: true,
+        data: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          shiprocketOrderId: order.shiprocketOrderId,
+          shiprocketShipmentId: order.shiprocketShipmentId,
+          courierPartner: order.courierPartner,
+          trackingNumber: order.trackingNumber,
+          status: order.orderStatus,
+        },
+      };
+    }
+
+    if (!order.address) {
+      throw new BadRequestException(
+        'Order does not have a delivery address associated.',
+      );
+    }
+
+    if (!order.items || order.items.length === 0) {
+      throw new BadRequestException(
+        'Order does not have any items associated.',
+      );
+    }
+
+    const shipmentParams: CreateShipmentParams = {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderDate: order.createdAt,
+      paymentMethod: order.paymentMethod,
+      subtotal: order.subtotal,
+      deliveryFee: order.deliveryFee,
+      taxAmount: order.gstAmount || 0,
+      grandTotal: order.grandTotal,
+      pickupLocation: options?.pickupLocation,
+      packageDetails: options?.packageDetails,
+      customer: {
+        name: order.user?.name || null,
+        email: order.user?.email || null,
+        phone: order.user?.phone || null,
+      },
+      shippingAddress: {
+        name: order.user?.name || null,
+        phone: order.user?.phone || null,
+        houseFlat: order.address.houseFlat,
+        buildingStreet: order.address.buildingStreet,
+        landmark: order.address.landmark,
+        city: order.address.city,
+        state: order.address.state,
+        pincode: order.address.pincode,
+        country: order.address.country,
+      },
+      items: order.items.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        variantName: item.variantName,
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: item.totalPrice,
+      })),
+    };
+
+    const result = await this.shippingProvider.createShipment(shipmentParams);
+
+    // Persist remote shipment details to Order record
+    const updated = await this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        shippingProvider: result.providerName,
+        shiprocketOrderId: result.orderId ? String(result.orderId) : null,
+        shiprocketShipmentId: result.shipmentId
+          ? String(result.shipmentId)
+          : null,
+        courierPartner:
+          result.courierName || order.courierPartner || 'Shiprocket',
+        trackingNumber: result.awbCode || order.trackingNumber || null,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, phone: true } },
+        address: true,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Forward shipment created successfully',
+      isExisting: false,
+      data: {
+        orderId: updated.id,
+        orderNumber: updated.orderNumber,
+        shippingProvider: updated.shippingProvider,
+        shiprocketOrderId: updated.shiprocketOrderId,
+        shiprocketShipmentId: updated.shiprocketShipmentId,
+        courierPartner: updated.courierPartner,
+        trackingNumber: updated.trackingNumber,
+        status: updated.orderStatus,
+        remoteStatus: result.status,
       },
     };
   }

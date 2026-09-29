@@ -4,7 +4,7 @@ import { ShippingService } from './shipping.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrderStatusEnum } from '@prisma/client';
 import {
   AdminShipmentSortEnum,
@@ -267,6 +267,117 @@ describe('Admin ShippingService', () => {
       expect(result.data.timeline[0].stage).toBe('ORDER_PLACED');
       expect(result.data.timeline[0].isCompleted).toBe(true);
       expect(result.data.trackingUrl).toContain('delhivery.com/track');
+    });
+  });
+
+  describe("createShipmentForOrder", () => {
+    it("should prevent duplicate shipment creation if shiprocketShipmentId already exists on order (idempotency)", async () => {
+      const existingShippedOrder = {
+        id: "ord-101",
+        orderNumber: "ORD-1001",
+        shiprocketOrderId: "SR-ORD-1122",
+        shiprocketShipmentId: "SR-SHP-3344",
+        courierPartner: "Shiprocket",
+        trackingNumber: "AWB-12345",
+        orderStatus: OrderStatusEnum.PROCESSING,
+      };
+
+      prisma.order.findFirst.mockResolvedValue(existingShippedOrder);
+
+      const result = await service.createShipmentForOrder("ORD-1001");
+
+      expect(result.success).toBe(true);
+      expect(result.isExisting).toBe(true);
+      expect(result.message).toContain("already exists");
+      expect(result.data.shiprocketShipmentId).toBe("SR-SHP-3344");
+      expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("should call provider.createShipment and persist shiprocketOrderId and shiprocketShipmentId to database", async () => {
+      const mockOrder = {
+        id: "ord-102",
+        orderNumber: "ORD-1002",
+        paymentMethod: "PREPAID",
+        subtotal: 500,
+        deliveryFee: 50,
+        codFee: 0,
+        gstAmount: 25,
+        grandTotal: 575,
+        orderStatus: OrderStatusEnum.PROCESSING,
+        shiprocketShipmentId: null,
+        user: { id: "u-1", name: "Alice", email: "alice@example.com", phone: "+919876543210" },
+        address: { houseFlat: "101", buildingStreet: "Main St", city: "Mumbai", state: "MH", pincode: "400001", country: "India" },
+        items: [{ productId: "p-1", productName: "Cat Leash", quantity: 1, price: 500, totalPrice: 500 }],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+      prisma.order.update.mockResolvedValue({
+        ...mockOrder,
+        shippingProvider: "UNCONFIGURED",
+        shiprocketOrderId: "REMOTE-ORD-1",
+        shiprocketShipmentId: "REMOTE-SHP-1",
+        courierPartner: "Shiprocket",
+        trackingNumber: "AWB-9988",
+      });
+
+      const provider = service.getShippingProvider();
+      jest.spyOn(provider, "createShipment").mockResolvedValue({
+        isConfigured: true,
+        providerName: "SHIPROCKET",
+        orderId: "REMOTE-ORD-1",
+        shipmentId: "REMOTE-SHP-1",
+        status: "NEW",
+        statusCode: 1,
+        awbCode: "AWB-9988",
+        courierName: "Blue Dart",
+        message: "Created",
+      });
+
+      const result = await service.createShipmentForOrder("ORD-1002");
+
+      expect(result.success).toBe(true);
+      expect(result.isExisting).toBe(false);
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "ord-102" },
+          data: expect.objectContaining({
+            shiprocketOrderId: "REMOTE-ORD-1",
+            shiprocketShipmentId: "REMOTE-SHP-1",
+          }),
+        }),
+      );
+    });
+
+    it("should throw BadRequestException if order has no address", async () => {
+      const mockOrderNoAddress = {
+        id: "ord-103",
+        orderNumber: "ORD-1003",
+        shiprocketShipmentId: null,
+        address: null,
+        items: [{ productId: "p-1", productName: "Item", quantity: 1, price: 100 }],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(mockOrderNoAddress);
+
+      await expect(
+        service.createShipmentForOrder("ORD-1003"),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("should throw BadRequestException if order has no items", async () => {
+      const mockOrderNoItems = {
+        id: "ord-104",
+        orderNumber: "ORD-1004",
+        shiprocketShipmentId: null,
+        address: { houseFlat: "101", city: "Mumbai" },
+        items: [],
+      };
+
+      prisma.order.findFirst.mockResolvedValue(mockOrderNoItems);
+
+      await expect(
+        service.createShipmentForOrder("ORD-1004"),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

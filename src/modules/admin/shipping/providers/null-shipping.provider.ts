@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   CreateReturnPickupParams,
+  CreateShipmentParams,
+  CreateShipmentResult,
   ReturnPickupResult,
   ReturnStatusUpdate,
   ReturnTrackingResult,
@@ -12,13 +14,28 @@ export class NullShippingProvider implements ShippingProvider {
   readonly providerName = 'UNCONFIGURED';
   private readonly logger = new Logger(NullShippingProvider.name);
 
-  async createReturnPickup(
+  createShipment(params: CreateShipmentParams): Promise<CreateShipmentResult> {
+    this.logger.warn(
+      `No active delivery provider configured for orderId=${params.orderId}, orderNumber=${params.orderNumber}. Forward shipment remains unassigned.`,
+    );
+    return Promise.resolve({
+      isConfigured: false,
+      providerName: this.providerName,
+      orderId: null,
+      shipmentId: null,
+      status: 'UNCONFIGURED',
+      message:
+        'Delivery provider is unconfigured. Order is pending logistics assignment.',
+    });
+  }
+
+  createReturnPickup(
     params: CreateReturnPickupParams,
   ): Promise<ReturnPickupResult> {
     this.logger.warn(
       `No active delivery provider configured for returnId=${params.returnId}, orderId=${params.orderId}. Return remains in pickup-pending state without mock data.`,
     );
-    return {
+    return Promise.resolve({
       isConfigured: false,
       providerName: this.providerName,
       pickupId: null,
@@ -27,12 +44,13 @@ export class NullShippingProvider implements ShippingProvider {
       trackingUrl: null,
       pickupDate: null,
       status: 'PICKUP_REQUESTED',
-      message: 'Delivery provider is unconfigured. Return is pending logistics assignment.',
-    };
+      message:
+        'Delivery provider is unconfigured. Return is pending logistics assignment.',
+    });
   }
 
-  async getReturnTracking(shipmentId: string): Promise<ReturnTrackingResult> {
-    return {
+  getReturnTracking(shipmentId: string): Promise<ReturnTrackingResult> {
+    return Promise.resolve({
       isConfigured: false,
       providerName: this.providerName,
       shipmentId,
@@ -41,20 +59,21 @@ export class NullShippingProvider implements ShippingProvider {
         {
           status: 'PICKUP_REQUESTED',
           timestamp: new Date().toISOString(),
-          description: 'Return request submitted. Pending logistics provider assignment.',
+          description:
+            'Return request submitted. Pending logistics provider assignment.',
         },
       ],
-    };
+    });
   }
 
-  async cancelReturnPickup(shipmentId: string): Promise<boolean> {
-    return false;
+  cancelReturnPickup(): Promise<boolean> {
+    return Promise.resolve(false);
   }
 
-  async handleTrackingUpdate(payload: any): Promise<ReturnStatusUpdate> {
-    return {
+  handleTrackingUpdate(): Promise<ReturnStatusUpdate> {
+    return Promise.resolve({
       status: 'PICKUP_REQUESTED',
       notes: 'No provider active',
-    };
+    });
   }
 }
