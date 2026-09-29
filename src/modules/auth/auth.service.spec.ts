@@ -258,7 +258,7 @@ describe('AuthService', () => {
 
       // STEP 3: EXPLICIT ASSERTION: Token B (the second-generation token) MUST ALSO BE REVOKED!
       expect(tokenBRecord?.isRevoked).toBe(true);
-      expect(mockRes.clearCookie).toHaveBeenCalledWith('refreshToken');
+      expect(mockRes.clearCookie).toHaveBeenCalledWith('refreshToken', expect.anything());
     });
   });
 

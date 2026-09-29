@@ -44,7 +44,7 @@ export class UploadService {
   // Specific size policies
   // Product image: min 2 MB, max 3 MB
   public static readonly PRODUCT_MIN_SIZE_MB = 0;
-  public static readonly PRODUCT_MAX_SIZE_MB = 3;
+  public static readonly PRODUCT_MAX_SIZE_MB = 5;
   
   // All other images (categories, blogs, avatars, etc.): min 0 MB, max 4 MB
   public static readonly DEFAULT_MIN_SIZE_MB = 0;
@@ -321,7 +321,7 @@ export class UploadService {
         product: {
           minFileSizeMb: UploadService.PRODUCT_MIN_SIZE_MB,
           maxFileSizeMb: UploadService.PRODUCT_MAX_SIZE_MB,
-          description: 'Product images allow up to 3MB (min 0MB)',
+          description: 'Product images allow up to 5MB (min 0MB)',
         },
         allElse: {
           minFileSizeMb: UploadService.DEFAULT_MIN_SIZE_MB,

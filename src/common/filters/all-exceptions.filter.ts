@@ -34,6 +34,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message = errors[0] || message;
         }
       }
+    } else if (
+      typeof exception === 'object' &&
+      exception !== null &&
+      'code' in exception &&
+      typeof (exception as any).code === 'string' &&
+      (exception as any).code.startsWith('P')
+    ) {
+      const prismaCode = (exception as any).code;
+      if (prismaCode === 'P2002') {
+        status = HttpStatus.CONFLICT;
+        message = 'A record with this unique value already exists.';
+      } else if (prismaCode === 'P2025' || prismaCode === 'P2003') {
+        status = HttpStatus.BAD_REQUEST;
+        message = 'Invalid reference or record not found.';
+      } else {
+        status = HttpStatus.BAD_REQUEST;
+        message = (exception as Error).message || 'Database operation error.';
+      }
     } else if (exception instanceof Error) {
       message = exception.message;
     }
