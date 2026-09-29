@@ -99,6 +99,8 @@ interface JwtPayload {
   [key: string]: unknown;
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 @Injectable()
 export class ShiprocketProvider implements ShippingProvider {
   readonly providerName = 'SHIPROCKET';
@@ -338,11 +340,12 @@ export class ShiprocketProvider implements ShippingProvider {
 
   /**
    * Creates a forward shipment in Shiprocket via POST /orders/create/adhoc
+   * Validates all required fields strictly without silent fallbacks.
    */
   async createShipment(
     params: CreateShipmentParams,
   ): Promise<CreateShipmentResult> {
-    // 1. Pickup location validation
+    // 1. Pickup location validation (no hardcoded fallback)
     const pickupLocation = (
       params.pickupLocation ||
       this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', '') ||
@@ -351,11 +354,19 @@ export class ShiprocketProvider implements ShippingProvider {
 
     if (!pickupLocation) {
       throw new Error(
-        'Shiprocket pickup location is not configured. Specify SHIPROCKET_PICKUP_LOCATION in environment or pass pickupLocation in params.',
+        'Shiprocket pickup location is not configured. Configure SHIPROCKET_PICKUP_LOCATION in environment or pass pickupLocation in params.',
       );
     }
 
-    // 2. Validate essential customer and address data
+    // 2. Customer Email validation (no fake fallback like customer@kickat.in)
+    const customerEmail = (params.customer.email || '').trim();
+    if (!customerEmail || !EMAIL_REGEX.test(customerEmail)) {
+      throw new Error(
+        'Valid customer email is required for Shiprocket shipment creation.',
+      );
+    }
+
+    // 3. Customer Name validation
     const rawName = (
       params.customer.name ||
       params.shippingAddress.name ||
@@ -367,6 +378,7 @@ export class ShiprocketProvider implements ShippingProvider {
       );
     }
 
+    // 4. Phone Number normalization & validation
     const rawPhone = (
       params.customer.phone ||
       params.shippingAddress.phone ||
@@ -384,6 +396,7 @@ export class ShiprocketProvider implements ShippingProvider {
       );
     }
 
+    // 5. Shipping Address validation
     const houseFlat = params.shippingAddress.houseFlat?.trim();
     const buildingStreet = params.shippingAddress.buildingStreet?.trim();
     if (!houseFlat && !buildingStreet) {
@@ -401,18 +414,58 @@ export class ShiprocketProvider implements ShippingProvider {
       );
     }
 
+    // 6. Order Items validation
     if (!params.items || params.items.length === 0) {
       throw new Error(
         'At least one order item is required for Shiprocket shipment creation.',
       );
     }
 
-    // 3. Customer name splitting
+    // 7. Package Weight validation (no silent 0.5 kg fallback)
+    const weight = params.packageDetails?.weight;
+    if (typeof weight !== 'number' || isNaN(weight) || weight <= 0) {
+      throw new Error(
+        'Shipment weight is required before creating a Shiprocket shipment.',
+      );
+    }
+
+    // 8. Package Dimensions validation (no silent 10x10x10 fallback)
+    let length: number | undefined;
+    let breadth: number | undefined;
+    let height: number | undefined;
+
+    if (
+      params.packageDetails?.length !== undefined ||
+      params.packageDetails?.breadth !== undefined ||
+      params.packageDetails?.height !== undefined
+    ) {
+      const l = params.packageDetails.length;
+      const b = params.packageDetails.breadth;
+      const h = params.packageDetails.height;
+
+      if (
+        typeof l !== 'number' ||
+        typeof b !== 'number' ||
+        typeof h !== 'number' ||
+        l <= 0 ||
+        b <= 0 ||
+        h <= 0
+      ) {
+        throw new Error(
+          'Package dimensions (length, breadth, height) must be positive numbers when provided.',
+        );
+      }
+      length = l;
+      breadth = b;
+      height = h;
+    }
+
+    // 9. Customer name splitting
     const nameParts = rawName.split(/\s+/);
     const firstName = nameParts[0] || 'Customer';
     const lastName = nameParts.slice(1).join(' ') || '';
 
-    // 4. Address line assembly
+    // 10. Address line assembly
     const billingAddress = houseFlat || buildingStreet || 'Address Line 1';
     const address2Parts = [
       houseFlat && buildingStreet ? buildingStreet : null,
@@ -420,11 +473,11 @@ export class ShiprocketProvider implements ShippingProvider {
     ].filter(Boolean);
     const billingAddress2 = address2Parts.join(', ');
 
-    // 5. Payment method mapping
+    // 11. Payment method mapping
     const isCod = params.paymentMethod?.toUpperCase() === 'COD';
     const paymentMethod: 'COD' | 'Prepaid' = isCod ? 'COD' : 'Prepaid';
 
-    // 6. Order items mapping
+    // 12. Order items mapping
     const orderItems: ShiprocketOrderItemPayload[] = params.items.map(
       (item) => ({
         name: item.variantName
@@ -438,18 +491,9 @@ export class ShiprocketProvider implements ShippingProvider {
       }),
     );
 
-    // 7. Date formatting (YYYY-MM-DD HH:mm)
+    // 13. Date formatting (YYYY-MM-DD HH:mm)
     const rawDate = params.orderDate ? new Date(params.orderDate) : new Date();
     const orderDate = rawDate.toISOString().slice(0, 16).replace('T', ' ');
-
-    // 8. Package weight and dimensions
-    const weight =
-      params.packageDetails?.weight && params.packageDetails.weight > 0
-        ? params.packageDetails.weight
-        : 0.5; // Default 0.5 kg
-    const length = params.packageDetails?.length || 10;
-    const breadth = params.packageDetails?.breadth || 10;
-    const height = params.packageDetails?.height || 10;
 
     const payload: ShiprocketCreateOrderPayload = {
       order_id: params.orderNumber,
@@ -463,7 +507,7 @@ export class ShiprocketProvider implements ShippingProvider {
       billing_pincode: pincode,
       billing_state: state,
       billing_country: params.shippingAddress.country || 'India',
-      billing_email: params.customer.email || 'customer@kickat.in',
+      billing_email: customerEmail,
       billing_phone: phone,
       shipping_is_billing: true,
       order_items: orderItems,
@@ -471,14 +515,14 @@ export class ShiprocketProvider implements ShippingProvider {
       shipping_charges: params.deliveryFee || 0,
       total_discount: params.discount || 0,
       sub_total: params.subtotal,
-      length,
-      breadth,
-      height,
+      ...(length !== undefined && { length }),
+      ...(breadth !== undefined && { breadth }),
+      ...(height !== undefined && { height }),
       weight,
     };
 
     this.logger.log(
-      `Dispatching Shiprocket forward shipment creation for order ${params.orderNumber} (pickup_location: ${pickupLocation}, payment_method: ${paymentMethod}).`,
+      `Dispatching Shiprocket forward shipment creation for order ${params.orderNumber} (pickup_location: ${pickupLocation}, weight: ${weight}kg, payment_method: ${paymentMethod}).`,
     );
 
     const res = await this.requestWithAuth<ShiprocketCreateOrderResponse>(
@@ -490,7 +534,8 @@ export class ShiprocketProvider implements ShippingProvider {
     );
 
     const orderId = res.order_id != null ? String(res.order_id) : null;
-    const shipmentId = res.shipment_id != null ? String(res.shipment_id) : null;
+    const shipmentId =
+      res.shipment_id != null ? String(res.shipment_id) : null;
 
     this.logger.log(
       `Shiprocket order created successfully for ${params.orderNumber}: order_id=${orderId}, shipment_id=${shipmentId}, status=${res.status || 'NEW'}.`,
@@ -502,7 +547,8 @@ export class ShiprocketProvider implements ShippingProvider {
       orderId,
       shipmentId,
       status: res.status || 'NEW',
-      statusCode: typeof res.status_code === 'number' ? res.status_code : null,
+      statusCode:
+        typeof res.status_code === 'number' ? res.status_code : null,
       awbCode: res.awb_code || null,
       courierName: res.courier_name || null,
       message: 'Shiprocket forward shipment created successfully',

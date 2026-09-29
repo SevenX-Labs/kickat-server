@@ -25,6 +25,7 @@ import { OrderStatusEnum } from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 @Injectable()
 export class ShippingService {
@@ -609,8 +610,144 @@ export class ShippingService {
   }
 
   /**
+   * Helper to parse weight strings/numbers into kg.
+   * Handles "1.5kg", "500g", "250 gm", "2 kgs", "500 grams", etc.
+   */
+  private parseWeightStringToKg(value: unknown): number | null {
+    if (typeof value === "number") {
+      if (isNaN(value) || value <= 0) return null;
+      if (value > 50) {
+        return Math.round((value / 1000) * 1000) / 1000;
+      }
+      return value;
+    }
+
+    if (typeof value !== "string") return null;
+
+    const str = value.trim().toLowerCase();
+    if (!str) return null;
+
+    const unitMatch = str.match(
+      /(?:^|\s|\()(\d+(?:\.\d+)?)\s*(kg|kgs|kilogram|kilograms|g|gm|gms|gram|grams)\b/i,
+    );
+    if (unitMatch) {
+      const num = parseFloat(unitMatch[1]);
+      if (isNaN(num) || num <= 0) return null;
+      const unit = unitMatch[2].toLowerCase();
+      if (["g", "gm", "gms", "gram", "grams"].includes(unit)) {
+        return Math.round((num / 1000) * 1000) / 1000;
+      }
+      return num;
+    }
+
+    const pureNumMatch = str.match(/^(\d+(?:\.\d+)?)$/);
+    if (pureNumMatch) {
+      const num = parseFloat(pureNumMatch[1]);
+      if (isNaN(num) || num <= 0) return null;
+      if (num > 50) {
+        return Math.round((num / 1000) * 1000) / 1000;
+      }
+      return num;
+    }
+
+    return null;
+  }
+
+  /**
+   * Calculates total shipment weight in kg from order items and persisted product/variant data.
+   * Multiplies each item unit weight by quantity.
+   * If any item weight cannot be reliably resolved, returns null.
+   */
+  private async calculateOrderWeight(
+    items: Array<{
+      productId: string;
+      variantId?: string | null;
+      quantity: number;
+      productName: string;
+      variantName?: string | null;
+    }>,
+  ): Promise<number | null> {
+    if (!items || items.length === 0) return null;
+
+    const productIds = Array.from(
+      new Set(items.map((i) => i.productId).filter(Boolean)),
+    );
+
+    let productMap = new Map<string, any>();
+    if (productIds.length > 0) {
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: {
+          id: true,
+          attributes: true,
+          variants: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              attributes: true,
+            },
+          },
+        },
+      });
+      productMap = new Map(products.map((p) => [p.id, p]));
+    }
+
+    let totalKg = 0;
+
+    for (const item of items) {
+      const quantity = item.quantity || 1;
+      let unitWeightKg: number | null = null;
+
+      const product = productMap.get(item.productId);
+      if (product) {
+        if (item.variantId && Array.isArray(product.variants)) {
+          const variant = product.variants.find(
+            (v: any) => v.id === item.variantId,
+          );
+          if (variant) {
+            unitWeightKg = this.parseWeightStringToKg(
+              (variant.attributes as any)?.weight,
+            );
+            if (unitWeightKg === null) {
+              unitWeightKg = this.parseWeightStringToKg(variant.name);
+            }
+          }
+        }
+        if (unitWeightKg === null && item.variantName) {
+          unitWeightKg = this.parseWeightStringToKg(item.variantName);
+        }
+        if (unitWeightKg === null && product.attributes) {
+          unitWeightKg = this.parseWeightStringToKg(
+            (product.attributes as any)?.weight,
+          );
+        }
+      }
+
+      if (unitWeightKg === null && item.variantName) {
+        unitWeightKg = this.parseWeightStringToKg(item.variantName);
+      }
+
+      if (unitWeightKg === null && item.productName) {
+        unitWeightKg = this.parseWeightStringToKg(item.productName);
+      }
+
+      if (unitWeightKg === null || unitWeightKg <= 0) {
+        this.logger.warn(
+          `Unable to resolve reliable weight for order item: "${item.productName}" (variant: "${item.variantName || ""}").`,
+        );
+        return null;
+      }
+
+      totalKg += unitWeightKg * quantity;
+    }
+
+    return Math.round(totalKg * 1000) / 1000;
+  }
+
+  /**
    * Creates a forward shipment for an order via the active shipping provider (e.g. Shiprocket)
-   * Enforces idempotency to prevent duplicate shipment creation.
+   * Validates all required data before invoking provider and enforces idempotency.
    */
   async createShipmentForOrder(
     orderIdentifier: string,
@@ -621,14 +758,14 @@ export class ShippingService {
   ) {
     const order = await this.findOrderByAnyIdentifier(orderIdentifier);
 
-    // Idempotency check: prevent duplicate shipment creation if already persisted
+    // 1. Idempotency check: prevent duplicate shipment creation if already persisted
     if (order.shiprocketShipmentId) {
       this.logger.log(
         `Shipment already exists for order ${order.orderNumber} (shiprocketShipmentId: ${order.shiprocketShipmentId}). Skipping remote creation.`,
       );
       return {
         success: true,
-        message: 'Shipment already exists for this order',
+        message: "Shipment already exists for this order",
         isExisting: true,
         data: {
           orderId: order.id,
@@ -642,16 +779,123 @@ export class ShippingService {
       };
     }
 
-    if (!order.address) {
+    // 2. Customer validation (no fake fallback)
+    const customerEmail = (order.user?.email || "").trim();
+    if (!customerEmail || !EMAIL_REGEX.test(customerEmail)) {
       throw new BadRequestException(
-        'Order does not have a delivery address associated.',
+        "Valid customer email is required for Shiprocket shipment creation.",
       );
     }
 
+    const customerName = (order.user?.name || "").trim();
+    if (!customerName) {
+      throw new BadRequestException(
+        "Customer name is required before creating a Shiprocket shipment.",
+      );
+    }
+
+    const customerPhone = (order.user?.phone || "").trim();
+    if (!customerPhone) {
+      throw new BadRequestException(
+        "Customer phone number is required before creating a Shiprocket shipment.",
+      );
+    }
+
+    // 3. Address validation
+    if (!order.address) {
+      throw new BadRequestException(
+        "Order does not have a delivery address associated.",
+      );
+    }
+
+    const houseFlat = order.address.houseFlat?.trim();
+    const buildingStreet = order.address.buildingStreet?.trim();
+    if (!houseFlat && !buildingStreet) {
+      throw new BadRequestException(
+        "Shipping address line is required for Shiprocket shipment creation.",
+      );
+    }
+
+    const city = order.address.city?.trim();
+    const state = order.address.state?.trim();
+    const pincode = order.address.pincode?.trim();
+    if (!city || !state || !pincode) {
+      throw new BadRequestException(
+        "Shipping city, state, and pincode are required for Shiprocket shipment creation.",
+      );
+    }
+
+    // 4. Order items validation
     if (!order.items || order.items.length === 0) {
       throw new BadRequestException(
-        'Order does not have any items associated.',
+        "Order does not have any items associated.",
       );
+    }
+
+    // 5. Pickup location validation (no hardcoded fallback)
+    const pickupLocation = (
+      options?.pickupLocation ||
+      this.configService.get<string>("SHIPROCKET_PICKUP_LOCATION", "") ||
+      ""
+    ).trim();
+
+    if (!pickupLocation) {
+      throw new BadRequestException(
+        "Shiprocket pickup location is not configured.",
+      );
+    }
+
+    // 6. Package weight validation & calculation (no silent 0.5 kg fallback)
+    let totalWeight: number | null = null;
+    if (options?.packageDetails?.weight !== undefined) {
+      if (
+        typeof options.packageDetails.weight !== "number" ||
+        isNaN(options.packageDetails.weight) ||
+        options.packageDetails.weight <= 0
+      ) {
+        throw new BadRequestException(
+          "Shipment weight is required before creating a Shiprocket shipment.",
+        );
+      }
+      totalWeight = options.packageDetails.weight;
+    } else {
+      totalWeight = await this.calculateOrderWeight(order.items);
+    }
+
+    if (
+      typeof totalWeight !== "number" ||
+      isNaN(totalWeight) ||
+      totalWeight <= 0
+    ) {
+      throw new BadRequestException(
+        "Shipment weight is required before creating a Shiprocket shipment.",
+      );
+    }
+
+    // 7. Package dimensions validation (no silent 10x10x10 fallback)
+    let dimensions: { length?: number; breadth?: number; height?: number } = {};
+    if (
+      options?.packageDetails?.length !== undefined ||
+      options?.packageDetails?.breadth !== undefined ||
+      options?.packageDetails?.height !== undefined
+    ) {
+      const l = options.packageDetails.length;
+      const b = options.packageDetails.breadth;
+      const h = options.packageDetails.height;
+
+      if (
+        typeof l !== "number" ||
+        typeof b !== "number" ||
+        typeof h !== "number" ||
+        l <= 0 ||
+        b <= 0 ||
+        h <= 0
+      ) {
+        throw new BadRequestException(
+          "Package dimensions (length, breadth, height) must be positive numbers when provided.",
+        );
+      }
+      dimensions = { length: l, breadth: b, height: h };
     }
 
     const shipmentParams: CreateShipmentParams = {
@@ -663,23 +907,26 @@ export class ShippingService {
       deliveryFee: order.deliveryFee,
       taxAmount: order.gstAmount || 0,
       grandTotal: order.grandTotal,
-      pickupLocation: options?.pickupLocation,
-      packageDetails: options?.packageDetails,
+      pickupLocation,
+      packageDetails: {
+        weight: totalWeight,
+        ...dimensions,
+      },
       customer: {
-        name: order.user?.name || null,
-        email: order.user?.email || null,
-        phone: order.user?.phone || null,
+        name: customerName,
+        email: customerEmail,
+        phone: customerPhone,
       },
       shippingAddress: {
-        name: order.user?.name || null,
-        phone: order.user?.phone || null,
+        name: customerName,
+        phone: customerPhone,
         houseFlat: order.address.houseFlat,
         buildingStreet: order.address.buildingStreet,
         landmark: order.address.landmark,
-        city: order.address.city,
-        state: order.address.state,
-        pincode: order.address.pincode,
-        country: order.address.country,
+        city,
+        state,
+        pincode,
+        country: order.address.country || "India",
       },
       items: order.items.map((item) => ({
         productId: item.productId,
@@ -703,7 +950,7 @@ export class ShippingService {
           ? String(result.shipmentId)
           : null,
         courierPartner:
-          result.courierName || order.courierPartner || 'Shiprocket',
+          result.courierName || order.courierPartner || "Shiprocket",
         trackingNumber: result.awbCode || order.trackingNumber || null,
       },
       include: {
@@ -714,7 +961,7 @@ export class ShippingService {
 
     return {
       success: true,
-      message: 'Forward shipment created successfully',
+      message: "Forward shipment created successfully",
       isExisting: false,
       data: {
         orderId: updated.id,
