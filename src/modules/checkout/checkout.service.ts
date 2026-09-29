@@ -162,7 +162,8 @@ export class CheckoutService {
     const codEnabled = Boolean(paymentSettings.cod?.enabled ?? true);
     const upiEnabled = Boolean(paymentSettings.upi?.enabled ?? true);
     const cardEnabled = Boolean(paymentSettings.card?.enabled ?? true);
-    const codExtraFee = Number(paymentSettings.cod?.extraFee ?? 0);
+    const codExtraFeeEnabled = paymentSettings.cod?.extraFeeEnabled !== false;
+    const codExtraFee = (codExtraFeeEnabled && codEnabled) ? Number(paymentSettings.cod?.extraFee ?? 0) : 0;
 
     return {
       success: true,
@@ -317,7 +318,7 @@ export class CheckoutService {
     const codFee = fees.codFee;
     const grandTotal = fees.grandTotal;
 
-    if (dto.expectedTotal !== undefined && Math.abs(grandTotal - dto.expectedTotal) > 0.01) {
+    if (dto.expectedTotal !== undefined && Math.abs(grandTotal - dto.expectedTotal) > 1.0) {
       throw new ConflictException(
         "Cart total has changed due to updated fee settings. Please review your total before completing checkout."
       );

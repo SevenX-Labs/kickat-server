@@ -50,7 +50,8 @@ export function calculateFeesHelper(
 
   let codFee = 0;
   const isCod = paymentMethod === "COD" || paymentMethod === "cod";
-  if (isCod && paymentSettings?.cod?.enabled && Number(paymentSettings?.cod?.extraFee ?? 0) > 0) {
+  const codExtraFeeEnabled = paymentSettings?.cod?.extraFeeEnabled !== false;
+  if (isCod && paymentSettings?.cod?.enabled && codExtraFeeEnabled && Number(paymentSettings?.cod?.extraFee ?? 0) > 0) {
     codFee = Number(paymentSettings.cod.extraFee);
   }
 
