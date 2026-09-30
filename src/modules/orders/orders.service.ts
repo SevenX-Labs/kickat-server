@@ -394,34 +394,190 @@ export class OrdersService {
     };
   }
 
+  private getCourierTrackingUrl(
+    courier: string | null,
+    awb: string | null,
+  ): string {
+    if (!awb) return "";
+    const c = (courier || "").toLowerCase();
+    if (c.includes("delhivery")) {
+      return `https://www.delhivery.com/track/package/${awb}`;
+    }
+    if (c.includes("shiprocket")) {
+      return `https://shiprocket.co/tracking/${awb}`;
+    }
+    if (c.includes("bluedart") || c.includes("blue dart")) {
+      return "https://www.bluedart.com/tracking";
+    }
+    if (c.includes("dtdc")) {
+      return "https://www.dtdc.in/tracking.asp";
+    }
+    return `https://track.kickat.in/shipment/${awb}`;
+  }
+
   /**
    * GET /orders/:id/tracking
    */
   async getOrderTracking(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
 
+    const awb = order.trackingNumber || null;
+    const courier = order.courierPartner || null;
+    const trackingUrl = this.getCourierTrackingUrl(courier, awb);
+
+    const isRTO =
+      order.orderStatus === OrderStatusEnum.RETURN_INITIATED ||
+      order.orderStatus === OrderStatusEnum.RETURNED;
+    const isCancelled = order.orderStatus === OrderStatusEnum.CANCELLED;
+
+    // Standard progression milestones
+    const statusOrder: OrderStatusEnum[] = [
+      OrderStatusEnum.PLACED,
+      OrderStatusEnum.PROCESSING,
+      OrderStatusEnum.PACKED,
+      OrderStatusEnum.SHIPPED,
+      OrderStatusEnum.OUT_FOR_DELIVERY,
+      OrderStatusEnum.DELIVERED,
+    ];
+
+    const currentStatusIndex = statusOrder.indexOf(order.orderStatus);
+
+    // Dynamic timeline matching Admin milestones without fabricating future timestamps
+    const timeline = isCancelled
+      ? [
+          {
+            stage: "ORDER_PLACED",
+            title: "Order Placed & Confirmed",
+            location: "Online Platform",
+            timestamp: order.createdAt,
+            isCompleted: true,
+            isCurrent: false,
+            description: "Customer order placed and payment verified.",
+          },
+          {
+            stage: "CANCELLED",
+            title: "Order Cancelled",
+            location: "Online Platform",
+            timestamp: order.cancelledAt || order.updatedAt,
+            isCompleted: true,
+            isCurrent: true,
+            description: order.cancelReason
+              ? `Reason: ${order.cancelReason}`
+              : "Order was cancelled.",
+          },
+        ]
+      : [
+          {
+            stage: "ORDER_PLACED",
+            title: "Order Placed & Confirmed",
+            location: "Online Platform",
+            timestamp: order.createdAt,
+            isCompleted: true,
+            isCurrent: currentStatusIndex <= 0,
+            description: "Customer order placed and payment verified.",
+          },
+          {
+            stage: "PACKED",
+            title: "Packed at Warehouse",
+            location: "Kickat Central Hub, Mumbai",
+            timestamp: currentStatusIndex >= 2 ? order.updatedAt : null,
+            isCompleted: currentStatusIndex >= 2 || isRTO,
+            isCurrent: currentStatusIndex === 1 || currentStatusIndex === 2,
+            description: "Items picked, verified, and safely packed.",
+          },
+          {
+            stage: "SHIPPED",
+            title: "Handed Over to Courier",
+            location: "Mumbai Logistics Hub",
+            timestamp: currentStatusIndex >= 3 ? order.updatedAt : null,
+            isCompleted: currentStatusIndex >= 3 || isRTO,
+            isCurrent: currentStatusIndex === 3,
+            description:
+              courier && awb
+                ? `Package picked up by ${courier} under AWB ${awb}.`
+                : "Package handed over to logistics carrier.",
+          },
+          {
+            stage: "IN_TRANSIT",
+            title: "In Transit to Destination Hub",
+            location: `${order.address?.city || "Destination"} Regional Sorting Facility`,
+            timestamp: currentStatusIndex >= 3 ? order.updatedAt : null,
+            isCompleted: currentStatusIndex >= 3 || isRTO,
+            isCurrent: currentStatusIndex === 3,
+            description: "Package in transit between logistics hubs.",
+          },
+          {
+            stage: "OUT_FOR_DELIVERY",
+            title: "Out for Delivery",
+            location: `${order.address?.city || "Local"} Delivery Center`,
+            timestamp: currentStatusIndex >= 4 ? order.updatedAt : null,
+            isCompleted: currentStatusIndex >= 4,
+            isCurrent: currentStatusIndex === 4,
+            description: "Delivery executive assigned and out for delivery.",
+          },
+          {
+            stage: isRTO ? "RTO_INITIATED" : "DELIVERED",
+            title: isRTO ? "Return to Origin (RTO)" : "Delivered to Recipient",
+            location: `${order.address?.city || ""}, ${order.address?.state || ""}`.trim() || "Customer Address",
+            timestamp:
+              order.orderStatus === OrderStatusEnum.DELIVERED || order.orderStatus === OrderStatusEnum.RETURNED
+                ? order.deliveryDate || order.updatedAt
+                : null,
+            isCompleted:
+              order.orderStatus === OrderStatusEnum.DELIVERED ||
+              order.orderStatus === OrderStatusEnum.RETURNED,
+            isCurrent:
+              order.orderStatus === OrderStatusEnum.DELIVERED ||
+              order.orderStatus === OrderStatusEnum.RETURNED,
+            description: isRTO
+              ? "Shipment marked for Return to Origin."
+              : "Package safely delivered to recipient address.",
+          },
+        ];
+
+    let currentLocation = "Online Platform";
+    if (isCancelled) {
+      currentLocation = "Order Cancelled";
+    } else if (order.orderStatus === OrderStatusEnum.DELIVERED) {
+      currentLocation = `${order.address?.city || ""}, ${order.address?.state || ""}`.trim() || "Delivered";
+    } else if (currentStatusIndex >= 4) {
+      currentLocation = `${order.address?.city || "Local"} Delivery Center`;
+    } else if (currentStatusIndex >= 3) {
+      currentLocation = `${order.address?.city || "Regional"} Sorting Facility`;
+    } else if (currentStatusIndex >= 2) {
+      currentLocation = "Kickat Central Hub, Mumbai";
+    } else if (courier && awb) {
+      currentLocation = "Kickat Logistics Facility, Mumbai";
+    }
+
+    const checkpoints = timeline.filter((t) => t.isCompleted);
+
     return {
       success: true,
       orderId: order.id,
-      trackingNumber: order.trackingNumber || `TRK-${order.orderNumber}`,
-      courierPartner: order.courierPartner || 'Kickat Express Delivery',
+      orderNumber: order.orderNumber,
+      trackingNumber: awb,
+      awbNumber: awb,
+      courierPartner: courier,
+      trackingUrl: trackingUrl || null,
       status: order.orderStatus,
-      estimatedDelivery:
-        order.estimatedDelivery ||
-        order.deliveryDate ||
-        new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-      history: [
-        {
-          location: 'Hub Facility',
-          status: 'Order Prepared',
-          timestamp: order.createdAt,
-        },
-        {
-          location: 'Logistics Center',
-          status: order.orderStatus,
-          timestamp: order.updatedAt,
-        },
-      ],
+      currentStatus: order.orderStatus,
+      isRTO,
+      isCancelled,
+      origin: "Kickat Central Warehouse, Mumbai, Maharashtra",
+      destination: order.address
+        ? `${order.address.city || ""}, ${order.address.state || ""} ${order.address.pincode || ""}`.trim()
+        : "Customer Address",
+      location: currentLocation,
+      lastUpdated: order.updatedAt || order.createdAt,
+      estimatedDelivery: order.estimatedDelivery || order.deliveryDate || null,
+      checkpoints,
+      timeline,
+      history: checkpoints.map((cp) => ({
+        location: cp.location,
+        status: cp.title,
+        timestamp: cp.timestamp || order.createdAt,
+      })),
     };
   }
 
