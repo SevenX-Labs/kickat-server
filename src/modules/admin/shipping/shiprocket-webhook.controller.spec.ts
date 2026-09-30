@@ -1,7 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ShiprocketWebhookController } from "./shiprocket-webhook.controller";
 import { ShiprocketWebhookService } from "./shiprocket-webhook.service";
-import { HttpStatus } from "@nestjs/common";
 
 describe("ShiprocketWebhookController", () => {
   let controller: ShiprocketWebhookController;
@@ -53,5 +52,11 @@ describe("ShiprocketWebhookController", () => {
       body,
       rawBody: req.rawBody,
     });
+  });
+
+  it("should acknowledge GET probe requests with 200 OK", () => {
+    const probeResponse = controller.handleProbe();
+    expect(probeResponse.success).toBe(true);
+    expect(probeResponse.status).toBe("active");
   });
 });

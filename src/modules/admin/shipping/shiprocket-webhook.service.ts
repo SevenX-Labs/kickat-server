@@ -8,7 +8,6 @@ import { ConfigService } from "@nestjs/config";
 import { OrderStatusEnum, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
-import { ShiprocketWebhookDto } from "./dto/shiprocket-webhook.dto";
 import * as crypto from "crypto";
 
 const UUID_V4_REGEX =
@@ -122,6 +121,7 @@ export interface ProcessWebhookResult {
   message: string;
   matched?: boolean;
   duplicate?: boolean;
+  test?: boolean;
   orderId?: string;
   orderNumber?: string;
   oldStatus?: OrderStatusEnum;
@@ -142,18 +142,44 @@ export class ShiprocketWebhookService {
   ) {}
 
   /**
+   * Safely searches headers in a case-insensitive manner for candidate key names.
+   */
+  private extractHeaderValue(
+    headers: Record<string, any>,
+    candidateKeys: string[],
+  ): string {
+    if (!headers || typeof headers !== "object") return "";
+
+    const lowerMap = new Map<string, string>();
+    for (const [k, v] of Object.entries(headers)) {
+      if (v !== undefined && v !== null) {
+        lowerMap.set(k.toLowerCase().trim(), String(v).trim());
+      }
+    }
+
+    for (const candidate of candidateKeys) {
+      const match = lowerMap.get(candidate.toLowerCase().trim());
+      if (match) return match;
+    }
+
+    return "";
+  }
+
+  /**
    * Validates webhook authentication headers against the configured secret.
-   * Shiprocket passes configured webhook secret via `x-api-key` header.
+   * Shiprocket passes configured webhook security token via `x-api-key` header.
    */
   verifyAuthentication(headers: Record<string, any>): boolean {
-    const configuredSecret = (
+    const rawConfiguredSecret = (
       this.configService.get<string>("SHIPROCKET_WEBHOOK_SECRET") ||
       this.configService.get<string>("SHIPROCKET_WEBHOOK_TOKEN") ||
       this.configService.get<string>("SHIPROCKET_API_KEY") ||
       ""
     ).trim();
 
-    // If no secret configured in non-production, log warning and allow
+    // Strip optional surrounding quotes in configured secret
+    const configuredSecret = rawConfiguredSecret.replace(/^["']|["']$/g, "").trim();
+
     const isProduction = process.env.NODE_ENV === "production";
     if (!configuredSecret) {
       if (isProduction) {
@@ -170,16 +196,22 @@ export class ShiprocketWebhookService {
       return true;
     }
 
-    // Extract incoming key from headers
-    const rawHeaderKey =
-      headers["x-api-key"] ||
-      headers["x-api-token"] ||
-      headers["x-shiprocket-token"] ||
-      headers["x_api_key"] ||
-      headers["authorization"] ||
-      "";
+    // Extract incoming key from headers case-insensitively
+    let incomingKey = this.extractHeaderValue(headers, [
+      "x-api-key",
+      "x_api_key",
+      "x-api-token",
+      "x-shiprocket-token",
+      "api-key",
+      "apikey",
+      "token",
+      "authorization",
+    ]);
 
-    let incomingKey = String(rawHeaderKey).trim();
+    // Strip optional quotes
+    incomingKey = incomingKey.replace(/^["']|["']$/g, "").trim();
+
+    // If Authorization header is used with Bearer prefix
     if (incomingKey.toLowerCase().startsWith("bearer ")) {
       incomingKey = incomingKey.substring(7).trim();
     }
@@ -299,7 +331,6 @@ export class ShiprocketWebhookService {
 
     // Delivered cannot revert to Shipped, Out For Delivery, Packed, Placed
     if (currentStatus === OrderStatusEnum.DELIVERED) {
-      // Only allow transition to Return Initiated or Returned
       return (
         targetStatus === OrderStatusEnum.RETURN_INITIATED ||
         targetStatus === OrderStatusEnum.RETURNED
@@ -561,13 +592,10 @@ export class ShiprocketWebhookService {
     // 1. Authenticate webhook request
     this.verifyAuthentication(headers);
 
-    // 2. Validate payload structure safely
-    if (!body || typeof body !== "object") {
-      this.logger.warn("Shiprocket webhook received with empty or malformed body.");
-      throw new BadRequestException("Invalid webhook payload format");
-    }
+    // 2. Validate payload structure safely (do not throw if empty / probe)
+    const payloadObject = body && typeof body === "object" ? body : {};
 
-    const fields = this.extractPayloadFields(body);
+    const fields = this.extractPayloadFields(payloadObject);
     const {
       shipmentId,
       orderId,
@@ -580,15 +608,16 @@ export class ShiprocketWebhookService {
       timestamp,
     } = fields;
 
-    // 3. Verify at least one identifier is present
+    // 3. If no identifiers are present (e.g. Test Webhook ping / header verification from Shiprocket dashboard)
     if (!shipmentId && !orderId && !awb) {
-      this.logger.warn(
-        "Shiprocket webhook received without shipment_id, order_id, or awb.",
+      this.logger.log(
+        "Shiprocket webhook test ping or configuration validation acknowledged.",
       );
       return {
         success: true,
-        message: "Webhook ignored: No shipment or order identifiers provided in payload.",
+        message: "Shiprocket webhook test ping acknowledged successfully",
         matched: false,
+        test: true,
       };
     }
 
@@ -606,8 +635,7 @@ export class ShiprocketWebhookService {
 
       // Record unmatched webhook in WebhookLog for auditability
       const unmatchedEventId =
-        headers["x-shiprocket-event-id"] ||
-        headers["x-event-id"] ||
+        this.extractHeaderValue(headers, ["x-shiprocket-event-id", "x-event-id", "x-webhook-id"]) ||
         payloadEventId ||
         `sr_unmatched_${shipmentId || orderId || awb}_${rawStatus || statusCode || "status"}_${timestamp || Date.now()}`;
 
@@ -616,7 +644,7 @@ export class ShiprocketWebhookService {
           data: {
             eventId: unmatchedEventId,
             event: `SHIPROCKET_${rawStatus || statusCode || "UNMATCHED"}`,
-            payload: JSON.parse(JSON.stringify(body || {})),
+            payload: JSON.parse(JSON.stringify(payloadObject || {})),
             status: "UNMATCHED",
             processedAt: new Date(),
           },
@@ -638,9 +666,7 @@ export class ShiprocketWebhookService {
 
     // 5. Idempotency Check: Determine unique event ID
     const eventId =
-      headers["x-shiprocket-event-id"] ||
-      headers["x-event-id"] ||
-      headers["x-webhook-id"] ||
+      this.extractHeaderValue(headers, ["x-shiprocket-event-id", "x-event-id", "x-webhook-id"]) ||
       payloadEventId ||
       `sr_${order.id}_${shipmentId || order.shiprocketShipmentId || "noship"}_${rawStatus || statusCode || "status"}_${timestamp || ""}`;
 
@@ -719,7 +745,7 @@ export class ShiprocketWebhookService {
           data: {
             eventId,
             event: `SHIPROCKET_${rawStatus || statusCode || "UPDATE"}`,
-            payload: JSON.parse(JSON.stringify(body || {})),
+            payload: JSON.parse(JSON.stringify(payloadObject || {})),
             status: "SUCCESS",
             processedAt: new Date(),
           },

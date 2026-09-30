@@ -160,28 +160,40 @@ describe("ShiprocketWebhookService", () => {
     ).toThrow(UnauthorizedException);
   });
 
-  // 3. Malformed Payload
-  it("3. Safely handles malformed payload without crashing", async () => {
-    await expect(
-      service.processWebhook({
-        headers: { "x-api-key": "sr_webhook_secret_key_123" },
-        body: null as any,
-      }),
-    ).rejects.toThrow(BadRequestException);
+  // 2B. Case-insensitive header support
+  it("2B. Successfully authenticates with case-insensitive header variants (X-Api-Key, X-API-KEY)", async () => {
+    expect(
+      service.verifyAuthentication({ "X-Api-Key": "sr_webhook_secret_key_123" }),
+    ).toBe(true);
+    expect(
+      service.verifyAuthentication({ "X-API-KEY": "sr_webhook_secret_key_123" }),
+    ).toBe(true);
   });
 
-  // 4. Missing shipment/order identifiers
-  it("4. Safely ignores webhook when identifiers are completely missing", async () => {
+  // 3. Malformed Payload / Empty Body Handling
+  it("3. Safely handles empty or ping payload and acknowledges with HTTP 200", async () => {
+    const result = await service.processWebhook({
+      headers: { "x-api-key": "sr_webhook_secret_key_123" },
+      body: {},
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.test).toBe(true);
+    expect(result.message).toContain("test ping acknowledged successfully");
+  });
+
+  // 4. Missing shipment/order identifiers (Test Webhook from Shiprocket Dashboard)
+  it("4. Safely acknowledges Shiprocket test webhook when identifiers are absent", async () => {
     const result = await service.processWebhook({
       headers: { "x-api-key": "sr_webhook_secret_key_123" },
       body: {
-        current_status: "DELIVERED",
+        event: "test",
+        data: {},
       },
     });
 
     expect(result.success).toBe(true);
-    expect(result.matched).toBe(false);
-    expect(result.message).toContain("No shipment or order identifiers");
+    expect(result.test).toBe(true);
     expect(prisma.order.update).not.toHaveBeenCalled();
   });
 
@@ -506,7 +518,6 @@ describe("ShiprocketWebhookService", () => {
       },
     });
 
-    // Verification that no dynamic AWB generation or remote API was invoked
     expect(prisma.order.create).not.toHaveBeenCalled();
   });
 
