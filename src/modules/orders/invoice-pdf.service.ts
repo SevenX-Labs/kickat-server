@@ -66,6 +66,34 @@ export interface StoreSettingsData {
   supportPhone?: string | null;
 }
 
+function formatAddress(addr?: any): string[] {
+  if (!addr) return [];
+  const lines: string[] = [];
+  const line1 = (addr.streetAddress || addr.addressLine1 || "").trim();
+  const line2 = (addr.addressLine2 || "").trim();
+  if (line1) lines.push(line1);
+  if (line2 && line2.toLowerCase() !== line1.toLowerCase()) lines.push(line2);
+
+  const parts: string[] = [];
+  if (addr.city && addr.city.trim()) parts.push(addr.city.trim());
+  if (addr.state && addr.state.trim()) parts.push(addr.state.trim());
+  const cityState = parts.join(", ");
+
+  const zip = (addr.postalCode || "").trim();
+  if (cityState && zip) {
+    lines.push(`${cityState} - ${zip}`);
+  } else if (cityState) {
+    lines.push(cityState);
+  } else if (zip) {
+    lines.push(zip);
+  }
+
+  if (addr.country && addr.country.trim()) {
+    lines.push(addr.country.trim());
+  }
+  return lines;
+}
+
 function numberToWordsINR(num: number): string {
   const n = Math.floor(Math.abs(Number(num) || 0));
   if (n === 0) return "Rupees Zero Only";
@@ -123,13 +151,13 @@ export class InvoicePdfService {
             storeName: sysSetting.storeName || "KickAt Retail India",
             storeEmail: sysSetting.supportEmail || "support@kickat.co.in",
             storePhone: sysSetting.supportPhone || "+91 1800-123-5425",
-            gstin: sysSetting.gstin || undefined,
+            gstin: sysSetting.gstin || sysSetting.gstNumber || undefined,
             pan: sysSetting.pan || undefined,
             storeAddress: sysSetting.storeAddress || sysSetting.address || undefined,
           };
         }
       } catch (err) {
-        // Fallback to clean defaults if settings lookup fails
+        // Fallback gracefully
       }
     }
 
@@ -137,7 +165,7 @@ export class InvoicePdfService {
       try {
         const doc = new PDFDocument({
           size: "A4",
-          margin: 40,
+          margin: 36,
           bufferPages: true,
         });
 
@@ -147,288 +175,291 @@ export class InvoicePdfService {
         doc.on("error", (err) => reject(err));
 
         // Design Colors & Tokens
-        const brandOrange = "#FF6B00";
-        const darkText = "#0F172A";
-        const bodyText = "#334155";
-        const mutedText = "#64748B";
-        const lightBorder = "#E2E8F0";
-        const subtleBg = "#F8FAFC";
+        const brandPrimary = "#F97316";   // KickAt Brand Warm Orange
+        const textDark = "#0F172A";       // Slate 900
+        const textBody = "#334155";       // Slate 700
+        const textMuted = "#64748B";      // Slate 500
+        const cardBg = "#F8FAFC";         // Slate 50
+        const cardBorder = "#E2E8F0";     // Slate 200
+        const tableHeaderBg = "#1E293B";  // Slate 800
+        const brandLight = "#FFF7ED";     // Orange 50
+        const brandBorder = "#FED7AA";    // Orange 200
 
-        // Check whether HSN data exists across items
+        const leftMargin = 36;
+        const contentWidth = 523.28;
+        const rightMargin = leftMargin + contentWidth;
+
         const hasHsnData = orderData.items.some((item) => !!item.hsnCode);
 
-        // WATERMARK (Low Opacity Background Paw Print & KickAt Text)
-        doc.save();
-        doc.opacity(0.04);
-
-        // Draw Paw Print Graphic at center (X: 297.64, Y: 380)
-        const wx = 297.64;
-        const wy = 370;
-
-        // Main Paw Pad (Large oval)
-        doc.fillColor("#64748B");
-        doc.ellipse(wx, wy, 45, 36).fill();
-
-        // Toe Pads (4 small ovals)
-        doc.ellipse(wx - 45, wy - 35, 14, 18).fill();
-        doc.ellipse(wx - 18, wy - 52, 14, 18).fill();
-        doc.ellipse(wx + 18, wy - 52, 14, 18).fill();
-        doc.ellipse(wx + 45, wy - 35, 14, 18).fill();
-
-        // Watermark Text below paw print
-        doc.fillColor("#0F172A").fontSize(42).font("Helvetica-Bold").text("KickAt", wx - 150, wy + 55, { width: 300, align: "center" });
-        doc.restore();
-
-
         // 1. TOP BRAND ACCENT BAR
-        doc.rect(40, 40, 515, 4).fill(brandOrange);
+        doc.rect(leftMargin, 28, contentWidth, 3).fill(brandPrimary);
 
-        let y = 55;
+        let y = 44;
 
         // 2. REFINED TWO-COLUMN HEADER
-        // LEFT: Brand Logo & Title
-        doc.fillColor(darkText).fontSize(22).font("Helvetica-Bold").text("KickAt", 40, y);
-        doc.fillColor(brandOrange).fontSize(10).font("Helvetica-Bold").text("TAX INVOICE", 40, y + 26);
+        // LEFT: Brand Wordmark & Tax Invoice Badge
+        doc.fillColor(textDark).fontSize(22).font("Helvetica-Bold").text("KickAt", leftMargin, y);
         
+        doc.font("Helvetica-Bold").fontSize(22);
+        const brandNameW = doc.widthOfString("KickAt");
+        const pillX = leftMargin + brandNameW + 10;
+        const pillY = y + 2;
+        doc.roundedRect(pillX, pillY, 74, 16, 4).fillAndStroke(brandLight, brandBorder);
+        doc.fillColor(brandPrimary).fontSize(7.5).font("Helvetica-Bold").text("TAX INVOICE", pillX, pillY + 4.5, { width: 74, align: "center" });
+
+        // Seller Details
         const storeName = storeSettings.storeName || "KickAt Retail India";
-        doc.fillColor(bodyText).fontSize(9).font("Helvetica").text(storeName, 40, y + 40);
+        doc.fillColor(textBody).fontSize(9).font("Helvetica-Bold").text(storeName, leftMargin, y + 27);
         
         let storeSubInfo: string[] = [];
-        if (storeSettings.gstin) storeSubInfo.push(`GSTIN: ${storeSettings.gstin}`);
+        if (storeSettings.gstin || storeSettings.gstNumber) storeSubInfo.push(`GSTIN: ${storeSettings.gstin || storeSettings.gstNumber}`);
         if (storeSettings.pan) storeSubInfo.push(`PAN: ${storeSettings.pan}`);
-        if (storeSubInfo.length > 0) {
-          doc.fillColor(mutedText).fontSize(8).text(storeSubInfo.join("  |  "), 40, y + 52);
+        storeSubInfo.push("www.kickat.co.in");
+        doc.fillColor(textMuted).fontSize(8).font("Helvetica").text(storeSubInfo.join("  •  "), leftMargin, y + 40);
+
+        if (storeSettings.storeAddress || storeSettings.address) {
+          doc.fillColor(textMuted).fontSize(7.5).font("Helvetica").text(storeSettings.storeAddress || storeSettings.address!, leftMargin, y + 52, { width: 250 });
         }
 
-        if (storeSettings.storeAddress) {
-          doc.fillColor(mutedText).fontSize(8).text(storeSettings.storeAddress, 40, y + 64, { width: 260 });
-        }
+        // RIGHT: Order Metadata Card (Structured Box - Eliminates Overlapping)
+        const metaCardWidth = 215;
+        const metaCardX = rightMargin - metaCardWidth;
+        const metaCardY = y;
+        const metaCardHeight = 74;
 
-        // RIGHT: Invoice Metadata Block
+        doc.roundedRect(metaCardX, metaCardY, metaCardWidth, metaCardHeight, 6).fillAndStroke(cardBg, cardBorder);
+
         const invDateStr = new Date(orderData.createdAt).toLocaleDateString("en-IN", {
-          year: "numeric",
+          day: "2-digit",
           month: "short",
-          day: "numeric",
+          year: "numeric",
         });
 
-        const metaX = 350;
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("INVOICE NO:", metaX, y + 4, { width: 80, align: "right" });
-        doc.fillColor(darkText).fontSize(9).font("Helvetica-Bold").text(`INV-${orderData.orderNumber}`, metaX + 85, y + 3, { width: 120, align: "right" });
+        const paymentStatusClean = (orderData.paymentStatus || "COMPLETED").toUpperCase();
+        const paymentColor = paymentStatusClean === "COMPLETED" || paymentStatusClean === "PAID" ? "#16A34A" : brandPrimary;
 
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("INVOICE DATE:", metaX, y + 18, { width: 80, align: "right" });
-        doc.fillColor(darkText).fontSize(9).font("Helvetica").text(invDateStr, metaX + 85, y + 17, { width: 120, align: "right" });
+        const metaRows = [
+          { label: "Invoice No:", val: `INV-${orderData.orderNumber}`, bold: true, color: textDark },
+          { label: "Invoice Date:", val: invDateStr, bold: false, color: textBody },
+          { label: "Order ID:", val: orderData.orderNumber, bold: false, color: textBody },
+          { label: "Payment:", val: `${orderData.paymentMethod || "ONLINE"} • ${paymentStatusClean}`, bold: true, color: paymentColor },
+        ];
 
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("ORDER NO:", metaX, y + 32, { width: 80, align: "right" });
-        doc.fillColor(darkText).fontSize(9).font("Helvetica").text(orderData.orderNumber, metaX + 85, y + 31, { width: 120, align: "right" });
+        let currMetaY = metaCardY + 8;
+        metaRows.forEach((r) => {
+          doc.fillColor(textMuted).fontSize(7.5).font("Helvetica-Bold").text(r.label, metaCardX + 10, currMetaY, { width: 68 });
+          doc.fillColor(r.color).fontSize(8).font(r.bold ? "Helvetica-Bold" : "Helvetica").text(r.val, metaCardX + 80, currMetaY, { width: metaCardWidth - 90, align: "right" });
+          currMetaY += 14.5;
+        });
 
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("PAYMENT METHOD:", metaX, y + 46, { width: 80, align: "right" });
-        doc.fillColor(darkText).fontSize(9).font("Helvetica").text(orderData.paymentMethod || "ONLINE", metaX + 85, y + 45, { width: 120, align: "right" });
+        y += 86;
 
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("PAYMENT STATUS:", metaX, y + 60, { width: 80, align: "right" });
-        doc.fillColor(darkText).fontSize(9).font("Helvetica-Bold").text(orderData.paymentStatus || "PAID", metaX + 85, y + 59, { width: 120, align: "right" });
+        // 3. CUSTOMER SECTION (BILL TO & SHIP TO CARDS)
+        const cardGap = 12;
+        const addrCardWidth = (contentWidth - cardGap) / 2;
+        const billCardX = leftMargin;
+        const shipCardX = leftMargin + addrCardWidth + cardGap;
 
-        y += 85;
+        const billLines = formatAddress(orderData.address);
+        const shipLines = formatAddress(orderData.address);
 
-        // DIVIDER LINE
-        doc.moveTo(40, y).lineTo(555, y).strokeColor(lightBorder).lineWidth(0.75).stroke();
-        y += 15;
-
-        // 3. CUSTOMER SECTION (BILL TO & SHIP TO)
-        const custBoxWidth = 245;
-        const billX = 40;
-        const shipX = 310;
-
-        // BILL TO
-        doc.fillColor(brandOrange).fontSize(9).font("Helvetica-Bold").text("BILL TO", billX, y);
-        doc.moveTo(billX, y + 13).lineTo(billX + 60, y + 13).strokeColor(brandOrange).lineWidth(1).stroke();
-        
-        let billY = y + 20;
         const custName = orderData.user?.fullName || orderData.user?.name || orderData.address?.fullName || "Valued Customer";
-        doc.fillColor(darkText).fontSize(9.5).font("Helvetica-Bold").text(custName, billX, billY);
-        billY += 14;
+        const custEmail = orderData.user?.email;
+        const custPhone = orderData.user?.phone || orderData.user?.phoneNumber || orderData.address?.phone || orderData.address?.phoneNumber;
 
-        if (orderData.user?.email) {
-          doc.fillColor(bodyText).fontSize(8.5).font("Helvetica").text(orderData.user.email, billX, billY);
-          billY += 12;
+        // Calculate card height dynamically based on content lines
+        const maxLines = Math.max(billLines.length, shipLines.length);
+        const addrCardHeight = Math.max(82, 54 + (maxLines * 12));
+
+        // Bill To Card
+        doc.roundedRect(billCardX, y, addrCardWidth, addrCardHeight, 6).fillAndStroke(cardBg, cardBorder);
+        doc.fillColor(brandPrimary).fontSize(7.5).font("Helvetica-Bold").text("BILLED TO", billCardX + 12, y + 10);
+        doc.fillColor(textDark).fontSize(9.5).font("Helvetica-Bold").text(custName, billCardX + 12, y + 23, { width: addrCardWidth - 24 });
+
+        let bLineY = y + 37;
+        if (custEmail) {
+          doc.fillColor(textBody).fontSize(8).font("Helvetica").text(custEmail, billCardX + 12, bLineY, { width: addrCardWidth - 24 });
+          bLineY += 12;
+        }
+        if (custPhone) {
+          doc.fillColor(textBody).fontSize(8).font("Helvetica").text(`Phone: ${custPhone}`, billCardX + 12, bLineY, { width: addrCardWidth - 24 });
+          bLineY += 12;
+        }
+        if (billLines.length > 0) {
+          doc.fillColor(textMuted).fontSize(7.5).font("Helvetica").text(billLines.join(", "), billCardX + 12, bLineY, { width: addrCardWidth - 24 });
         }
 
-        const phone = orderData.user?.phone || orderData.user?.phoneNumber || orderData.address?.phone || orderData.address?.phoneNumber;
-        if (phone) {
-          doc.fillColor(bodyText).fontSize(8.5).font("Helvetica").text(`Phone: ${phone}`, billX, billY);
-          billY += 12;
-        }
-
-        if (orderData.address) {
-          const addrStr = [
-            orderData.address.streetAddress || orderData.address.addressLine1,
-            orderData.address.addressLine2,
-            `${orderData.address.city || ""}, ${orderData.address.state || ""} - ${orderData.address.postalCode || ""}`,
-            orderData.address.country || "India",
-          ].filter(Boolean).join(", ");
-          doc.fillColor(mutedText).fontSize(8.5).font("Helvetica").text(addrStr, billX, billY, { width: custBoxWidth });
-        }
-
-        // SHIP TO
-        doc.fillColor(brandOrange).fontSize(9).font("Helvetica-Bold").text("SHIP TO", shipX, y);
-        doc.moveTo(shipX, y + 13).lineTo(shipX + 60, y + 13).strokeColor(brandOrange).lineWidth(1).stroke();
-
-        let shipY = y + 20;
+        // Ship To Card
         const shipName = orderData.address?.fullName || custName;
-        doc.fillColor(darkText).fontSize(9.5).font("Helvetica-Bold").text(shipName, shipX, shipY);
-        shipY += 14;
+        const shipPhone = orderData.address?.phone || orderData.address?.phoneNumber || custPhone;
 
-        if (orderData.address) {
-          const addrStr = [
-            orderData.address.streetAddress || orderData.address.addressLine1,
-            orderData.address.addressLine2,
-            `${orderData.address.city || ""}, ${orderData.address.state || ""} - ${orderData.address.postalCode || ""}`,
-            orderData.address.country || "India",
-          ].filter(Boolean).join(", ");
-          doc.fillColor(mutedText).fontSize(8.5).font("Helvetica").text(addrStr, shipX, shipY, { width: custBoxWidth });
-          shipY += 28;
-        }
+        doc.roundedRect(shipCardX, y, addrCardWidth, addrCardHeight, 6).fillAndStroke(cardBg, cardBorder);
+        doc.fillColor(brandPrimary).fontSize(7.5).font("Helvetica-Bold").text("SHIPPED TO", shipCardX + 12, y + 10);
+        doc.fillColor(textDark).fontSize(9.5).font("Helvetica-Bold").text(shipName, shipCardX + 12, y + 23, { width: addrCardWidth - 24 });
 
-        const shipPhone = orderData.address?.phone || orderData.address?.phoneNumber || phone;
+        let sLineY = y + 37;
         if (shipPhone) {
-          doc.fillColor(bodyText).fontSize(8.5).font("Helvetica").text(`Phone: ${shipPhone}`, shipX, shipY);
+          doc.fillColor(textBody).fontSize(8).font("Helvetica").text(`Phone: ${shipPhone}`, shipCardX + 12, sLineY, { width: addrCardWidth - 24 });
+          sLineY += 12;
+        }
+        if (shipLines.length > 0) {
+          doc.fillColor(textMuted).fontSize(7.5).font("Helvetica").text(shipLines.join(", "), shipCardX + 12, sLineY, { width: addrCardWidth - 24 });
         }
 
-        y = Math.max(billY + 30, shipY + 20);
+        y += addrCardHeight + 16;
 
-        // 4. ITEM TABLE
+        // 4. ITEMS TABLE
+        const colX = hasHsnData
+          ? {
+              idx: leftMargin + 8,
+              desc: leftMargin + 28,
+              hsn: rightMargin - 260,
+              qty: rightMargin - 210,
+              price: rightMargin - 155,
+              taxable: rightMargin - 95,
+              total: rightMargin - 10,
+            }
+          : {
+              idx: leftMargin + 8,
+              desc: leftMargin + 28,
+              hsn: 0,
+              qty: rightMargin - 220,
+              price: rightMargin - 160,
+              taxable: rightMargin - 95,
+              total: rightMargin - 10,
+            };
+
         const renderTableHeader = (currentY: number) => {
-          doc.rect(40, currentY, 515, 20).fill(subtleBg);
-          doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightBorder).lineWidth(0.75).stroke();
-          doc.moveTo(40, currentY + 20).lineTo(555, currentY + 20).strokeColor(lightBorder).lineWidth(0.75).stroke();
+          doc.roundedRect(leftMargin, currentY, contentWidth, 22, 4).fill(tableHeaderBg);
+          doc.fillColor("#FFFFFF").fontSize(7.5).font("Helvetica-Bold");
 
-          doc.fillColor(darkText).fontSize(8).font("Helvetica-Bold");
+          doc.text("#", colX.idx, currentY + 7, { width: 16 });
 
           if (hasHsnData) {
-            doc.text("#", 45, currentY + 6, { width: 20 });
-            doc.text("ITEM DESCRIPTION", 70, currentY + 6, { width: 200 });
-            doc.text("HSN/SAC", 275, currentY + 6, { width: 50, align: "center" });
-            doc.text("QTY", 330, currentY + 6, { width: 30, align: "center" });
-            doc.text("UNIT PRICE", 365, currentY + 6, { width: 55, align: "right" });
-            doc.text("TAXABLE", 425, currentY + 6, { width: 55, align: "right" });
-            doc.text("TOTAL", 485, currentY + 6, { width: 60, align: "right" });
+            doc.text("ITEM DESCRIPTION", colX.desc, currentY + 7, { width: 220 });
+            doc.text("HSN/SAC", colX.hsn - 20, currentY + 7, { width: 45, align: "center" });
+            doc.text("QTY", colX.qty - 15, currentY + 7, { width: 35, align: "center" });
+            doc.text("UNIT PRICE", colX.price - 40, currentY + 7, { width: 55, align: "right" });
+            doc.text("TAXABLE", colX.taxable - 40, currentY + 7, { width: 55, align: "right" });
+            doc.text("TOTAL", colX.total - 45, currentY + 7, { width: 45, align: "right" });
           } else {
-            doc.text("#", 48, currentY + 6, { width: 20 });
-            doc.text("ITEM DESCRIPTION", 75, currentY + 6, { width: 240 });
-            doc.text("QTY", 320, currentY + 6, { width: 35, align: "center" });
-            doc.text("UNIT PRICE", 360, currentY + 6, { width: 65, align: "right" });
-            doc.text("TAXABLE", 430, currentY + 6, { width: 55, align: "right" });
-            doc.text("TOTAL", 490, currentY + 6, { width: 55, align: "right" });
+            doc.text("ITEM DESCRIPTION", colX.desc, currentY + 7, { width: 260 });
+            doc.text("QTY", colX.qty - 15, currentY + 7, { width: 35, align: "center" });
+            doc.text("UNIT PRICE", colX.price - 40, currentY + 7, { width: 55, align: "right" });
+            doc.text("TAXABLE", colX.taxable - 40, currentY + 7, { width: 55, align: "right" });
+            doc.text("TOTAL", colX.total - 45, currentY + 7, { width: 45, align: "right" });
           }
         };
 
         renderTableHeader(y);
-        y += 20;
+        y += 24;
 
         orderData.items.forEach((item, index) => {
           const itemTitle = item.productName || "Product Item";
-          const variantTitle = item.variantName ? item.variantName : null;
+          const variant = item.variantName;
+          const descWidth = hasHsnData ? 215 : 255;
 
-          const descWidth = hasHsnData ? 200 : 240;
-          doc.font("Helvetica").fontSize(9);
-          let titleHeight = doc.heightOfString(itemTitle, { width: descWidth });
-          let variantHeight = variantTitle ? doc.heightOfString(variantTitle, { width: descWidth }) : 0;
-          
-          let rowHeight = Math.max(26, titleHeight + variantHeight + 10);
+          doc.font("Helvetica-Bold").fontSize(8.5);
+          const titleH = doc.heightOfString(itemTitle, { width: descWidth });
+          const rowH = Math.max(28, titleH + (variant ? 16 : 6) + 6);
 
-          if (y + rowHeight > 700) {
+          if (y + rowH > 700) {
             doc.addPage();
-            y = 40;
-            doc.rect(40, y, 515, 4).fill(brandOrange);
-            y += 15;
+            y = 36;
+            doc.rect(leftMargin, y - 8, contentWidth, 3).fill(brandPrimary);
             renderTableHeader(y);
-            y += 20;
+            y += 24;
           }
 
-          // Subtle bottom border for row
-          doc.moveTo(40, y + rowHeight).lineTo(555, y + rowHeight).strokeColor(lightBorder).lineWidth(0.5).stroke();
+          // Subtle divider line under each item row
+          doc.moveTo(leftMargin, y + rowH).lineTo(rightMargin, y + rowH).strokeColor(cardBorder).lineWidth(0.5).stroke();
 
-          doc.fillColor(darkText).fontSize(8.5);
+          // Index
+          doc.fillColor(textMuted).fontSize(8).font("Helvetica").text(String(index + 1), colX.idx, y + 6);
+
+          // Product Title
+          doc.fillColor(textDark).fontSize(8.5).font("Helvetica-Bold").text(itemTitle, colX.desc, y + 6, { width: descWidth });
+
+          // Variant Tag / Badge
+          if (variant) {
+            const varY = y + 6 + titleH + 2;
+            doc.font("Helvetica").fontSize(7.5);
+            const varW = doc.widthOfString(variant) + 10;
+            doc.roundedRect(colX.desc, varY, varW, 12, 3).fillAndStroke(cardBg, cardBorder);
+            doc.fillColor(textBody).fontSize(7.5).font("Helvetica").text(variant, colX.desc + 5, varY + 2.5);
+          }
+
+          const taxable = Number(item.totalPrice) - Number(item.gstAmount || 0);
+
+          doc.fillColor(textBody).fontSize(8.5).font("Helvetica");
 
           if (hasHsnData) {
-            doc.text(`${index + 1}`, 45, y + 6, { width: 20 });
-            
-            // Item title & variant stack
-            doc.font("Helvetica-Bold").text(itemTitle, 70, y + 6, { width: descWidth });
-            if (variantTitle) {
-              doc.fillColor(mutedText).fontSize(7.5).font("Helvetica").text(variantTitle, 70, y + 6 + titleHeight + 2, { width: descWidth });
-            }
-            
-            doc.fillColor(bodyText).fontSize(8.5).font("Helvetica");
-            doc.text(item.hsnCode || "-", 275, y + 6, { width: 50, align: "center" });
-            doc.text(`${item.quantity}`, 330, y + 6, { width: 30, align: "center" });
-            doc.text(`Rs. ${Number(item.price).toFixed(2)}`, 365, y + 6, { width: 55, align: "right" });
-            
-            const taxable = Number(item.totalPrice) - Number(item.gstAmount || 0);
-            doc.text(`Rs. ${taxable.toFixed(2)}`, 425, y + 6, { width: 55, align: "right" });
-            doc.text(`Rs. ${Number(item.totalPrice).toFixed(2)}`, 485, y + 6, { width: 60, align: "right" });
+            doc.text(item.hsnCode || "-", colX.hsn - 20, y + 6, { width: 45, align: "center" });
+            doc.text(String(item.quantity), colX.qty - 15, y + 6, { width: 35, align: "center" });
+            doc.text(`Rs. ${Number(item.price).toFixed(2)}`, colX.price - 40, y + 6, { width: 55, align: "right" });
+            doc.text(`Rs. ${taxable.toFixed(2)}`, colX.taxable - 40, y + 6, { width: 55, align: "right" });
           } else {
-            doc.text(`${index + 1}`, 48, y + 6, { width: 20 });
-            
-            // Item title & variant stack
-            doc.font("Helvetica-Bold").text(itemTitle, 75, y + 6, { width: descWidth });
-            if (variantTitle) {
-              doc.fillColor(mutedText).fontSize(7.5).font("Helvetica").text(variantTitle, 75, y + 6 + titleHeight + 2, { width: descWidth });
-            }
-
-            doc.fillColor(bodyText).fontSize(8.5).font("Helvetica");
-            doc.text(`${item.quantity}`, 320, y + 6, { width: 35, align: "center" });
-            doc.text(`Rs. ${Number(item.price).toFixed(2)}`, 360, y + 6, { width: 65, align: "right" });
-            
-            const taxable = Number(item.totalPrice) - Number(item.gstAmount || 0);
-            doc.text(`Rs. ${taxable.toFixed(2)}`, 430, y + 6, { width: 55, align: "right" });
-            doc.text(`Rs. ${Number(item.totalPrice).toFixed(2)}`, 490, y + 6, { width: 55, align: "right" });
+            doc.text(String(item.quantity), colX.qty - 15, y + 6, { width: 35, align: "center" });
+            doc.text(`Rs. ${Number(item.price).toFixed(2)}`, colX.price - 40, y + 6, { width: 55, align: "right" });
+            doc.text(`Rs. ${taxable.toFixed(2)}`, colX.taxable - 40, y + 6, { width: 55, align: "right" });
           }
 
-          y += rowHeight;
+          doc.fillColor(textDark).fontSize(8.5).font("Helvetica-Bold");
+          doc.text(`Rs. ${Number(item.totalPrice).toFixed(2)}`, colX.total - 45, y + 6, { width: 45, align: "right" });
+
+          y += rowH;
         });
 
-        // Balance vertical spacing if single page
-        if (y < 520) {
-          y = 520;
-        } else {
-          y += 20;
+        // 5. SUMMARY & TOTALS SECTION
+        y = Math.max(y + 20, 480);
+
+        if (y > 640) {
+          doc.addPage();
+          y = 44;
+          doc.rect(leftMargin, 28, contentWidth, 3).fill(brandPrimary);
         }
 
-        // 5. SUMMARY & TOTALS SECTION
-        const summaryY = y;
+        const summaryLeftW = 270;
+        const summaryRightW = 225;
+        const summaryRightX = rightMargin - summaryRightW;
 
-        // Left Column: Terms & Amount in Words
-        const leftWidth = 280;
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("AMOUNT IN WORDS", 40, summaryY);
+        // Left Column: Amount in Words Card & Terms
         const grandTotalVal = Number(orderData.grandTotal || orderData.total || 0);
-        doc.fillColor(darkText).fontSize(9).font("Helvetica-Bold").text(numberToWordsINR(grandTotalVal), 40, summaryY + 12, { width: leftWidth });
+        doc.roundedRect(leftMargin, y, summaryLeftW, 46, 5).fillAndStroke(cardBg, cardBorder);
+        doc.rect(leftMargin, y, 3.5, 46).fill(brandPrimary);
 
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica-Bold").text("TERMS & CONDITIONS", 40, summaryY + 45);
-        doc.fillColor(mutedText).fontSize(7.5).font("Helvetica");
-        doc.text("1. Goods once sold are covered under KickAt standard return policy.", 40, summaryY + 57, { width: leftWidth });
-        doc.text("2. All disputes are subject to local jurisdiction.", 40, summaryY + 68, { width: leftWidth });
+        doc.fillColor(textMuted).fontSize(7).font("Helvetica-Bold").text("AMOUNT IN WORDS", leftMargin + 12, y + 8);
+        doc.fillColor(textDark).fontSize(8.5).font("Helvetica-Bold").text(numberToWordsINR(grandTotalVal), leftMargin + 12, y + 20, { width: summaryLeftW - 24 });
 
-        // Right Column: Price & GST Breakdown
-        const rightLabelX = 330;
-        const rightValX = 455;
-        const rightValWidth = 100;
-        let sumRowY = summaryY;
+        // Terms
+        const termsY = y + 58;
+        doc.fillColor(textMuted).fontSize(7.5).font("Helvetica-Bold").text("TERMS & CONDITIONS", leftMargin, termsY);
+        doc.fillColor(textMuted).fontSize(7.5).font("Helvetica");
+        doc.text("1. Goods once sold are covered under KickAt standard return policy.", leftMargin, termsY + 12, { width: summaryLeftW });
+        doc.text("2. All disputes are subject to local jurisdiction.", leftMargin, termsY + 23, { width: summaryLeftW });
 
-        doc.fillColor(bodyText).fontSize(8.5).font("Helvetica");
+        // Right Column: Financial Breakdown
+        let rY = y;
+        const rLabelW = 125;
+        const rValW = 90;
+        const rLabelX = summaryRightX;
+        const rValX = rightMargin - rValW;
+
+        const addSummaryRow = (label: string, val: string, isGreen = false, isBold = false) => {
+          doc.fillColor(textBody).fontSize(8).font("Helvetica").text(label, rLabelX, rY, { width: rLabelW, align: "right" });
+          doc.fillColor(isGreen ? "#16A34A" : textDark).fontSize(8).font(isBold ? "Helvetica-Bold" : "Helvetica").text(val, rValX, rY, { width: rValW, align: "right" });
+          rY += 13.5;
+        };
 
         // Subtotal
-        doc.text("Subtotal:", rightLabelX, sumRowY, { width: 120, align: "right" });
-        doc.text(`Rs. ${Number(orderData.subtotal).toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-        sumRowY += 14;
+        addSummaryRow("Subtotal:", `Rs. ${Number(orderData.subtotal).toFixed(2)}`);
 
         // Discount
         if (orderData.discountTotal && orderData.discountTotal > 0) {
-          doc.text("Discount:", rightLabelX, sumRowY, { width: 120, align: "right" });
-          doc.text(`- Rs. ${Number(orderData.discountTotal).toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-          sumRowY += 14;
+          addSummaryRow("Discount:", `- Rs. ${Number(orderData.discountTotal).toFixed(2)}`, true, true);
         }
 
-        // GST Handling (Respect existing stored order historical data: IGST vs CGST/SGST)
+        // GST Breakdown
         const gstAmount = Number(orderData.gstAmount || 0);
         const gstPercentage = Number(orderData.gstPercentage || 0);
         const igstTotal = Number(orderData.igstTotal || 0);
@@ -436,70 +467,55 @@ export class InvoicePdfService {
         const sgstTotal = Number(orderData.sgstTotal || 0);
 
         if (igstTotal > 0) {
-          doc.text(`IGST (${gstPercentage}%): `, rightLabelX, sumRowY, { width: 120, align: "right" });
-          doc.text(`Rs. ${igstTotal.toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-          sumRowY += 14;
+          addSummaryRow(`IGST (${gstPercentage}%):`, `Rs. ${igstTotal.toFixed(2)}`);
         } else if (cgstTotal > 0 || sgstTotal > 0 || gstAmount > 0) {
           const cAmount = cgstTotal > 0 ? cgstTotal : gstAmount / 2;
           const sAmount = sgstTotal > 0 ? sgstTotal : gstAmount / 2;
           const halfPercent = gstPercentage > 0 ? (gstPercentage / 2).toFixed(1) : "9.0";
-
-          doc.text(`CGST (${halfPercent}%): `, rightLabelX, sumRowY, { width: 120, align: "right" });
-          doc.text(`Rs. ${cAmount.toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-          sumRowY += 14;
-
-          doc.text(`SGST (${halfPercent}%): `, rightLabelX, sumRowY, { width: 120, align: "right" });
-          doc.text(`Rs. ${sAmount.toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-          sumRowY += 14;
+          addSummaryRow(`CGST (${halfPercent}%):`, `Rs. ${cAmount.toFixed(2)}`);
+          addSummaryRow(`SGST (${halfPercent}%):`, `Rs. ${sAmount.toFixed(2)}`);
         }
 
         // Delivery Charges
         const delivery = Number(orderData.deliveryFee || orderData.shippingFee || 0);
-        doc.text("Delivery Charges:", rightLabelX, sumRowY, { width: 120, align: "right" });
-        doc.text(delivery > 0 ? `Rs. ${delivery.toFixed(2)}` : "FREE", rightValX, sumRowY, { width: rightValWidth, align: "right" });
-        sumRowY += 14;
+        addSummaryRow("Delivery Charges:", delivery > 0 ? `Rs. ${delivery.toFixed(2)}` : "FREE", delivery === 0, delivery === 0);
 
         // COD Fee
         if (orderData.codFee && orderData.codFee > 0) {
-          doc.text("COD Fee:", rightLabelX, sumRowY, { width: 120, align: "right" });
-          doc.text(`Rs. ${Number(orderData.codFee).toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-          sumRowY += 14;
+          addSummaryRow("COD Handling Fee:", `Rs. ${Number(orderData.codFee).toFixed(2)}`);
         }
 
-        // Other Fee
+        // Other / Extra Fee
         if (orderData.extraFeeAmount && orderData.extraFeeAmount > 0) {
-          const extraLabel = orderData.extraFeeName || "Other Fee";
-          doc.text(`${extraLabel}:`, rightLabelX, sumRowY, { width: 120, align: "right" });
-          doc.text(`Rs. ${Number(orderData.extraFeeAmount).toFixed(2)}`, rightValX, sumRowY, { width: rightValWidth, align: "right" });
-          sumRowY += 14;
+          const extraLabel = (orderData.extraFeeName || "Other Fee") + ":";
+          addSummaryRow(extraLabel, `Rs. ${Number(orderData.extraFeeAmount).toFixed(2)}`);
         }
 
-        sumRowY += 4;
-        // Divider above Grand Total
-        doc.moveTo(rightLabelX + 40, sumRowY).lineTo(555, sumRowY).strokeColor(lightBorder).lineWidth(0.75).stroke();
-        sumRowY += 10;
+        rY += 4;
+        doc.moveTo(rLabelX + 25, rY).lineTo(rightMargin, rY).strokeColor(cardBorder).lineWidth(0.75).stroke();
+        rY += 8;
 
-        // GRAND TOTAL (Elegant Highlighting with Accent Left Bar)
-        doc.rect(rightLabelX + 30, sumRowY - 4, 195, 28).fill(subtleBg);
-        doc.rect(rightLabelX + 30, sumRowY - 4, 3, 28).fill(brandOrange);
+        // GRAND TOTAL HIGHLIGHT CARD
+        const gtCardH = 34;
+        doc.roundedRect(summaryRightX, rY, summaryRightW, gtCardH, 5).fillAndStroke(brandLight, brandBorder);
+        doc.rect(summaryRightX, rY, 3.5, gtCardH).fill(brandPrimary);
 
-        doc.fillColor(darkText).fontSize(11).font("Helvetica-Bold");
-        doc.text("GRAND TOTAL", rightLabelX + 40, sumRowY + 3, { width: 85 });
-        doc.fillColor(brandOrange).fontSize(12).font("Helvetica-Bold");
-        doc.text(`Rs. ${grandTotalVal.toFixed(2)}`, rightValX - 10, sumRowY + 3, { width: 110, align: "right" });
+        doc.fillColor(textDark).fontSize(9.5).font("Helvetica-Bold").text("GRAND TOTAL", summaryRightX + 14, rY + 11);
+        doc.fillColor(brandPrimary).fontSize(12.5).font("Helvetica-Bold").text(`Rs. ${grandTotalVal.toFixed(2)}`, rValX - 25, rY + 10, { width: rValW + 20, align: "right" });
 
         // 6. FOOTER (Anchored at page bottom Y: 760)
-        doc.moveTo(40, 755).lineTo(555, 755).strokeColor(lightBorder).lineWidth(0.5).stroke();
-        
-        doc.fillColor(darkText).fontSize(9).font("Helvetica-Bold").text("Thank you for shopping with KickAt.", 40, 765, { align: "center" });
+        const footerY = 760;
+        doc.moveTo(leftMargin, footerY).lineTo(rightMargin, footerY).strokeColor(cardBorder).lineWidth(0.5).stroke();
+
+        doc.fillColor(textDark).fontSize(8.5).font("Helvetica-Bold").text("Thank you for choosing KickAt!", leftMargin, footerY + 10, { width: contentWidth, align: "center" });
 
         let footerContacts = ["KickAt"];
         if (storeSettings.storeEmail) footerContacts.push(storeSettings.storeEmail);
         if (storeSettings.storePhone) footerContacts.push(storeSettings.storePhone);
         footerContacts.push("www.kickat.co.in");
 
-        doc.fillColor(mutedText).fontSize(8).font("Helvetica").text(footerContacts.join("  |  "), 40, 778, { align: "center" });
-        doc.fillColor(mutedText).fontSize(7).font("Helvetica").text("This is a computer-generated invoice and does not require a signature.", 40, 790, { align: "center" });
+        doc.fillColor(textMuted).fontSize(7.5).font("Helvetica").text(footerContacts.join("   •   "), leftMargin, footerY + 22, { width: contentWidth, align: "center" });
+        doc.fillColor("#94A3B8").fontSize(6.5).font("Helvetica").text("This is an authentic, computer-generated tax invoice and does not require a physical signature.", leftMargin, footerY + 34, { width: contentWidth, align: "center" });
 
         doc.end();
       } catch (err) {
