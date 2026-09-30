@@ -658,7 +658,11 @@ export class ShippingService {
    * Multiplies each item unit weight by quantity.
    * If any item weight cannot be reliably resolved, returns null.
    */
-  private async calculateOrderWeight(
+    /**
+   * Resolves order shipping package details (weight & dimensions) from structured product/variant fields
+   * with fallback to legacy attributes for weight if structured field is not yet set.
+   */
+  private async resolveOrderShippingPackage(
     items: Array<{
       productId: string;
       variantId?: string | null;
@@ -666,7 +670,7 @@ export class ShippingService {
       productName: string;
       variantName?: string | null;
     }>,
-  ): Promise<number | null> {
+  ): Promise<{ weight: number; length: number; breadth: number; height: number } | null> {
     if (!items || items.length === 0) return null;
 
     const productIds = Array.from(
@@ -679,25 +683,39 @@ export class ShippingService {
         where: { id: { in: productIds } },
         select: {
           id: true,
+          shippingWeightKg: true,
+          shippingLengthCm: true,
+          shippingBreadthCm: true,
+          shippingHeightCm: true,
           attributes: true,
           variants: {
             select: {
               id: true,
               name: true,
               sku: true,
+              shippingWeightKg: true,
+              shippingLengthCm: true,
+              shippingBreadthCm: true,
+              shippingHeightCm: true,
               attributes: true,
             },
           },
         },
       });
-      productMap = new Map(products.map((p) => [p.id, p]));
+      productMap = new Map((products || []).map((p) => [p.id, p]));
     }
 
     let totalKg = 0;
+    let maxLengthCm = 0;
+    let maxBreadthCm = 0;
+    let totalHeightCm = 0;
 
     for (const item of items) {
       const quantity = item.quantity || 1;
       let unitWeightKg: number | null = null;
+      let itemLength: number | null = null;
+      let itemBreadth: number | null = null;
+      let itemHeight: number | null = null;
 
       const product = productMap.get(item.productId);
       if (product) {
@@ -706,14 +724,47 @@ export class ShippingService {
             (v: any) => v.id === item.variantId,
           );
           if (variant) {
-            unitWeightKg = this.parseWeightStringToKg(
-              (variant.attributes as any)?.weight,
-            );
+            // 1. Prefer structured variant shipping fields
+            if (typeof variant.shippingWeightKg === "number" && variant.shippingWeightKg > 0) {
+              unitWeightKg = variant.shippingWeightKg;
+            }
+            if (typeof variant.shippingLengthCm === "number" && variant.shippingLengthCm > 0) {
+              itemLength = variant.shippingLengthCm;
+            }
+            if (typeof variant.shippingBreadthCm === "number" && variant.shippingBreadthCm > 0) {
+              itemBreadth = variant.shippingBreadthCm;
+            }
+            if (typeof variant.shippingHeightCm === "number" && variant.shippingHeightCm > 0) {
+              itemHeight = variant.shippingHeightCm;
+            }
+
+            // Legacy weight fallback if structured is absent
             if (unitWeightKg === null) {
-              unitWeightKg = this.parseWeightStringToKg(variant.name);
+              unitWeightKg = this.parseWeightStringToKg(
+                (variant.attributes as any)?.weight,
+              );
+              if (unitWeightKg === null) {
+                unitWeightKg = this.parseWeightStringToKg(variant.name);
+              }
             }
           }
         }
+
+        // Product-level structured fields for simple products
+        if (unitWeightKg === null && typeof product.shippingWeightKg === "number" && product.shippingWeightKg > 0) {
+          unitWeightKg = product.shippingWeightKg;
+        }
+        if (itemLength === null && typeof product.shippingLengthCm === "number" && product.shippingLengthCm > 0) {
+          itemLength = product.shippingLengthCm;
+        }
+        if (itemBreadth === null && typeof product.shippingBreadthCm === "number" && product.shippingBreadthCm > 0) {
+          itemBreadth = product.shippingBreadthCm;
+        }
+        if (itemHeight === null && typeof product.shippingHeightCm === "number" && product.shippingHeightCm > 0) {
+          itemHeight = product.shippingHeightCm;
+        }
+
+        // Legacy weight fallback
         if (unitWeightKg === null && item.variantName) {
           unitWeightKg = this.parseWeightStringToKg(item.variantName);
         }
@@ -727,22 +778,43 @@ export class ShippingService {
       if (unitWeightKg === null && item.variantName) {
         unitWeightKg = this.parseWeightStringToKg(item.variantName);
       }
-
       if (unitWeightKg === null && item.productName) {
         unitWeightKg = this.parseWeightStringToKg(item.productName);
       }
 
       if (unitWeightKg === null || unitWeightKg <= 0) {
         this.logger.warn(
-          `Unable to resolve reliable weight for order item: "${item.productName}" (variant: "${item.variantName || ""}").`,
+          `Unable to resolve reliable weight for order item: "${item.productName}" (variant: "${item.variantName || ""}")`,
         );
         return null;
       }
 
       totalKg += unitWeightKg * quantity;
+      if (itemLength && itemLength > maxLengthCm) maxLengthCm = itemLength;
+      if (itemBreadth && itemBreadth > maxBreadthCm) maxBreadthCm = itemBreadth;
+      if (itemHeight) totalHeightCm += itemHeight * quantity;
     }
 
-    return Math.round(totalKg * 1000) / 1000;
+    const resolvedWeight = Math.round(totalKg * 1000) / 1000;
+    return {
+      weight: resolvedWeight,
+      length: maxLengthCm > 0 ? maxLengthCm : 0,
+      breadth: maxBreadthCm > 0 ? maxBreadthCm : 0,
+      height: totalHeightCm > 0 ? totalHeightCm : 0,
+    };
+  }
+
+  private async calculateOrderWeight(
+    items: Array<{
+      productId: string;
+      variantId?: string | null;
+      quantity: number;
+      productName: string;
+      variantName?: string | null;
+    }>,
+  ): Promise<number | null> {
+    const res = await this.resolveOrderShippingPackage(items);
+    return res ? res.weight : null;
   }
 
   /**
@@ -845,7 +917,9 @@ export class ShippingService {
       );
     }
 
-    // 6. Package weight validation & calculation (no silent 0.5 kg fallback)
+    // 6. Package weight & dimensions validation & calculation (no silent fallbacks)
+    const resolvedPackage = await this.resolveOrderShippingPackage(order.items);
+
     let totalWeight: number | null = null;
     if (options?.packageDetails?.weight !== undefined) {
       if (
@@ -859,7 +933,7 @@ export class ShippingService {
       }
       totalWeight = options.packageDetails.weight;
     } else {
-      totalWeight = await this.calculateOrderWeight(order.items);
+      totalWeight = resolvedPackage ? resolvedPackage.weight : null;
     }
 
     if (
@@ -872,7 +946,7 @@ export class ShippingService {
       );
     }
 
-    // 7. Package dimensions validation (no silent 10x10x10 fallback)
+    // 7. Package dimensions validation
     let dimensions: { length?: number; breadth?: number; height?: number } = {};
     if (
       options?.packageDetails?.length !== undefined ||
@@ -896,6 +970,17 @@ export class ShippingService {
         );
       }
       dimensions = { length: l, breadth: b, height: h };
+    } else if (
+      resolvedPackage &&
+      resolvedPackage.length > 0 &&
+      resolvedPackage.breadth > 0 &&
+      resolvedPackage.height > 0
+    ) {
+      dimensions = {
+        length: resolvedPackage.length,
+        breadth: resolvedPackage.breadth,
+        height: resolvedPackage.height,
+      };
     }
 
     const shipmentParams: CreateShipmentParams = {

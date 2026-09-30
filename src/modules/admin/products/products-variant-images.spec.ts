@@ -91,6 +91,10 @@ describe("Product Variant Image Isolation & Normalization", () => {
       price: 199,
       categoryId: "cat-1",
       type: ProductType.SIMPLE,
+      shippingWeightKg: 0.5,
+      shippingLengthCm: 10,
+      shippingBreadthCm: 10,
+      shippingHeightCm: 10,
       images: ["/uploads/prod-gal-1.jpg", "/uploads/prod-gal-2.jpg"],
     });
 
@@ -121,12 +125,20 @@ describe("Product Variant Image Isolation & Normalization", () => {
           name: "Red Harness",
           price: 499,
           stock: 10,
+          shippingWeightKg: 0.5,
+          shippingLengthCm: 10,
+          shippingBreadthCm: 10,
+          shippingHeightCm: 10,
           images: ["/uploads/red-1.jpg", "/uploads/red-2.jpg"],
         },
         {
           name: "Blue Harness",
           price: 599,
           stock: 15,
+          shippingWeightKg: 0.5,
+          shippingLengthCm: 10,
+          shippingBreadthCm: 10,
+          shippingHeightCm: 10,
           images: ["/uploads/blue-1.jpg", "/uploads/blue-2.jpg"],
         },
       ],
@@ -220,9 +232,9 @@ describe("Product Variant Image Isolation & Normalization", () => {
       price: 100,
       categoryId: "cat-1",
       variants: [
-        { name: "Var A", price: 100, imageUrl: "/uploads/url-only.jpg" },
-        { name: "Var B", price: 100, images: ["/uploads/arr-1.jpg", "/uploads/arr-2.jpg"] },
-        { name: "Var C", price: 100, imageUrl: "/uploads/url-c.jpg", images: ["/uploads/c-1.jpg", "/uploads/c-2.jpg"] },
+        { name: "Var A", price: 100, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10, imageUrl: "/uploads/url-only.jpg" },
+        { name: "Var B", price: 100, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10, images: ["/uploads/arr-1.jpg", "/uploads/arr-2.jpg"] },
+        { name: "Var C", price: 100, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10, imageUrl: "/uploads/url-c.jpg", images: ["/uploads/c-1.jpg", "/uploads/c-2.jpg"] },
       ],
     });
 
@@ -323,8 +335,8 @@ describe("Product Variant Image Isolation & Normalization", () => {
       price: 100,
       categoryId: "cat-1",
       variants: [
-        { name: "V1", price: 100, images: ["/u/v1.jpg"] },
-        { name: "V2", price: 100, images: ["/u/v2.jpg"] },
+        { name: "V1", price: 100, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10, images: ["/u/v1.jpg"] },
+        { name: "V2", price: 100, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10, images: ["/u/v2.jpg"] },
       ],
     });
 

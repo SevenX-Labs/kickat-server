@@ -541,6 +541,107 @@ export class ProductsService {
         ? ProductType.VARIABLE
         : ProductType.SIMPLE;
 
+    // Shipping & Package Dimensions Validation
+    if (finalType === ProductType.SIMPLE) {
+      if (
+        dto.shippingWeightKg === undefined ||
+        dto.shippingWeightKg === null ||
+        typeof dto.shippingWeightKg !== "number" ||
+        isNaN(dto.shippingWeightKg) ||
+        dto.shippingWeightKg <= 0
+      ) {
+        throw new BadRequestException(
+          "Shipping weight is required and must be greater than 0 for simple products",
+        );
+      }
+      if (
+        dto.shippingLengthCm === undefined ||
+        dto.shippingLengthCm === null ||
+        typeof dto.shippingLengthCm !== "number" ||
+        isNaN(dto.shippingLengthCm) ||
+        dto.shippingLengthCm <= 0
+      ) {
+        throw new BadRequestException(
+          "Package length is required and must be greater than 0 for simple products",
+        );
+      }
+      if (
+        dto.shippingBreadthCm === undefined ||
+        dto.shippingBreadthCm === null ||
+        typeof dto.shippingBreadthCm !== "number" ||
+        isNaN(dto.shippingBreadthCm) ||
+        dto.shippingBreadthCm <= 0
+      ) {
+        throw new BadRequestException(
+          "Package breadth is required and must be greater than 0 for simple products",
+        );
+      }
+      if (
+        dto.shippingHeightCm === undefined ||
+        dto.shippingHeightCm === null ||
+        typeof dto.shippingHeightCm !== "number" ||
+        isNaN(dto.shippingHeightCm) ||
+        dto.shippingHeightCm <= 0
+      ) {
+        throw new BadRequestException(
+          "Package height is required and must be greater than 0 for simple products",
+        );
+      }
+    } else if (finalType === ProductType.VARIABLE) {
+      if (!dto.variants || dto.variants.length === 0) {
+        throw new BadRequestException(
+          "VARIABLE products must have at least one variant",
+        );
+      }
+      for (const v of dto.variants) {
+        const varName = v.name || "Unnamed variant";
+        if (
+          v.shippingWeightKg === undefined ||
+          v.shippingWeightKg === null ||
+          typeof v.shippingWeightKg !== "number" ||
+          isNaN(v.shippingWeightKg) ||
+          v.shippingWeightKg <= 0
+        ) {
+          throw new BadRequestException(
+            `Shipping weight is required and must be greater than 0 for variant "${varName}"`,
+          );
+        }
+        if (
+          v.shippingLengthCm === undefined ||
+          v.shippingLengthCm === null ||
+          typeof v.shippingLengthCm !== "number" ||
+          isNaN(v.shippingLengthCm) ||
+          v.shippingLengthCm <= 0
+        ) {
+          throw new BadRequestException(
+            `Package length is required and must be greater than 0 for variant "${varName}"`,
+          );
+        }
+        if (
+          v.shippingBreadthCm === undefined ||
+          v.shippingBreadthCm === null ||
+          typeof v.shippingBreadthCm !== "number" ||
+          isNaN(v.shippingBreadthCm) ||
+          v.shippingBreadthCm <= 0
+        ) {
+          throw new BadRequestException(
+            `Package breadth is required and must be greater than 0 for variant "${varName}"`,
+          );
+        }
+        if (
+          v.shippingHeightCm === undefined ||
+          v.shippingHeightCm === null ||
+          typeof v.shippingHeightCm !== "number" ||
+          isNaN(v.shippingHeightCm) ||
+          v.shippingHeightCm <= 0
+        ) {
+          throw new BadRequestException(
+            `Package height is required and must be greater than 0 for variant "${varName}"`,
+          );
+        }
+      }
+    }
+
     if (dto.variants && dto.variants.length > 0) {
       await this.validateVariantImagesOwnership(dto.variants, undefined);
       validateVariantAttributes(dto.variants);
@@ -624,6 +725,10 @@ export class ProductsService {
           type: finalType,
           seoTitle: dto.seoTitle || null,
           seoDescription: dto.seoDescription || null,
+          shippingWeightKg: dto.shippingWeightKg !== undefined && dto.shippingWeightKg !== null ? dto.shippingWeightKg : null,
+          shippingLengthCm: dto.shippingLengthCm !== undefined && dto.shippingLengthCm !== null ? dto.shippingLengthCm : null,
+          shippingBreadthCm: dto.shippingBreadthCm !== undefined && dto.shippingBreadthCm !== null ? dto.shippingBreadthCm : null,
+          shippingHeightCm: dto.shippingHeightCm !== undefined && dto.shippingHeightCm !== null ? dto.shippingHeightCm : null,
           attributes: (dto.attributes as any) || null,
           highlights: (dto.highlights as any) || null,
           ingredients: (dto.ingredients as any) || null,
@@ -643,6 +748,10 @@ export class ProductsService {
                     discountPrice: v.discountPrice || null,
                     stock: v.stock ?? 0,
                     attributes: v.attributes || {},
+                    shippingWeightKg: v.shippingWeightKg !== undefined && v.shippingWeightKg !== null ? v.shippingWeightKg : null,
+                    shippingLengthCm: v.shippingLengthCm !== undefined && v.shippingLengthCm !== null ? v.shippingLengthCm : null,
+                    shippingBreadthCm: v.shippingBreadthCm !== undefined && v.shippingBreadthCm !== null ? v.shippingBreadthCm : null,
+                    shippingHeightCm: v.shippingHeightCm !== undefined && v.shippingHeightCm !== null ? v.shippingHeightCm : null,
                     imageUrl: v.imageUrl || (v.images && v.images[0]) || null,
                     images: v.images || [],
                     isDefault: v.isDefault ?? false,
@@ -770,6 +879,58 @@ export class ProductsService {
       : hasNewVariantsPayload
         ? (dto.variants!.length > 0 ? ProductType.VARIABLE : ProductType.SIMPLE)
         : existing.type;
+
+    // Shipping & Package Dimensions Validation for update
+    if (finalType === ProductType.SIMPLE) {
+      if (dto.shippingWeightKg !== undefined && (typeof dto.shippingWeightKg !== "number" || isNaN(dto.shippingWeightKg) || dto.shippingWeightKg <= 0)) {
+        throw new BadRequestException("Shipping weight must be greater than 0");
+      }
+      if (dto.shippingLengthCm !== undefined && (typeof dto.shippingLengthCm !== "number" || isNaN(dto.shippingLengthCm) || dto.shippingLengthCm <= 0)) {
+        throw new BadRequestException("Package length must be greater than 0");
+      }
+      if (dto.shippingBreadthCm !== undefined && (typeof dto.shippingBreadthCm !== "number" || isNaN(dto.shippingBreadthCm) || dto.shippingBreadthCm <= 0)) {
+        throw new BadRequestException("Package breadth must be greater than 0");
+      }
+      if (dto.shippingHeightCm !== undefined && (typeof dto.shippingHeightCm !== "number" || isNaN(dto.shippingHeightCm) || dto.shippingHeightCm <= 0)) {
+        throw new BadRequestException("Package height must be greater than 0");
+      }
+    } else if (finalType === ProductType.VARIABLE && dto.variants && dto.variants.length > 0) {
+      for (const v of dto.variants) {
+        const varName = v.name || "Unnamed variant";
+        if (
+          v.shippingWeightKg !== undefined &&
+          (typeof v.shippingWeightKg !== "number" || isNaN(v.shippingWeightKg) || v.shippingWeightKg <= 0)
+        ) {
+          throw new BadRequestException(
+            `Shipping weight must be greater than 0 for variant "${varName}"`,
+          );
+        }
+        if (
+          v.shippingLengthCm !== undefined &&
+          (typeof v.shippingLengthCm !== "number" || isNaN(v.shippingLengthCm) || v.shippingLengthCm <= 0)
+        ) {
+          throw new BadRequestException(
+            `Package length must be greater than 0 for variant "${varName}"`,
+          );
+        }
+        if (
+          v.shippingBreadthCm !== undefined &&
+          (typeof v.shippingBreadthCm !== "number" || isNaN(v.shippingBreadthCm) || v.shippingBreadthCm <= 0)
+        ) {
+          throw new BadRequestException(
+            `Package breadth must be greater than 0 for variant "${varName}"`,
+          );
+        }
+        if (
+          v.shippingHeightCm !== undefined &&
+          (typeof v.shippingHeightCm !== "number" || isNaN(v.shippingHeightCm) || v.shippingHeightCm <= 0)
+        ) {
+          throw new BadRequestException(
+            `Package height must be greater than 0 for variant "${varName}"`,
+          );
+        }
+      }
+    }
 
     if (dto.variants && dto.variants.length > 0) {
       await this.validateVariantImagesOwnership(dto.variants, id);
@@ -919,6 +1080,18 @@ export class ProductsService {
           ...(dto.seoDescription !== undefined && {
             seoDescription: dto.seoDescription,
           }),
+          ...(dto.shippingWeightKg !== undefined && {
+            shippingWeightKg: dto.shippingWeightKg,
+          }),
+          ...(dto.shippingLengthCm !== undefined && {
+            shippingLengthCm: dto.shippingLengthCm,
+          }),
+          ...(dto.shippingBreadthCm !== undefined && {
+            shippingBreadthCm: dto.shippingBreadthCm,
+          }),
+          ...(dto.shippingHeightCm !== undefined && {
+            shippingHeightCm: dto.shippingHeightCm,
+          }),
           ...(dto.attributes !== undefined && {
             attributes: dto.attributes as any,
           }),
@@ -1030,6 +1203,18 @@ export class ProductsService {
                 discountPrice: v.discountPrice || null,
                 stock: newVStock,
                 attributes: v.attributes || {},
+                ...(v.shippingWeightKg !== undefined && {
+                  shippingWeightKg: v.shippingWeightKg,
+                }),
+                ...(v.shippingLengthCm !== undefined && {
+                  shippingLengthCm: v.shippingLengthCm,
+                }),
+                ...(v.shippingBreadthCm !== undefined && {
+                  shippingBreadthCm: v.shippingBreadthCm,
+                }),
+                ...(v.shippingHeightCm !== undefined && {
+                  shippingHeightCm: v.shippingHeightCm,
+                }),
                 imageUrl: v.imageUrl || null,
                 images: v.images || [],
                 isDefault: v.isDefault ?? false,
@@ -1048,6 +1233,10 @@ export class ProductsService {
                 discountPrice: v.discountPrice || null,
                 stock: v.stock ?? 0,
                 attributes: v.attributes || {},
+                shippingWeightKg: v.shippingWeightKg !== undefined && v.shippingWeightKg !== null ? v.shippingWeightKg : null,
+                shippingLengthCm: v.shippingLengthCm !== undefined && v.shippingLengthCm !== null ? v.shippingLengthCm : null,
+                shippingBreadthCm: v.shippingBreadthCm !== undefined && v.shippingBreadthCm !== null ? v.shippingBreadthCm : null,
+                shippingHeightCm: v.shippingHeightCm !== undefined && v.shippingHeightCm !== null ? v.shippingHeightCm : null,
                 imageUrl: v.imageUrl || null,
                 images: v.images || [],
                 isDefault: v.isDefault ?? false,

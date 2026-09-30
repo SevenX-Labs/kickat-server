@@ -192,7 +192,7 @@ describe('Admin ProductsService', () => {
         stock: 50,
         categoryId: 'cat-1',
         imageUrl: 'https://example.com/image.jpg',
-        variants: [{ name: '1kg', price: 899, stock: 50 }],
+        variants: [{ name: '1kg', price: 899, stock: 50, shippingWeightKg: 1, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10 }],
         media: [{ url: 'https://example.com/image.jpg' }],
       };
 
@@ -278,8 +278,8 @@ describe('Admin ProductsService', () => {
           ],
         },
         variants: [
-          { name: 'Small', price: 1000, discountPrice: 899, stock: 30 },
-          { name: 'Medium', price: 1500, discountPrice: 1299, stock: 20 },
+          { name: 'Small', price: 1000, discountPrice: 899, stock: 30, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10 },
+          { name: 'Medium', price: 1500, discountPrice: 1299, stock: 20, shippingWeightKg: 1, shippingLengthCm: 15, shippingBreadthCm: 10, shippingHeightCm: 10 },
         ],
       };
 
@@ -322,6 +322,10 @@ describe('Admin ProductsService', () => {
         name: 'Chew Toy',
         price: 299,
         categoryId: 'cat-1',
+        shippingWeightKg: 0.5,
+        shippingLengthCm: 10,
+        shippingBreadthCm: 10,
+        shippingHeightCm: 10,
         descriptionTitle: 'Why Your Pet Will Love It',
         description: 'Natural rubber chew toy',
       };
@@ -346,6 +350,10 @@ describe('Admin ProductsService', () => {
         name: 'Chew Toy Without Title',
         price: 299,
         categoryId: 'cat-1',
+        shippingWeightKg: 0.5,
+        shippingLengthCm: 10,
+        shippingBreadthCm: 10,
+        shippingHeightCm: 10,
         description: 'Natural rubber chew toy',
       };
 
@@ -368,6 +376,10 @@ describe('Admin ProductsService', () => {
         name: 'Eco Chew Toy',
         price: 399,
         categoryId: 'cat-1',
+        shippingWeightKg: 0.5,
+        shippingLengthCm: 10,
+        shippingBreadthCm: 10,
+        shippingHeightCm: 10,
         materials:
           '100% natural food-grade rubber. Free from BPA and phthalates.',
       };
@@ -393,6 +405,10 @@ describe('Admin ProductsService', () => {
         name: 'Standard Toy',
         price: 199,
         categoryId: 'cat-1',
+        shippingWeightKg: 0.5,
+        shippingLengthCm: 10,
+        shippingBreadthCm: 10,
+        shippingHeightCm: 10,
       };
 
       const result = await service.createProduct(dto);
@@ -604,6 +620,10 @@ describe('Admin ProductsService', () => {
           {
             name: 'Red',
             price: 500,
+            shippingWeightKg: 0.5,
+            shippingLengthCm: 10,
+            shippingBreadthCm: 10,
+            shippingHeightCm: 10,
             imageUrl: 'https://supabase/upload/general/var1.png',
           },
         ],
@@ -925,8 +945,8 @@ describe('Admin ProductsService', () => {
           price: 199,
           categoryId: "cat-1",
           variants: [
-            { name: "Small", price: 199, stock: 5, isDefault: false },
-            { name: "Large", price: 299, stock: 5, isDefault: false },
+            { name: "Small", price: 199, stock: 5, isDefault: false, shippingWeightKg: 0.5, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10 },
+            { name: "Large", price: 299, stock: 5, isDefault: false, shippingWeightKg: 1, shippingLengthCm: 15, shippingBreadthCm: 10, shippingHeightCm: 10 },
           ],
         });
 
@@ -944,8 +964,8 @@ describe('Admin ProductsService', () => {
             price: 399,
             categoryId: "cat-1",
             variants: [
-              { name: "V1", price: 399, stock: 5, attributes: { Color: "Black", Size: "XL" } },
-              { name: "V2", price: 399, stock: 5, attributes: { Size: "XL", Color: "Black" } },
+              { name: "V1", price: 399, stock: 5, attributes: { Color: "Black", Size: "XL" }, shippingWeightKg: 1, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10 },
+              { name: "V2", price: 399, stock: 5, attributes: { Size: "XL", Color: "Black" }, shippingWeightKg: 1, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10 },
             ],
           }),
         ).rejects.toThrow(BadRequestException);
@@ -960,7 +980,7 @@ describe('Admin ProductsService', () => {
             price: 599,
             categoryId: "cat-1",
             variants: [
-              { name: "Red", price: 599, stock: 5, images: ["/uploads/other-prod-image.jpg"] },
+              { name: "Red", price: 599, stock: 5, shippingWeightKg: 1, shippingLengthCm: 10, shippingBreadthCm: 10, shippingHeightCm: 10, images: ["/uploads/other-prod-image.jpg"] },
             ],
           }),
         ).rejects.toThrow(BadRequestException);

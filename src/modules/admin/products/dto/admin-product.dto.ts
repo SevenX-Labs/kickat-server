@@ -6,6 +6,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsPositive,
   IsObject,
   IsOptional,
   IsString,
@@ -68,6 +69,30 @@ export class CreateVariantDto {
   attributes?: Record<string, any>;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant shipping weight must be greater than 0" })
+  shippingWeightKg?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant package length must be greater than 0" })
+  shippingLengthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant package breadth must be greater than 0" })
+  shippingBreadthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant package height must be greater than 0" })
+  shippingHeightCm?: number;
+
+  @IsOptional()
   @IsString()
   imageUrl?: string;
 
@@ -115,6 +140,30 @@ export class UpdateVariantDto {
   @IsOptional()
   @IsObject()
   attributes?: Record<string, any>;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant shipping weight must be greater than 0" })
+  shippingWeightKg?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant package length must be greater than 0" })
+  shippingLengthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant package breadth must be greater than 0" })
+  shippingBreadthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Variant package height must be greater than 0" })
+  shippingHeightCm?: number;
 
   @IsOptional()
   @IsString()
@@ -407,6 +456,30 @@ export class CreateProductDto {
   seoDescription?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Shipping weight must be greater than 0" })
+  shippingWeightKg?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Package length must be greater than 0" })
+  shippingLengthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Package breadth must be greater than 0" })
+  shippingBreadthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Package height must be greater than 0" })
+  shippingHeightCm?: number;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => ProductAttributesDto)
   attributes?: ProductAttributesDto;
@@ -551,6 +624,30 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   seoDescription?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Shipping weight must be greater than 0" })
+  shippingWeightKg?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Package length must be greater than 0" })
+  shippingLengthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Package breadth must be greater than 0" })
+  shippingBreadthCm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive({ message: "Package height must be greater than 0" })
+  shippingHeightCm?: number;
 
   @IsOptional()
   @ValidateNested()

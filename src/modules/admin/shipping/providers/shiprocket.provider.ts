@@ -515,9 +515,9 @@ export class ShiprocketProvider implements ShippingProvider {
       shipping_charges: params.deliveryFee || 0,
       total_discount: params.discount || 0,
       sub_total: params.subtotal,
-      ...(length !== undefined && { length }),
-      ...(breadth !== undefined && { breadth }),
-      ...(height !== undefined && { height }),
+      length,
+      breadth,
+      height,
       weight,
     };
 

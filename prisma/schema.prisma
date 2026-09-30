@@ -259,6 +259,10 @@ model Product {
   type              ProductType        @default(SIMPLE)
   seoTitle          String?
   seoDescription    String?
+  shippingWeightKg  Float?
+  shippingLengthCm  Float?
+  shippingBreadthCm Float?
+  shippingHeightCm  Float?
   attributes        Json?
   highlights        Json?
   ingredients       Json?
@@ -294,8 +298,12 @@ model ProductVariant {
   sku           String?         @unique
   price         Float
   discountPrice Float?
-  stock         Int             @default(50)
-  attributes    Json?
+  stock             Int             @default(50)
+  shippingWeightKg  Float?
+  shippingLengthCm  Float?
+  shippingBreadthCm Float?
+  shippingHeightCm  Float?
+  attributes        Json?
   imageUrl      String?
   images        String[]        @default([])
   isDefault     Boolean         @default(false)
