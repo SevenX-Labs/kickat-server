@@ -5,11 +5,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../admin/settings/settings.service';
+import { ShippingService } from '../admin/shipping/shipping.service'; import { Optional } from '@nestjs/common';
 import { ValidateAddressDto } from './dto/validate-address.dto';
 import {
   CheckoutPaymentMethodEnum,
@@ -18,11 +20,14 @@ import {
 
 @Injectable()
 export class CheckoutService {
+  private readonly logger = new Logger(CheckoutService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
     private readonly stockAlertService: StockAlertService,
+    @Optional() private readonly shippingService?: ShippingService,
   ) {}
 
   private async computeFees(
@@ -442,6 +447,16 @@ export class CheckoutService {
         grandTotal: order.grandTotal,
         paymentMethod: order.paymentMethod,
       });
+
+      if (this.shippingService) {
+        try {
+          await this.shippingService.createShipmentForOrder(order.id);
+        } catch (shippingErr: any) {
+          this.logger.error(
+            `Automatic shipping workflow error for order ${order.orderNumber}: ${shippingErr?.message || shippingErr}`,
+          );
+        }
+      }
 
       return {
         success: true,

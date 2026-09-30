@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
 import { ShiprocketProvider } from './providers/shiprocket.provider';
 import {
+  AssignAwbResult,
+  AvailableCourier,
   CreateShipmentPackageDetails,
   CreateShipmentParams,
   ShippingProvider,
@@ -30,6 +32,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 @Injectable()
 export class ShippingService {
   private readonly logger = new Logger(ShippingService.name);
+  private readonly activeShipmentLocks = new Set<string>();
 
   private shippingProvider: ShippingProvider;
 
@@ -825,19 +828,20 @@ export class ShippingService {
     orderIdentifier: string,
     options?: {
       pickupLocation?: string;
+      pickupPostcode?: string;
       packageDetails?: CreateShipmentPackageDetails;
     },
   ) {
     const order = await this.findOrderByAnyIdentifier(orderIdentifier);
 
-    // 1. Idempotency check: prevent duplicate shipment creation if already persisted
-    if (order.shiprocketShipmentId) {
-      this.logger.log(
-        `Shipment already exists for order ${order.orderNumber} (shiprocketShipmentId: ${order.shiprocketShipmentId}). Skipping remote creation.`,
+    // Concurrency lock to prevent duplicate concurrent executions on the same order
+    if (this.activeShipmentLocks.has(order.id)) {
+      this.logger.warn(
+        `Shipment/AWB assignment is already in progress for order ${order.orderNumber}. Concurrent request skipped.`,
       );
       return {
         success: true,
-        message: "Shipment already exists for this order",
+        message: "Shipment operation already in progress for this order",
         isExisting: true,
         data: {
           orderId: order.id,
@@ -851,214 +855,477 @@ export class ShippingService {
       };
     }
 
-    // 2. Customer validation (no fake fallback)
-    const customerEmail = (order.user?.email || "").trim();
-    if (!customerEmail || !EMAIL_REGEX.test(customerEmail)) {
-      throw new BadRequestException(
-        "Valid customer email is required for Shiprocket shipment creation.",
-      );
-    }
+    this.activeShipmentLocks.add(order.id);
 
-    const customerName = (order.user?.name || "").trim();
-    if (!customerName) {
-      throw new BadRequestException(
-        "Customer name is required before creating a Shiprocket shipment.",
-      );
-    }
+    try {
+      // 1. Idempotency check: if AWB is already assigned, DO NOT assign another AWB
+      if (order.trackingNumber && order.courierPartner && order.courierPartner !== "Unassigned") {
+        this.logger.log(
+          `AWB already assigned for order ${order.orderNumber} (courier: ${order.courierPartner}, tracking: ${order.trackingNumber}). Skipping assignment.`,
+        );
+        return {
+          success: true,
+          message: "Shipment already exists for this order",
+          isExisting: true,
+          isAwbAssigned: true,
+          data: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shiprocketOrderId: order.shiprocketOrderId,
+            shiprocketShipmentId: order.shiprocketShipmentId,
+            courierPartner: order.courierPartner,
+            trackingNumber: order.trackingNumber,
+            status: order.orderStatus,
+          },
+        };
+      }
 
-    const customerPhone = (order.user?.phone || "").trim();
-    if (!customerPhone) {
-      throw new BadRequestException(
-        "Customer phone number is required before creating a Shiprocket shipment.",
-      );
-    }
+      let remoteOrderId = order.shiprocketOrderId;
+      let shipmentId = order.shiprocketShipmentId;
+      let trackingNumber = order.trackingNumber;
+      let courierPartner = order.courierPartner;
 
-    // 3. Address validation
-    if (!order.address) {
-      throw new BadRequestException(
-        "Order does not have a delivery address associated.",
-      );
-    }
+      // 2. Check if Shiprocket shipment already exists. If not, create it.
+      if (shipmentId) {
+        this.logger.log(
+          `Shipment already exists for order ${order.orderNumber} (shiprocketShipmentId: ${shipmentId}). Reusing existing shipment for AWB assignment.`,
+        );
+      } else {
+        // Customer validation (no fake fallback)
+        const customerEmail = (order.user?.email || "").trim();
+        if (!customerEmail || !EMAIL_REGEX.test(customerEmail)) {
+          throw new BadRequestException(
+            "Valid customer email is required for Shiprocket shipment creation.",
+          );
+        }
 
-    const houseFlat = order.address.houseFlat?.trim();
-    const buildingStreet = order.address.buildingStreet?.trim();
-    if (!houseFlat && !buildingStreet) {
-      throw new BadRequestException(
-        "Shipping address line is required for Shiprocket shipment creation.",
-      );
-    }
+        const customerName = (order.user?.name || "").trim();
+        if (!customerName) {
+          throw new BadRequestException(
+            "Customer name is required before creating a Shiprocket shipment.",
+          );
+        }
 
-    const city = order.address.city?.trim();
-    const state = order.address.state?.trim();
-    const pincode = order.address.pincode?.trim();
-    if (!city || !state || !pincode) {
-      throw new BadRequestException(
-        "Shipping city, state, and pincode are required for Shiprocket shipment creation.",
-      );
-    }
+        const customerPhone = (order.user?.phone || "").trim();
+        if (!customerPhone) {
+          throw new BadRequestException(
+            "Customer phone number is required before creating a Shiprocket shipment.",
+          );
+        }
 
-    // 4. Order items validation
-    if (!order.items || order.items.length === 0) {
-      throw new BadRequestException(
-        "Order does not have any items associated.",
-      );
-    }
+        // Address validation
+        if (!order.address) {
+          throw new BadRequestException(
+            "Order does not have a delivery address associated.",
+          );
+        }
 
-    // 5. Pickup location validation (no hardcoded fallback)
-    const pickupLocation = (
-      options?.pickupLocation ||
-      this.configService.get<string>("SHIPROCKET_PICKUP_LOCATION", "") ||
-      ""
-    ).trim();
+        const houseFlat = order.address.houseFlat?.trim();
+        const buildingStreet = order.address.buildingStreet?.trim();
+        if (!houseFlat && !buildingStreet) {
+          throw new BadRequestException(
+            "Shipping address line is required for Shiprocket shipment creation.",
+          );
+        }
 
-    if (!pickupLocation) {
-      throw new BadRequestException(
-        "Shiprocket pickup location is not configured.",
-      );
-    }
+        const city = order.address.city?.trim();
+        const state = order.address.state?.trim();
+        const pincode = order.address.pincode?.trim();
+        if (!city || !state || !pincode) {
+          throw new BadRequestException(
+            "Shipping city, state, and pincode are required for Shiprocket shipment creation.",
+          );
+        }
 
-    // 6. Package weight & dimensions validation & calculation (no silent fallbacks)
-    const resolvedPackage = await this.resolveOrderShippingPackage(order.items);
+        // Order items validation
+        if (!order.items || order.items.length === 0) {
+          throw new BadRequestException(
+            "Order does not have any items associated.",
+          );
+        }
 
-    let totalWeight: number | null = null;
-    if (options?.packageDetails?.weight !== undefined) {
+        // Pickup location validation (no hardcoded fallback)
+        const pickupLocation = (
+          options?.pickupLocation ||
+          this.configService.get<string>("SHIPROCKET_PICKUP_LOCATION", "") ||
+          ""
+        ).trim();
+
+        if (!pickupLocation) {
+          throw new BadRequestException(
+            "Shiprocket pickup location is not configured.",
+          );
+        }
+
+        // Package weight & dimensions validation & calculation (no silent fallbacks)
+        const resolvedPackage = await this.resolveOrderShippingPackage(order.items);
+
+        let totalWeight: number | null = null;
+        if (options?.packageDetails?.weight !== undefined) {
+          if (
+            typeof options.packageDetails.weight !== "number" ||
+            isNaN(options.packageDetails.weight) ||
+            options.packageDetails.weight <= 0
+          ) {
+            throw new BadRequestException(
+              "Shipment weight is required before creating a Shiprocket shipment.",
+            );
+          }
+          totalWeight = options.packageDetails.weight;
+        } else {
+          totalWeight = resolvedPackage ? resolvedPackage.weight : null;
+        }
+
+        if (
+          typeof totalWeight !== "number" ||
+          isNaN(totalWeight) ||
+          totalWeight <= 0
+        ) {
+          throw new BadRequestException(
+            "Shipment weight is required before creating a Shiprocket shipment.",
+          );
+        }
+
+        // Package dimensions validation
+        let dimensions: { length?: number; breadth?: number; height?: number } = {};
+        if (
+          options?.packageDetails?.length !== undefined ||
+          options?.packageDetails?.breadth !== undefined ||
+          options?.packageDetails?.height !== undefined
+        ) {
+          const l = options.packageDetails.length;
+          const b = options.packageDetails.breadth;
+          const h = options.packageDetails.height;
+
+          if (
+            typeof l !== "number" ||
+            typeof b !== "number" ||
+            typeof h !== "number" ||
+            l <= 0 ||
+            b <= 0 ||
+            h <= 0
+          ) {
+            throw new BadRequestException(
+              "Package dimensions (length, breadth, height) must be positive numbers when provided.",
+            );
+          }
+          dimensions = { length: l, breadth: b, height: h };
+        } else if (
+          resolvedPackage &&
+          resolvedPackage.length > 0 &&
+          resolvedPackage.breadth > 0 &&
+          resolvedPackage.height > 0
+        ) {
+          dimensions = {
+            length: resolvedPackage.length,
+            breadth: resolvedPackage.breadth,
+            height: resolvedPackage.height,
+          };
+        }
+
+        const shipmentParams: CreateShipmentParams = {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          orderDate: order.createdAt,
+          paymentMethod: order.paymentMethod,
+          subtotal: order.subtotal,
+          deliveryFee: order.deliveryFee,
+          taxAmount: order.gstAmount || 0,
+          grandTotal: order.grandTotal,
+          pickupLocation,
+          packageDetails: {
+            weight: totalWeight,
+            ...dimensions,
+          },
+          customer: {
+            name: customerName,
+            email: customerEmail,
+            phone: customerPhone,
+          },
+          shippingAddress: {
+            name: customerName,
+            phone: customerPhone,
+            houseFlat: order.address.houseFlat,
+            buildingStreet: order.address.buildingStreet,
+            landmark: order.address.landmark,
+            city,
+            state,
+            pincode,
+            country: order.address.country || "India",
+          },
+          items: order.items.map((item) => ({
+            productId: item.productId,
+            productName: item.productName,
+            variantName: item.variantName,
+            quantity: item.quantity,
+            price: item.price,
+            totalPrice: item.totalPrice,
+          })),
+        };
+
+        const result = await this.shippingProvider.createShipment(shipmentParams);
+        remoteOrderId = result.orderId ? String(result.orderId) : null;
+        shipmentId = result.shipmentId ? String(result.shipmentId) : null;
+
+        // Persist remote shipment details to Order record immediately
+        const saved = await this.prisma.order.update({
+          where: { id: order.id },
+          data: {
+            shippingProvider: result.providerName,
+            shiprocketOrderId: remoteOrderId,
+            shiprocketShipmentId: shipmentId,
+            courierPartner:
+              result.courierName || order.courierPartner || "Shiprocket",
+            trackingNumber: result.awbCode || order.trackingNumber || null,
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, phone: true } },
+            address: true,
+          },
+        });
+        remoteOrderId = saved.shiprocketOrderId;
+        shipmentId = saved.shiprocketShipmentId;
+        if (saved.trackingNumber) {
+          trackingNumber = saved.trackingNumber;
+        }
+        if (saved.courierPartner) {
+          courierPartner = saved.courierPartner;
+        }
+      }
+
+      // If AWB was already assigned by createShipment or order already has trackingNumber:
+      if (trackingNumber) {
+        return {
+          success: true,
+          message: "Forward shipment created successfully",
+          isExisting: false,
+          isAwbAssigned: true,
+          data: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shippingProvider: order.shippingProvider,
+            shiprocketOrderId: remoteOrderId,
+            shiprocketShipmentId: shipmentId,
+            courierPartner: order.courierPartner,
+            trackingNumber: order.trackingNumber,
+            status: order.orderStatus,
+          },
+        };
+      }
+
+      // If provider does not support serviceability/AWB or no shipment ID returned:
       if (
-        typeof options.packageDetails.weight !== "number" ||
-        isNaN(options.packageDetails.weight) ||
-        options.packageDetails.weight <= 0
+        !shipmentId ||
+        typeof this.shippingProvider.getRecommendedCourier !== "function" ||
+        typeof this.shippingProvider.assignAwb !== "function"
       ) {
-        throw new BadRequestException(
-          "Shipment weight is required before creating a Shiprocket shipment.",
+        return {
+          success: true,
+          message: "Forward shipment created successfully",
+          isExisting: false,
+          data: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shippingProvider: order.shippingProvider,
+            shiprocketOrderId: remoteOrderId,
+            shiprocketShipmentId: shipmentId,
+            courierPartner: order.courierPartner,
+            trackingNumber: order.trackingNumber,
+            status: order.orderStatus,
+          },
+        };
+      }
+
+      // 3. Resolve pickup location & pincode
+      const pickupLocation = (
+        options?.pickupLocation ||
+        this.configService.get<string>("SHIPROCKET_PICKUP_LOCATION", "") ||
+        ""
+      ).trim();
+
+      let pickupPostcode =
+        options?.pickupPostcode ||
+        this.configService.get<string>("SHIPROCKET_PICKUP_PINCODE", "");
+      if (!pickupPostcode && this.shippingProvider.getPickupLocationPincode) {
+        try {
+          pickupPostcode =
+            (await this.shippingProvider.getPickupLocationPincode(
+              pickupLocation,
+            )) || "";
+        } catch (pinErr: any) {
+          this.logger.warn(
+            `Could not resolve pickup pincode for location "${pickupLocation}": ${pinErr?.message || pinErr}`,
+          );
+        }
+      }
+
+      // 4. Resolve package details
+      const resolvedPackage = await this.resolveOrderShippingPackage(order.items);
+      const weight = options?.packageDetails?.weight || resolvedPackage?.weight || 0.5;
+      const length = options?.packageDetails?.length || resolvedPackage?.length;
+      const breadth = options?.packageDetails?.breadth || resolvedPackage?.breadth;
+      const height = options?.packageDetails?.height || resolvedPackage?.height;
+      const isCod = order.paymentMethod?.toUpperCase() === "COD";
+
+      // 5. Courier serviceability query
+      let recommendedCourier: AvailableCourier | null = null;
+      if (pickupPostcode && order.address?.pincode) {
+        try {
+          recommendedCourier = await this.shippingProvider.getRecommendedCourier({
+            pickupPostcode,
+            deliveryPostcode: order.address.pincode,
+            weight,
+            cod: isCod,
+            length,
+            breadth,
+            height,
+          });
+        } catch (serviceabilityErr: any) {
+          this.logger.warn(
+            `Courier serviceability check failed for order ${order.orderNumber} (shipment ${shipmentId}): ${serviceabilityErr?.message || serviceabilityErr}`,
+          );
+        }
+      }
+
+      if (!recommendedCourier) {
+        this.logger.warn(
+          `No serviceable courier found for order ${order.orderNumber} (shipment ${shipmentId}). Keeping shipment for retry.`,
+        );
+        return {
+          success: true,
+          message: "Shipment created; waiting for courier serviceability",
+          isExisting: false,
+          isAwbAssigned: false,
+          data: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shippingProvider: order.shippingProvider,
+            shiprocketOrderId: remoteOrderId,
+            shiprocketShipmentId: shipmentId,
+            courierPartner: order.courierPartner,
+            trackingNumber: order.trackingNumber,
+            status: order.orderStatus,
+          },
+        };
+      }
+
+      // 6. Assign real AWB
+      let awbResult: AssignAwbResult;
+      try {
+        awbResult = await this.shippingProvider.assignAwb({
+          shipmentId,
+          courierId: recommendedCourier.courierCompanyId,
+        });
+      } catch (awbErr: any) {
+        this.logger.error(
+          `AWB assignment call failed for order ${order.orderNumber} (shipment ${shipmentId}): ${awbErr?.message || awbErr}`,
+        );
+        return {
+          success: true,
+          message: "Shipment created, but AWB assignment failed. Ready for retry.",
+          isExisting: false,
+          isAwbAssigned: false,
+          data: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shippingProvider: order.shippingProvider,
+            shiprocketOrderId: remoteOrderId,
+            shiprocketShipmentId: shipmentId,
+            courierPartner: order.courierPartner,
+            trackingNumber: order.trackingNumber,
+            status: order.orderStatus,
+          },
+        };
+      }
+
+      if (!awbResult.isSuccess || !awbResult.awbCode) {
+        this.logger.warn(
+          `AWB assignment unsuccessful for order ${order.orderNumber} (shipment ${shipmentId}): ${awbResult.message}`,
+        );
+        return {
+          success: true,
+          message: `Shipment created, but AWB assignment unsuccessful: ${awbResult.message}`,
+          isExisting: false,
+          isAwbAssigned: false,
+          data: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            shippingProvider: order.shippingProvider,
+            shiprocketOrderId: remoteOrderId,
+            shiprocketShipmentId: shipmentId,
+            courierPartner: order.courierPartner,
+            trackingNumber: order.trackingNumber,
+            status: order.orderStatus,
+          },
+        };
+      }
+
+      // 7. Persist real AWB and Courier to Order
+      const finalCourier = awbResult.courierName || recommendedCourier.courierName;
+      const finalAwb = awbResult.awbCode;
+
+      // Advance order status to PACKED (Ready to Ship / AWB Assigned)
+      const nextStatus =
+        order.orderStatus === OrderStatusEnum.PLACED ||
+        order.orderStatus === OrderStatusEnum.PROCESSING
+          ? OrderStatusEnum.PACKED
+          : order.orderStatus;
+
+      const finalEstimatedDate = recommendedCourier.etd
+        ? new Date(recommendedCourier.etd)
+        : order.estimatedDelivery || undefined;
+
+      const updated = await this.prisma.order.update({
+        where: { id: order.id },
+        data: {
+          courierPartner: finalCourier,
+          trackingNumber: finalAwb,
+          orderStatus: nextStatus,
+          ...(finalEstimatedDate && { estimatedDelivery: finalEstimatedDate }),
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true, phone: true } },
+          address: true,
+        },
+      });
+
+      // 8. Pickup Queue Status Check
+      if (awbResult.pickupScheduledDate) {
+        this.logger.log(
+          `Shiprocket pickup scheduled automatically for order ${order.orderNumber} (date: ${awbResult.pickupScheduledDate}). No duplicate pickup call required.`,
         );
       }
-      totalWeight = options.packageDetails.weight;
-    } else {
-      totalWeight = resolvedPackage ? resolvedPackage.weight : null;
-    }
 
-    if (
-      typeof totalWeight !== "number" ||
-      isNaN(totalWeight) ||
-      totalWeight <= 0
-    ) {
-      throw new BadRequestException(
-        "Shipment weight is required before creating a Shiprocket shipment.",
-      );
-    }
-
-    // 7. Package dimensions validation
-    let dimensions: { length?: number; breadth?: number; height?: number } = {};
-    if (
-      options?.packageDetails?.length !== undefined ||
-      options?.packageDetails?.breadth !== undefined ||
-      options?.packageDetails?.height !== undefined
-    ) {
-      const l = options.packageDetails.length;
-      const b = options.packageDetails.breadth;
-      const h = options.packageDetails.height;
-
-      if (
-        typeof l !== "number" ||
-        typeof b !== "number" ||
-        typeof h !== "number" ||
-        l <= 0 ||
-        b <= 0 ||
-        h <= 0
-      ) {
-        throw new BadRequestException(
-          "Package dimensions (length, breadth, height) must be positive numbers when provided.",
-        );
-      }
-      dimensions = { length: l, breadth: b, height: h };
-    } else if (
-      resolvedPackage &&
-      resolvedPackage.length > 0 &&
-      resolvedPackage.breadth > 0 &&
-      resolvedPackage.height > 0
-    ) {
-      dimensions = {
-        length: resolvedPackage.length,
-        breadth: resolvedPackage.breadth,
-        height: resolvedPackage.height,
-      };
-    }
-
-    const shipmentParams: CreateShipmentParams = {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      orderDate: order.createdAt,
-      paymentMethod: order.paymentMethod,
-      subtotal: order.subtotal,
-      deliveryFee: order.deliveryFee,
-      taxAmount: order.gstAmount || 0,
-      grandTotal: order.grandTotal,
-      pickupLocation,
-      packageDetails: {
-        weight: totalWeight,
-        ...dimensions,
-      },
-      customer: {
-        name: customerName,
-        email: customerEmail,
-        phone: customerPhone,
-      },
-      shippingAddress: {
-        name: customerName,
-        phone: customerPhone,
-        houseFlat: order.address.houseFlat,
-        buildingStreet: order.address.buildingStreet,
-        landmark: order.address.landmark,
-        city,
-        state,
-        pincode,
-        country: order.address.country || "India",
-      },
-      items: order.items.map((item) => ({
-        productId: item.productId,
-        productName: item.productName,
-        variantName: item.variantName,
-        quantity: item.quantity,
-        price: item.price,
-        totalPrice: item.totalPrice,
-      })),
-    };
-
-    const result = await this.shippingProvider.createShipment(shipmentParams);
-
-    // Persist remote shipment details to Order record
-    const updated = await this.prisma.order.update({
-      where: { id: order.id },
-      data: {
-        shippingProvider: result.providerName,
-        shiprocketOrderId: result.orderId ? String(result.orderId) : null,
-        shiprocketShipmentId: result.shipmentId
-          ? String(result.shipmentId)
-          : null,
-        courierPartner:
-          result.courierName || order.courierPartner || "Shiprocket",
-        trackingNumber: result.awbCode || order.trackingNumber || null,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
-        address: true,
-      },
-    });
-
-    return {
-      success: true,
-      message: "Forward shipment created successfully",
-      isExisting: false,
-      data: {
+      this.notificationsService.notifyOrderStatusChange({
         orderId: updated.id,
         orderNumber: updated.orderNumber,
-        shippingProvider: updated.shippingProvider,
-        shiprocketOrderId: updated.shiprocketOrderId,
-        shiprocketShipmentId: updated.shiprocketShipmentId,
-        courierPartner: updated.courierPartner,
+        userId: updated.userId,
+        oldStatus: order.orderStatus,
+        newStatus: updated.orderStatus,
         trackingNumber: updated.trackingNumber,
-        status: updated.orderStatus,
-        remoteStatus: result.status,
-      },
-    };
+        courierPartner: updated.courierPartner,
+        estimatedDelivery: updated.estimatedDelivery,
+      });
+
+      return {
+        success: true,
+        message: "Shipment created and AWB assigned successfully",
+        isExisting: false,
+        isAwbAssigned: true,
+        data: {
+          orderId: updated.id,
+          orderNumber: updated.orderNumber,
+          shippingProvider: updated.shippingProvider,
+          shiprocketOrderId: updated.shiprocketOrderId,
+          shiprocketShipmentId: updated.shiprocketShipmentId,
+          courierPartner: updated.courierPartner,
+          trackingNumber: updated.trackingNumber,
+          status: updated.orderStatus,
+          pickupScheduledDate: awbResult.pickupScheduledDate,
+        },
+      };
+    } finally {
+      this.activeShipmentLocks.delete(order.id);
+    }
   }
 }

@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  AssignAwbParams,
+  AssignAwbResult,
+  AvailableCourier,
   CreateReturnPickupParams,
   CreateShipmentParams,
   CreateShipmentResult,
   ReturnPickupResult,
   ReturnStatusUpdate,
   ReturnTrackingResult,
+  ServiceabilityQueryParams,
   ShippingProvider,
 } from './shipping-provider.interface';
 
@@ -112,6 +116,8 @@ export class ShiprocketProvider implements ShippingProvider {
   private cachedToken: string | null = null;
   private tokenExpiresAt: number | null = null; // epoch ms
   private authPromise: Promise<string> | null = null;
+  private pickupLocationsCache: Array<{ pickup_location: string; pin_code: string }> | null = null;
+  private pickupLocationsCacheExpiresAt: number = 0;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -559,7 +565,7 @@ export class ShiprocketProvider implements ShippingProvider {
    * Courier serviceability query
    */
   async checkServiceability<T = unknown>(
-    params: ShiprocketServiceabilityParams,
+    params: ShiprocketServiceabilityParams | ServiceabilityQueryParams,
   ): Promise<T> {
     const query = new URLSearchParams({
       pickup_postcode: params.pickupPostcode,
@@ -568,12 +574,229 @@ export class ShiprocketProvider implements ShippingProvider {
       cod: params.cod ? '1' : '0',
     });
 
+    if ('length' in params && typeof params.length === 'number' && params.length > 0) {
+      query.set('length', params.length.toString());
+    }
+    if ('breadth' in params && typeof params.breadth === 'number' && params.breadth > 0) {
+      query.set('breadth', params.breadth.toString());
+    }
+    if ('height' in params && typeof params.height === 'number' && params.height > 0) {
+      query.set('height', params.height.toString());
+    }
+
     return this.requestWithAuth<T>(
       `/courier/serviceability/?${query.toString()}`,
       {
         method: 'GET',
       },
     );
+  }
+
+  /**
+   * Evaluates courier serviceability and returns the recommended or best available courier.
+   * Prefers Shiprocket recommended courier when present, without hardcoding courier names.
+   */
+  async getRecommendedCourier(
+    params: ServiceabilityQueryParams,
+  ): Promise<AvailableCourier | null> {
+    const res = await this.checkServiceability<{
+      status?: number;
+      data?: {
+        recommended_courier_company_id?: number | string;
+        shiprocket_recommended_courier_id?: number | string;
+        promise_recommended_courier_company_id?: number | string;
+        available_courier_companies?: Array<{
+          courier_company_id: number | string;
+          courier_name: string;
+          rate?: number;
+          etd?: string;
+          rating?: number;
+        }>;
+      };
+    }>(params);
+
+    const data = res?.data;
+    const available = data?.available_courier_companies;
+    if (!available || !Array.isArray(available) || available.length === 0) {
+      this.logger.warn(
+        `Shiprocket serviceability returned no available couriers for pickup=${params.pickupPostcode}, delivery=${params.deliveryPostcode}.`,
+      );
+      return null;
+    }
+
+    const recId =
+      data.recommended_courier_company_id ??
+      data.shiprocket_recommended_courier_id ??
+      data.promise_recommended_courier_company_id;
+
+    let selectedCourier =
+      recId != null
+        ? available.find((c) => String(c.courier_company_id) === String(recId))
+        : null;
+
+    if (selectedCourier) {
+      this.logger.log(
+        `Selected Shiprocket recommended courier: "${selectedCourier.courier_name}" (ID: ${selectedCourier.courier_company_id}, ETD: ${selectedCourier.etd || "N/A"}).`,
+      );
+      return {
+        courierCompanyId: selectedCourier.courier_company_id,
+        courierName: selectedCourier.courier_name,
+        rate: typeof selectedCourier.rate === "number" ? selectedCourier.rate : undefined,
+        etd: selectedCourier.etd,
+        rating: typeof selectedCourier.rating === "number" ? selectedCourier.rating : undefined,
+        isRecommended: true,
+      };
+    }
+
+    // Fallback: take first available courier
+    const fallback = available[0];
+    this.logger.log(
+      `No recommended courier match; selected first available courier: "${fallback.courier_name}" (ID: ${fallback.courier_company_id}, ETD: ${fallback.etd || "N/A"}).`,
+    );
+    return {
+      courierCompanyId: fallback.courier_company_id,
+      courierName: fallback.courier_name,
+      rate: typeof fallback.rate === "number" ? fallback.rate : undefined,
+      etd: fallback.etd,
+      rating: typeof fallback.rating === "number" ? fallback.rating : undefined,
+      isRecommended: false,
+    };
+  }
+
+  /**
+   * Assigns AWB in Shiprocket via POST /courier/assign/awb
+   */
+  async assignAwb(params: AssignAwbParams): Promise<AssignAwbResult> {
+    if (!params.shipmentId) {
+      throw new Error("shipment_id is required for Shiprocket AWB assignment.");
+    }
+    if (!params.courierId) {
+      throw new Error("courier_id is required for Shiprocket AWB assignment.");
+    }
+
+    const payload = {
+      shipment_id: Number(params.shipmentId) || params.shipmentId,
+      courier_id: Number(params.courierId) || params.courierId,
+    };
+
+    this.logger.log(
+      `Calling Shiprocket AWB assignment: shipment_id=${params.shipmentId}, courier_id=${params.courierId}.`,
+    );
+
+    const res = await this.requestWithAuth<{
+      awb_assign_status?: number;
+      response?: {
+        data?: {
+          awb_code?: string;
+          courier_name?: string;
+          courier_company_id?: number | string;
+          order_id?: number | string;
+          shipment_id?: number | string;
+          pickup_scheduled_date?: string;
+          [key: string]: unknown;
+        };
+      };
+      awb_code?: string;
+      courier_name?: string;
+      courier_company_id?: number | string;
+      message?: string;
+      [key: string]: unknown;
+    }>("/courier/assign/awb", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    const dataObj = res?.response?.data;
+    const awbCode = dataObj?.awb_code || res?.awb_code || null;
+    const courierName = dataObj?.courier_name || res?.courier_name || null;
+    const courierCompanyId = dataObj?.courier_company_id || res?.courier_company_id || params.courierId;
+    const pickupScheduledDate = dataObj?.pickup_scheduled_date || null;
+    const shipmentId = dataObj?.shipment_id || res?.shipment_id || params.shipmentId;
+    const orderId = dataObj?.order_id || res?.order_id || null;
+
+    const isSuccess =
+      res?.awb_assign_status === 1 ||
+      Boolean(awbCode);
+
+    if (!isSuccess || !awbCode) {
+      const errorMsg =
+        (typeof res?.message === "string" && res.message) ||
+        (typeof (res as any)?.error === "string" && (res as any).error) ||
+        "Shiprocket AWB assignment was unsuccessful";
+      this.logger.error(
+        `Shiprocket AWB assignment failed for shipment ${params.shipmentId}: ${errorMsg}`,
+      );
+      return {
+        isSuccess: false,
+        message: errorMsg,
+        rawResponse: res,
+      };
+    }
+
+    this.logger.log(
+      `Shiprocket AWB successfully assigned: AWB=${awbCode}, courier="${courierName}" (ID: ${courierCompanyId}), pickup_scheduled_date=${pickupScheduledDate || "N/A"}.`,
+    );
+
+    return {
+      isSuccess: true,
+      awbCode: String(awbCode).trim(),
+      courierName: courierName ? String(courierName).trim() : null,
+      courierCompanyId,
+      shipmentId: shipmentId ? String(shipmentId) : null,
+      orderId: orderId ? String(orderId) : null,
+      pickupScheduledDate: pickupScheduledDate ? String(pickupScheduledDate) : null,
+      message: "AWB assigned successfully",
+      rawResponse: res,
+    };
+  }
+
+  /**
+   * Resolves the 6-digit postal code of a Shiprocket pickup location
+   */
+  async getPickupLocationPincode(pickupLocationName: string): Promise<string | null> {
+    const directPincode = (this.configService.get<string>("SHIPROCKET_PICKUP_PINCODE", "") || "").trim();
+    if (directPincode && /^\d{6}$/.test(directPincode)) {
+      return directPincode;
+    }
+
+    const targetName = (pickupLocationName || "").trim().toLowerCase();
+    const now = Date.now();
+
+    if (!this.pickupLocationsCache || now > this.pickupLocationsCacheExpiresAt) {
+      try {
+        const res = await this.requestWithAuth<{
+          data?: {
+            shipping_address?: Array<{
+              pickup_location?: string;
+              pin_code?: string;
+            }>;
+          };
+        }>("/settings/company/pickup", { method: "GET" });
+
+        const addresses = res?.data?.shipping_address;
+        if (addresses && Array.isArray(addresses)) {
+          this.pickupLocationsCache = addresses
+            .filter((a) => a.pickup_location && a.pin_code)
+            .map((a) => ({
+              pickup_location: String(a.pickup_location).trim().toLowerCase(),
+              pin_code: String(a.pin_code).trim(),
+            }));
+          this.pickupLocationsCacheExpiresAt = now + 60 * 60 * 1000; // 1 hour cache
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to fetch Shiprocket pickup locations: ${err?.message || err}`);
+      }
+    }
+
+    if (this.pickupLocationsCache && this.pickupLocationsCache.length > 0) {
+      const match = this.pickupLocationsCache.find(
+        (loc) => loc.pickup_location === targetName,
+      );
+      if (match) return match.pin_code;
+      return this.pickupLocationsCache[0].pin_code;
+    }
+
+    return null;
   }
 
   // --- ShippingProvider Interface Implementations (Deferred to subsequent tasks) ---

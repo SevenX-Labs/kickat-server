@@ -67,6 +67,42 @@ export interface CreateShipmentResult {
   message?: string | null;
 }
 
+export interface AssignAwbParams {
+  shipmentId: string | number;
+  courierId: string | number;
+}
+
+export interface AssignAwbResult {
+  isSuccess: boolean;
+  awbCode?: string | null;
+  courierName?: string | null;
+  courierCompanyId?: string | number | null;
+  shipmentId?: string | number | null;
+  orderId?: string | number | null;
+  pickupScheduledDate?: string | null;
+  message?: string | null;
+  rawResponse?: any;
+}
+
+export interface ServiceabilityQueryParams {
+  pickupPostcode: string;
+  deliveryPostcode: string;
+  weight: number;
+  cod: boolean;
+  length?: number;
+  breadth?: number;
+  height?: number;
+}
+
+export interface AvailableCourier {
+  courierCompanyId: number | string;
+  courierName: string;
+  rate?: number;
+  etd?: string;
+  rating?: number;
+  isRecommended?: boolean;
+}
+
 export interface CreateReturnPickupParams {
   returnId: string;
   orderId: string;
@@ -125,6 +161,12 @@ export interface ReturnStatusUpdate {
 export interface ShippingProvider {
   readonly providerName: string;
   createShipment(params: CreateShipmentParams): Promise<CreateShipmentResult>;
+  checkServiceability?(params: ServiceabilityQueryParams): Promise<any>;
+  getRecommendedCourier?(
+    params: ServiceabilityQueryParams,
+  ): Promise<AvailableCourier | null>;
+  assignAwb?(params: AssignAwbParams): Promise<AssignAwbResult>;
+  getPickupLocationPincode?(pickupLocation: string): Promise<string | null>;
   createReturnPickup(
     params: CreateReturnPickupParams,
   ): Promise<ReturnPickupResult>;

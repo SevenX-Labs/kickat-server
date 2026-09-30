@@ -1,17 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from "@nestjs/common";
 import {
+  AssignAwbParams,
+  AssignAwbResult,
+  AvailableCourier,
   CreateReturnPickupParams,
   CreateShipmentParams,
   CreateShipmentResult,
   ReturnPickupResult,
   ReturnStatusUpdate,
   ReturnTrackingResult,
+  ServiceabilityQueryParams,
   ShippingProvider,
-} from './shipping-provider.interface';
+} from "./shipping-provider.interface";
 
 @Injectable()
 export class NullShippingProvider implements ShippingProvider {
-  readonly providerName = 'UNCONFIGURED';
+  readonly providerName = "UNCONFIGURED";
   private readonly logger = new Logger(NullShippingProvider.name);
 
   createShipment(params: CreateShipmentParams): Promise<CreateShipmentResult> {
@@ -23,10 +27,36 @@ export class NullShippingProvider implements ShippingProvider {
       providerName: this.providerName,
       orderId: null,
       shipmentId: null,
-      status: 'UNCONFIGURED',
+      status: "UNCONFIGURED",
       message:
-        'Delivery provider is unconfigured. Order is pending logistics assignment.',
+        "Delivery provider is unconfigured. Order is pending logistics assignment.",
     });
+  }
+
+  checkServiceability(
+    _params: ServiceabilityQueryParams,
+  ): Promise<any> {
+    return Promise.resolve({
+      isServiceable: false,
+      available_courier_companies: [],
+    });
+  }
+
+  getRecommendedCourier(
+    _params: ServiceabilityQueryParams,
+  ): Promise<AvailableCourier | null> {
+    return Promise.resolve(null);
+  }
+
+  assignAwb(_params: AssignAwbParams): Promise<AssignAwbResult> {
+    return Promise.resolve({
+      isSuccess: false,
+      message: "Delivery provider is unconfigured. AWB assignment skipped.",
+    });
+  }
+
+  getPickupLocationPincode(_pickupLocation: string): Promise<string | null> {
+    return Promise.resolve(null);
   }
 
   createReturnPickup(
@@ -43,9 +73,9 @@ export class NullShippingProvider implements ShippingProvider {
       courierPartner: null,
       trackingUrl: null,
       pickupDate: null,
-      status: 'PICKUP_REQUESTED',
+      status: "PICKUP_REQUESTED",
       message:
-        'Delivery provider is unconfigured. Return is pending logistics assignment.',
+        "Delivery provider is unconfigured. Return is pending logistics assignment.",
     });
   }
 
@@ -54,13 +84,13 @@ export class NullShippingProvider implements ShippingProvider {
       isConfigured: false,
       providerName: this.providerName,
       shipmentId,
-      currentStatus: 'PICKUP_REQUESTED',
+      currentStatus: "PICKUP_REQUESTED",
       checkpoints: [
         {
-          status: 'PICKUP_REQUESTED',
+          status: "PICKUP_REQUESTED",
           timestamp: new Date().toISOString(),
           description:
-            'Return request submitted. Pending logistics provider assignment.',
+            "Return request submitted. Pending logistics provider assignment.",
         },
       ],
     });
@@ -72,8 +102,8 @@ export class NullShippingProvider implements ShippingProvider {
 
   handleTrackingUpdate(): Promise<ReturnStatusUpdate> {
     return Promise.resolve({
-      status: 'PICKUP_REQUESTED',
-      notes: 'No provider active',
+      status: "PICKUP_REQUESTED",
+      notes: "No provider active",
     });
   }
 }

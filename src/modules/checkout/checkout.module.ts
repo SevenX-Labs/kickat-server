@@ -1,12 +1,13 @@
 import { NotificationsModule } from "../notifications/notifications.module";
-import { Module } from '@nestjs/common';
-import { CheckoutService } from './checkout.service';
-import { StockReservationCleanupService } from './stock-reservation-cleanup.service';
-import { CheckoutController } from './checkout.controller';
-import { SettingsModule } from '../admin/settings/settings.module';
+import { Module } from "@nestjs/common";
+import { CheckoutService } from "./checkout.service";
+import { StockReservationCleanupService } from "./stock-reservation-cleanup.service";
+import { CheckoutController } from "./checkout.controller";
+import { SettingsModule } from "../admin/settings/settings.module";
+import { ShippingModule } from "../admin/shipping/shipping.module";
 
 @Module({
-  imports: [SettingsModule, NotificationsModule],
+  imports: [SettingsModule, NotificationsModule, ShippingModule],
   controllers: [CheckoutController],
   providers: [CheckoutService, StockReservationCleanupService],
   exports: [CheckoutService, StockReservationCleanupService],
