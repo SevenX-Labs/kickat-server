@@ -252,11 +252,95 @@ export class OrdersService {
 
     const itemsCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
 
+    const productIds = Array.from(new Set(order.items.map((i) => i.productId)));
+    const products = productIds.length > 0 ? await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: {
+        id: true,
+        shippingWeightKg: true,
+        shippingLengthCm: true,
+        shippingBreadthCm: true,
+        shippingHeightCm: true,
+        imageUrl: true,
+        variants: {
+          select: {
+            id: true,
+            shippingWeightKg: true,
+            shippingLengthCm: true,
+            shippingBreadthCm: true,
+            shippingHeightCm: true,
+            imageUrl: true,
+          },
+        },
+      },
+    }) : [];
+
+    const productMap = new Map((products || []).map((p: any) => [p.id, p]));
+
+    let totalWeightKg = 0;
+    let maxLengthCm = 0;
+    let maxBreadthCm = 0;
+    let totalHeightCm = 0;
+
+    const enrichedItems = order.items.map((item) => {
+      const prod = productMap.get(item.productId);
+      const variant = item.variantId && prod?.variants ? prod.variants.find((v: any) => v.id === item.variantId) : null;
+
+      const weightKg = (typeof variant?.shippingWeightKg === "number" && variant.shippingWeightKg > 0)
+        ? variant.shippingWeightKg
+        : (typeof prod?.shippingWeightKg === "number" && prod.shippingWeightKg > 0)
+          ? prod.shippingWeightKg
+          : null;
+
+      const lengthCm = (typeof variant?.shippingLengthCm === "number" && variant.shippingLengthCm > 0)
+        ? variant.shippingLengthCm
+        : (typeof prod?.shippingLengthCm === "number" && prod.shippingLengthCm > 0)
+          ? prod.shippingLengthCm
+          : null;
+
+      const breadthCm = (typeof variant?.shippingBreadthCm === "number" && variant.shippingBreadthCm > 0)
+        ? variant.shippingBreadthCm
+        : (typeof prod?.shippingBreadthCm === "number" && prod.shippingBreadthCm > 0)
+          ? prod.shippingBreadthCm
+          : null;
+
+      const heightCm = (typeof variant?.shippingHeightCm === "number" && variant.shippingHeightCm > 0)
+        ? variant.shippingHeightCm
+        : (typeof prod?.shippingHeightCm === "number" && prod.shippingHeightCm > 0)
+          ? prod.shippingHeightCm
+          : null;
+
+      const productImage = variant?.imageUrl || prod?.imageUrl || null;
+
+      if (weightKg) totalWeightKg += weightKg * (item.quantity || 1);
+      if (lengthCm && lengthCm > maxLengthCm) maxLengthCm = lengthCm;
+      if (breadthCm && breadthCm > maxBreadthCm) maxBreadthCm = breadthCm;
+      if (heightCm) totalHeightCm += heightCm * (item.quantity || 1);
+
+      return {
+        ...item,
+        productImage: (item as any).productImage || productImage,
+        shippingWeightKg: weightKg,
+        shippingLengthCm: lengthCm,
+        shippingBreadthCm: breadthCm,
+        shippingHeightCm: heightCm,
+      };
+    });
+
+    const packageDetails = {
+      totalWeightKg: totalWeightKg > 0 ? Number(totalWeightKg.toFixed(2)) : null,
+      lengthCm: maxLengthCm > 0 ? maxLengthCm : null,
+      breadthCm: maxBreadthCm > 0 ? maxBreadthCm : null,
+      heightCm: totalHeightCm > 0 ? totalHeightCm : null,
+    };
+
     return {
       success: true,
       data: {
         ...order,
+        items: enrichedItems,
         itemsCount,
+        packageDetails,
       },
     };
   }
