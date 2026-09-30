@@ -22,14 +22,12 @@ describe('Admin OrdersService', () => {
       updateMany: jest.fn(),
     },
     product: {
-      update: jest.fn(),
-    },
-    product: {
       findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({}),
     },
     productVariant: {
-      update: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
     },
     payment: {
       updateMany: jest.fn(),

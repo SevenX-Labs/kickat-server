@@ -34,6 +34,60 @@ export class OrdersService {
   /**
    * Helper to find order by UUID or orderNumber
    */
+  private async enrichItemsWithProductData(items: any[]): Promise<any[]> {
+    if (!items || items.length === 0) return items;
+
+    const productIds = Array.from(new Set(items.map((i) => i.productId).filter(Boolean)));
+    const variantIds = Array.from(new Set(items.map((i) => i.variantId).filter(Boolean))) as string[];
+
+    const products: any[] =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, slug: true, imageUrl: true, images: true, name: true, brand: true, petSpecies: true },
+          })
+        : [];
+
+    const variants: any[] =
+      variantIds.length > 0
+        ? await this.prisma.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            select: { id: true, imageUrl: true, images: true, name: true },
+          })
+        : [];
+
+    const productMap = new Map<string, any>();
+    for (const p of products) {
+      productMap.set(p.id, p);
+    }
+
+    const variantMap = new Map<string, any>();
+    for (const v of variants) {
+      variantMap.set(v.id, v);
+    }
+
+    return items.map((item) => {
+      const prod = productMap.get(item.productId);
+      const variant = item.variantId ? variantMap.get(item.variantId) : null;
+      const imageUrl =
+        variant?.imageUrl ||
+        (Array.isArray(variant?.images) && variant.images.length > 0 ? variant.images[0] : null) ||
+        prod?.imageUrl ||
+        (Array.isArray(prod?.images) && prod.images.length > 0 ? prod.images[0] : null) ||
+        null;
+      const productSlug = prod?.slug || null;
+      const brand = prod?.brand || 'KickAt Official';
+
+      return {
+        ...item,
+        imageUrl,
+        image: imageUrl,
+        productSlug,
+        brand,
+      };
+    });
+  }
+
   private async findOrderByIdOrNumber(idOrNumber: string) {
     const isUuid = UUID_V4_REGEX.test(idOrNumber);
 
@@ -56,6 +110,10 @@ export class OrdersService {
 
     if (!order) {
       throw new NotFoundException('Order not found');
+    }
+
+    if (order.items && order.items.length > 0) {
+      order.items = await this.enrichItemsWithProductData(order.items);
     }
 
     return order;
