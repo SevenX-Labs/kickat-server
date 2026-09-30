@@ -24,6 +24,10 @@ describe('Admin OrdersService', () => {
     product: {
       update: jest.fn(),
     },
+    product: {
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
+    },
     productVariant: {
       update: jest.fn(),
     },

@@ -253,7 +253,7 @@ export class OrdersService {
     const itemsCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
 
     const productIds = Array.from(new Set(order.items.map((i) => i.productId)));
-    const products = productIds.length > 0 ? await this.prisma.product.findMany({
+    const products = (productIds.length > 0 && typeof this.prisma.product?.findMany === 'function') ? await this.prisma.product.findMany({
       where: { id: { in: productIds } },
       select: {
         id: true,
