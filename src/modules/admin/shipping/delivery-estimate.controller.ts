@@ -1,10 +1,8 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
+import { Controller, Get, Query } from '@nestjs/common';
 import { DeliveryEstimateService } from './delivery-estimate.service';
 import { DeliveryEstimateQueryDto } from './dto/delivery-estimate.dto';
 
 @Controller('shipping')
-@UseGuards(ThrottlerGuard)
 export class DeliveryEstimateController {
   constructor(
     private readonly deliveryEstimateService: DeliveryEstimateService,
@@ -13,10 +11,8 @@ export class DeliveryEstimateController {
   /**
    * GET /api/v1/shipping/delivery-estimate
    * Public customer delivery estimate based on pincode and product/variant
+   * No rate limit to allow seamless customer browsing and pincode checks
    */
-  @Throttle({
-    default: { limit: 60, ttl: 60000 },
-  })
   @Get('delivery-estimate')
   async getDeliveryEstimate(@Query() query: DeliveryEstimateQueryDto) {
     return this.deliveryEstimateService.getEstimate({
