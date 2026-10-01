@@ -214,6 +214,7 @@ export class CartService {
           price: item.product.price,
           discountPrice: item.product.discountPrice,
           imageUrl: item.product.imageUrl,
+          images: item.product.images,
           stock: item.product.stock,
           category: item.product.category,
         },
@@ -222,7 +223,10 @@ export class CartService {
               id: item.variant.id,
               name: item.variant.name,
               price: item.variant.price,
+              discountPrice: item.variant.discountPrice,
               stock: item.variant.stock,
+              imageUrl: item.variant.imageUrl,
+              images: item.variant.images,
             }
           : null,
       };
@@ -439,8 +443,19 @@ export class CartService {
     const items = await this.prisma.guestCartItem.findMany({
       where: { sessionId },
       include: {
-        product: { select: { id: true, name: true, price: true, discountPrice: true, imageUrl: true } },
-        variant: { select: { id: true, name: true, price: true, discountPrice: true } },
+        product: {
+          select: {
+            id: true, name: true, price: true, discountPrice: true,
+            imageUrl: true, images: true,
+            category: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        variant: {
+          select: {
+            id: true, name: true, price: true, discountPrice: true,
+            imageUrl: true, images: true, stock: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
