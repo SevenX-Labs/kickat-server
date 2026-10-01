@@ -8,7 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { SearchService } from './search.service';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { SearchSuggestionsQueryDto } from './dto/search-suggestions-query.dto';
@@ -22,7 +22,7 @@ export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 
   /**
-   * GET /search (30 req / min / IP)
+   * GET /search (60 req / min / user, 30 req / min / guest)
    */
   @Throttle({
     search: { limit: 30, ttl: 60000 },
@@ -42,9 +42,10 @@ export class SearchController {
   }
 
   /**
-   * GET /search/suggestions (30 req / min / IP)
+   * GET /search/suggestions (120 req / min / user, 30 req / min / guest)
    */
   @Throttle({
+    'search-suggestions': { limit: 30, ttl: 60000 },
     search: { limit: 30, ttl: 60000 },
     'otp-send-short': { limit: 10000, ttl: 600000 },
     'otp-send-long': { limit: 10000, ttl: 3600000 },
@@ -59,9 +60,9 @@ export class SearchController {
   }
 
   /**
-   * GET /search/recent (Auth Required)
+   * GET /search/recent (Auth Required, 60 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ search: { limit: 60, ttl: 60000 } })
   @Auth()
   @Get('recent')
   async getRecentSearches(@CurrentUser('id') userId: string) {
@@ -69,9 +70,9 @@ export class SearchController {
   }
 
   /**
-   * DELETE /search/recent/:queryId (Auth Required)
+   * DELETE /search/recent/:queryId (Auth Required, 60 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ search: { limit: 60, ttl: 60000 } })
   @Auth()
   @Delete('recent/:queryId')
   @HttpCode(HttpStatus.OK)
@@ -83,27 +84,27 @@ export class SearchController {
   }
 
   /**
-   * GET /search/trending
+   * GET /search/trending (60 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ search: { limit: 60, ttl: 60000 } })
   @Get('trending')
   async getTrendingSearches() {
     return this.searchService.getTrendingSearches();
   }
 
   /**
-   * GET /search/popular
+   * GET /search/popular (60 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ search: { limit: 60, ttl: 60000 } })
   @Get('popular')
   async getPopularSearches() {
     return this.searchService.getPopularSearches();
   }
 
   /**
-   * GET /search/filters
+   * GET /search/filters (60 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ search: { limit: 60, ttl: 60000 } })
   @Get('filters')
   async getFilters(@Query() query: SearchFiltersQueryDto) {
     return this.searchService.getFilters(query.categoryId);

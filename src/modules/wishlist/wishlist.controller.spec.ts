@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WishlistController } from './wishlist.controller';
 import { WishlistService } from './wishlist.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('WishlistController', () => {
   let controller: WishlistController;
@@ -16,7 +17,10 @@ describe('WishlistController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WishlistController],
       providers: [{ provide: WishlistService, useValue: mockWishlistService }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<WishlistController>(WishlistController);
   });

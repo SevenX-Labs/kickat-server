@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { DeliveryEstimateController } from './delivery-estimate.controller';
 import { DeliveryEstimateService } from './delivery-estimate.service';
 
@@ -26,7 +27,10 @@ describe('DeliveryEstimateController', () => {
           useValue: service,
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<DeliveryEstimateController>(DeliveryEstimateController);
   });

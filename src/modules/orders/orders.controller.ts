@@ -10,7 +10,9 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
 import { Auth, CurrentUser } from '../../common';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
@@ -21,11 +23,13 @@ import { OrderAgainQueryDto } from './dto/order-again-query.dto';
 
 @Auth()
 @Controller('orders')
+@UseGuards(ThrottlerGuard)
+@Throttle({ orders: { limit: 60, ttl: 60000 } })
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   /**
-   * GET /orders
+   * GET /orders (60 req / min / user)
    */
   @Get()
   async getOrders(
@@ -58,7 +62,7 @@ export class OrdersController {
   }
 
   /**
-   * GET /orders/:id
+   * GET /orders/:id (60 req / min / user)
    */
   @Get(':id')
   async getOrderById(
@@ -80,7 +84,7 @@ export class OrdersController {
   }
 
   /**
-   * GET /orders/:id/tracking
+   * GET /orders/:id/tracking (60 req / min / user)
    */
   @Get(':id/tracking')
   async getOrderTracking(
@@ -111,10 +115,6 @@ export class OrdersController {
   ) {
     return this.ordersService.getOrderTrackingLive(userId, id);
   }
-
-  /**
-   * GET /orders/:id/invoice
-   */
 
   /**
    * GET /orders/:id/invoice/pdf

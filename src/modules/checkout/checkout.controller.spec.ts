@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CheckoutController } from './checkout.controller';
 import { CheckoutService } from './checkout.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('CheckoutController', () => {
   let controller: CheckoutController;
@@ -16,7 +17,10 @@ describe('CheckoutController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CheckoutController],
       providers: [{ provide: CheckoutService, useValue: mockCheckoutService }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<CheckoutController>(CheckoutController);
   });

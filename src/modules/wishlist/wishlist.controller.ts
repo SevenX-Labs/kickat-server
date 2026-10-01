@@ -8,7 +8,9 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from "@nestjs/common";
+import { ThrottlerGuard, Throttle } from "@nestjs/throttler";
 import { WishlistService } from "./wishlist.service";
 import { WishlistQueryDto } from "./dto/wishlist-query.dto";
 import { AddToWishlistDto } from "./dto/add-to-wishlist.dto";
@@ -18,12 +20,14 @@ import { Auth, CurrentUser } from "../../common";
 
 @Auth()
 @Controller("wishlist")
+@UseGuards(ThrottlerGuard)
 export class WishlistController {
   constructor(private readonly wishlistService: WishlistService) {}
 
   /**
-   * GET /wishlist
+   * GET /wishlist (120 req / min / user)
    */
+  @Throttle({ wishlist: { limit: 120, ttl: 60000 } })
   @Get()
   async getWishlist(
     @CurrentUser("id") userId: string,
@@ -33,8 +37,9 @@ export class WishlistController {
   }
 
   /**
-   * POST /wishlist
+   * POST /wishlist (120 req / min / user)
    */
+  @Throttle({ wishlist: { limit: 120, ttl: 60000 } })
   @Post()
   async addToWishlist(
     @CurrentUser("id") userId: string,
@@ -44,8 +49,9 @@ export class WishlistController {
   }
 
   /**
-   * DELETE /wishlist/:productId
+   * DELETE /wishlist/:productId (120 req / min / user)
    */
+  @Throttle({ wishlist: { limit: 120, ttl: 60000 } })
   @Delete(":productId")
   @HttpCode(HttpStatus.OK)
   async removeFromWishlist(
@@ -57,8 +63,9 @@ export class WishlistController {
   }
 
   /**
-   * POST /wishlist/:productId/move-to-cart
+   * POST /wishlist/:productId/move-to-cart (120 req / min / user)
    */
+  @Throttle({ wishlist: { limit: 120, ttl: 60000 } })
   @Post(":productId/move-to-cart")
   @HttpCode(HttpStatus.OK)
   async moveToCart(

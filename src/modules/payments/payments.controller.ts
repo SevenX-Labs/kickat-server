@@ -9,8 +9,10 @@ import {
   Post,
   Req,
   RawBodyRequest,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { Auth, CurrentUser } from '../../common';
 import { CreatePaymentOrderDto } from './dto/create-payment-order.dto';
@@ -19,12 +21,14 @@ import { RetryPaymentDto } from './dto/retry-payment.dto';
 import { ConfirmCodDto } from './dto/confirm-cod.dto';
 
 @Controller('payments')
+@UseGuards(ThrottlerGuard)
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   /**
-   * POST /payments/create-order
+   * POST /payments/create-order (20 req / min / user)
    */
+  @Throttle({ 'payment-create': { limit: 20, ttl: 60000 } })
   @Auth()
   @Post('create-order')
   @HttpCode(HttpStatus.OK)
@@ -41,8 +45,9 @@ export class PaymentsController {
   }
 
   /**
-   * POST /payments/verify
+   * POST /payments/verify (30 req / min / user)
    */
+  @Throttle({ 'payment-verify': { limit: 30, ttl: 60000 } })
   @Auth()
   @Post('verify')
   @HttpCode(HttpStatus.OK)
@@ -54,8 +59,9 @@ export class PaymentsController {
   }
 
   /**
-   * POST /payments/retry
+   * POST /payments/retry (20 req / min / user)
    */
+  @Throttle({ 'payment-create': { limit: 20, ttl: 60000 } })
   @Auth()
   @Post('retry')
   @HttpCode(HttpStatus.OK)
@@ -68,8 +74,9 @@ export class PaymentsController {
   }
 
   /**
-   * GET /payments/:id
+   * GET /payments/:id (60 req / min / user)
    */
+  @Throttle({ orders: { limit: 60, ttl: 60000 } })
   @Auth()
   @Get(':id')
   async getPaymentById(
@@ -80,8 +87,9 @@ export class PaymentsController {
   }
 
   /**
-   * POST /payments/cod/confirm
+   * POST /payments/cod/confirm (20 req / min / user)
    */
+  @Throttle({ 'payment-create': { limit: 20, ttl: 60000 } })
   @Auth()
   @Post('cod/confirm')
   @HttpCode(HttpStatus.OK)
@@ -94,8 +102,9 @@ export class PaymentsController {
   }
 
   /**
-   * POST /payments/webhook (Public - Razorpay Callback)
+   * POST /payments/webhook (Public - Razorpay Callback - NEVER Throttled)
    */
+  @SkipThrottle()
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   async handleWebhook(

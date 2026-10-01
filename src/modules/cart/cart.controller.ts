@@ -8,7 +8,9 @@ import {
   Param,
   Post,
   Put,
+  UseGuards,
 } from '@nestjs/common';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { CartService } from './cart.service';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
@@ -20,12 +22,14 @@ import { GuestSessionIdParamDto } from './dto/guest-session-id-param.dto';
 import { Auth, CurrentUser } from '../../common';
 
 @Controller('cart')
+@UseGuards(ThrottlerGuard)
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 
   /**
-   * GET /cart (Auth Required)
+   * GET /cart (Auth Required, 120 req / min / user)
    */
+  @Throttle({ cart: { limit: 120, ttl: 60000 } })
   @Auth()
   @Get()
   async getCart(@CurrentUser('id') userId: string) {
@@ -33,8 +37,9 @@ export class CartController {
   }
 
   /**
-   * POST /cart/items (Auth Required)
+   * POST /cart/items (Auth Required, 120 req / min / user)
    */
+  @Throttle({ cart: { limit: 120, ttl: 60000 } })
   @Auth()
   @Post('items')
   async addCartItem(
@@ -45,8 +50,9 @@ export class CartController {
   }
 
   /**
-   * PUT /cart/items/:itemId (Auth Required)
+   * PUT /cart/items/:itemId (Auth Required, 120 req / min / user)
    */
+  @Throttle({ cart: { limit: 120, ttl: 60000 } })
   @Auth()
   @Put('items/:itemId')
   async updateCartItem(
@@ -62,8 +68,9 @@ export class CartController {
   }
 
   /**
-   * DELETE /cart/items/:itemId (Auth Required)
+   * DELETE /cart/items/:itemId (Auth Required, 120 req / min / user)
    */
+  @Throttle({ cart: { limit: 120, ttl: 60000 } })
   @Auth()
   @Delete('items/:itemId')
   @HttpCode(HttpStatus.OK)
@@ -75,8 +82,9 @@ export class CartController {
   }
 
   /**
-   * POST /cart/buy-now (Auth Required)
+   * POST /cart/buy-now (Auth Required, 120 req / min / user)
    */
+  @Throttle({ cart: { limit: 120, ttl: 60000 } })
   @Auth()
   @Post('buy-now')
   async buyNow(@CurrentUser('id') userId: string, @Body() dto: BuyNowDto) {
@@ -84,24 +92,43 @@ export class CartController {
   }
 
   /**
-   * POST /cart/guest (No Auth)
+   * POST /cart/guest (No Auth, 20 req / min)
    */
+  @Throttle({
+    'guest-cart': { limit: 20, ttl: 60000 },
+    'otp-send-short': { limit: 10000, ttl: 600000 },
+    'otp-send-long': { limit: 10000, ttl: 3600000 },
+    'otp-verify': { limit: 10000, ttl: 3600000 },
+    search: { limit: 10000, ttl: 60000 },
+    products: { limit: 10000, ttl: 60000 },
+    'reviews-helpful': { limit: 10000, ttl: 60000 },
+  })
   @Post('guest')
   async addGuestCartItem(@Body() dto: AddGuestCartItemDto) {
     return this.cartService.addGuestCartItem(dto);
   }
 
   /**
-   * GET /cart/guest/:sessionId (No Auth)
+   * GET /cart/guest/:sessionId (No Auth, 20 req / min)
    */
+  @Throttle({
+    'guest-cart': { limit: 20, ttl: 60000 },
+    'otp-send-short': { limit: 10000, ttl: 600000 },
+    'otp-send-long': { limit: 10000, ttl: 3600000 },
+    'otp-verify': { limit: 10000, ttl: 3600000 },
+    search: { limit: 10000, ttl: 60000 },
+    products: { limit: 10000, ttl: 60000 },
+    'reviews-helpful': { limit: 10000, ttl: 60000 },
+  })
   @Get('guest/:sessionId')
   async getGuestCart(@Param() params: GuestSessionIdParamDto) {
     return this.cartService.getGuestCart(params.sessionId);
   }
 
   /**
-   * POST /cart/merge (Auth Required)
+   * POST /cart/merge (Auth Required, 120 req / min / user)
    */
+  @Throttle({ cart: { limit: 120, ttl: 60000 } })
   @Auth()
   @Post('merge')
   async mergeCart(

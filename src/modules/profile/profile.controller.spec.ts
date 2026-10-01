@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('ProfileController', () => {
   let controller: ProfileController;
@@ -16,7 +17,10 @@ describe('ProfileController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ProfileController],
       providers: [{ provide: ProfileService, useValue: mockProfileService }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<ProfileController>(ProfileController);
   });

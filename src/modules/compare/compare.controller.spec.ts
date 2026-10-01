@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CompareController } from './compare.controller';
 import { CompareService } from './compare.service';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('CompareController', () => {
   let controller: CompareController;
@@ -9,7 +10,10 @@ describe('CompareController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CompareController],
       providers: [CompareService],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<CompareController>(CompareController);
   });

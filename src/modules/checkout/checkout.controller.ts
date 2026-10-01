@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { CheckoutService } from './checkout.service';
 import { ValidateAddressDto } from './dto/validate-address.dto';
 import { PaymentMethodsQueryDto } from './dto/payment-methods-query.dto';
@@ -16,11 +18,13 @@ import { Auth, CurrentUser } from '../../common';
 
 @Auth()
 @Controller('checkout')
+@UseGuards(ThrottlerGuard)
+@Throttle({ checkout: { limit: 20, ttl: 60000 } })
 export class CheckoutController {
   constructor(private readonly checkoutService: CheckoutService) {}
 
   /**
-   * GET /checkout
+   * GET /checkout (20 req / min / user)
    */
   @Get()
   async getCheckout(@CurrentUser('id') userId: string) {
@@ -28,7 +32,7 @@ export class CheckoutController {
   }
 
   /**
-   * POST /checkout/validate-address
+   * POST /checkout/validate-address (20 req / min / user)
    */
   @Post('validate-address')
   @HttpCode(HttpStatus.OK)
@@ -40,7 +44,7 @@ export class CheckoutController {
   }
 
   /**
-   * GET /checkout/payment-methods
+   * GET /checkout/payment-methods (20 req / min / user)
    */
   @Get('payment-methods')
   async getPaymentMethods(@Query() query: PaymentMethodsQueryDto) {
@@ -51,7 +55,7 @@ export class CheckoutController {
   }
 
   /**
-   * POST /checkout/place-order (Idempotent)
+   * POST /checkout/place-order (Idempotent, 20 req / min / user)
    */
   @Post('place-order')
   async placeOrder(

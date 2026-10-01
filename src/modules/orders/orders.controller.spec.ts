@@ -3,6 +3,7 @@ import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { CancelReasonEnum } from './dto/cancel-order.dto';
 import { ReturnReasonEnum } from './dto/return-order.dto';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('OrdersController', () => {
   let controller: OrdersController;
@@ -29,7 +30,10 @@ describe('OrdersController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OrdersController],
       providers: [{ provide: OrdersService, useValue: service }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<OrdersController>(OrdersController);
   });

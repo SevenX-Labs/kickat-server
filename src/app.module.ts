@@ -22,7 +22,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditService } from './common/services/audit.service';
 import { OtpCacheService } from './common/services/otp-cache.service';
-import { ThrottlerModule, minutes, hours } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard, minutes, hours } from '@nestjs/throttler';
+import { LruThrottlerStorage, AppThrottlerGuard } from './common';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { AuthModule as AdminAuthModule } from './modules/admin/auth/auth.module';
 import { DashboardModule } from './modules/admin/dashboard/dashboard.module';
@@ -45,43 +46,101 @@ import { VaultModule as AdminVaultModule } from './modules/admin/vault/vault.mod
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([
-      {
-        name: 'otp-send-short',
-        ttl: minutes(10), // 10 minutes
-        limit: 3, // 3 requests / 10 minutes / IP
-      },
-      {
-        name: 'otp-send-long',
-        ttl: hours(1), // 1 hour
-        limit: 20, // 20 requests / hour / IP
-      },
-      {
-        name: 'otp-verify',
-        ttl: hours(1), // 1 hour
-        limit: 20, // 20 attempts / hour / IP
-      },
-      {
-        name: 'search',
-        ttl: minutes(1), // 1 minute
-        limit: 30, // 30 requests / min / IP
-      },
-      {
-        name: 'products',
-        ttl: minutes(1), // 1 minute
-        limit: 60, // 60 requests / min / IP
-      },
-      {
-        name: 'guest-cart',
-        ttl: minutes(1), // 1 minute
-        limit: 20, // 20 requests / min / IP
-      },
-      {
-        name: 'reviews-helpful',
-        ttl: minutes(1), // 1 minute
-        limit: 20, // 20 requests / min / IP
-      },
-    ]),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          name: 'default',
+          ttl: minutes(1),
+          limit: 120, // 120 req / min default
+        },
+        {
+          name: 'otp-send-short',
+          ttl: minutes(10), // 10 minutes
+          limit: 3, // 3 requests / 10 minutes
+        },
+        {
+          name: 'otp-send-long',
+          ttl: hours(1), // 1 hour
+          limit: 20, // 20 requests / hour
+        },
+        {
+          name: 'otp-verify',
+          ttl: hours(1), // 1 hour
+          limit: 20, // 20 attempts / hour
+        },
+        {
+          name: 'search',
+          ttl: minutes(1), // 1 minute
+          limit: 30, // 30 req / min default (guest), adapts to 60 for auth users
+        },
+        {
+          name: 'search-suggestions',
+          ttl: minutes(1),
+          limit: 30, // 30 req / min default (guest), adapts to 120 for auth users
+        },
+        {
+          name: 'products',
+          ttl: minutes(1), // 1 minute
+          limit: 60, // 60 req / min default (guest), adapts to 120 for auth users
+        },
+        {
+          name: 'delivery-estimate',
+          ttl: minutes(1),
+          limit: 30, // 30 req / min default (guest), adapts to 60 for auth users
+        },
+        {
+          name: 'cart',
+          ttl: minutes(1),
+          limit: 120, // 120 req / min / user
+        },
+        {
+          name: 'guest-cart',
+          ttl: minutes(1),
+          limit: 20, // 20 requests / min / guest
+        },
+        {
+          name: 'wishlist',
+          ttl: minutes(1),
+          limit: 120, // 120 req / min / user
+        },
+        {
+          name: 'orders',
+          ttl: minutes(1),
+          limit: 60, // 60 req / min / user
+        },
+        {
+          name: 'address-read',
+          ttl: minutes(1),
+          limit: 60, // 60 req / min / user
+        },
+        {
+          name: 'address-mutation',
+          ttl: minutes(1),
+          limit: 30, // 30 req / min / user
+        },
+        {
+          name: 'checkout',
+          ttl: minutes(1),
+          limit: 20, // 20 req / min / user
+        },
+        {
+          name: 'payment-create',
+          ttl: minutes(1),
+          limit: 20, // 20 req / min / user
+        },
+        {
+          name: 'payment-verify',
+          ttl: minutes(1),
+          limit: 30, // 30 req / min / user
+        },
+        {
+          name: 'reviews-helpful',
+          ttl: minutes(1),
+          limit: 20, // 20 requests / min
+        },
+      ],
+      storage: new LruThrottlerStorage({ max: 50000 }),
+    }),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -116,8 +175,16 @@ import { VaultModule as AdminVaultModule } from './modules/admin/vault/vault.mod
     AdminVaultModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AuditService, OtpCacheService],
-  exports: [AuditService, OtpCacheService],
+  providers: [
+    AppService,
+    AuditService,
+    OtpCacheService,
+    {
+      provide: ThrottlerGuard,
+      useClass: AppThrottlerGuard,
+    },
+  ],
+  exports: [AuditService, OtpCacheService, ThrottlerGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

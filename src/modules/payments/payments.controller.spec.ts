@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentMethodType } from './dto/create-payment-order.dto';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('PaymentsController', () => {
   let controller: PaymentsController;
@@ -43,7 +44,10 @@ describe('PaymentsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PaymentsController],
       providers: [{ provide: PaymentsService, useValue: service }],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<PaymentsController>(PaymentsController);
   });

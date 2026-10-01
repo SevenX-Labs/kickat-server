@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { ThrottlerGuard, Throttle, SkipThrottle } from '@nestjs/throttler';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { ProductsService } from './products.service';
 import { ProductsQueryDto } from './dto/products-query.dto';
 import { ProductIdParamDto } from './dto/product-id-param.dto';
@@ -12,7 +12,7 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   /**
-   * GET /products (60 req / min / IP)
+   * GET /products (120 req / min / user, 60 req / min / guest)
    */
   @Throttle({
     products: { limit: 60, ttl: 60000 },
@@ -29,54 +29,54 @@ export class ProductsController {
   }
 
   /**
-   * GET /products/:id
+   * GET /products/:id (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id')
   async getProductById(@Param() params: ProductIdParamDto) {
     return this.productsService.getProductById(params.id);
   }
 
   /**
-   * GET /products/:id/variants
+   * GET /products/:id/variants (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id/variants')
   async getProductVariants(@Param() params: ProductIdParamDto) {
     return this.productsService.getProductVariants(params.id);
   }
 
   /**
-   * GET /products/:id/media
+   * GET /products/:id/media (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id/media')
   async getProductMedia(@Param() params: ProductIdParamDto) {
     return this.productsService.getProductMedia(params.id);
   }
 
   /**
-   * GET /products/:id/images
+   * GET /products/:id/images (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id/images')
   async getProductImages(@Param() params: ProductIdParamDto) {
     return this.productsService.getProductImages(params.id);
   }
 
   /**
-   * GET /products/:id/videos
+   * GET /products/:id/videos (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id/videos')
   async getProductVideos(@Param() params: ProductIdParamDto) {
     return this.productsService.getProductVideos(params.id);
   }
 
   /**
-   * GET /products/:id/related
+   * GET /products/:id/related (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id/related')
   async getRelatedProducts(
     @Param() params: ProductIdParamDto,
@@ -86,9 +86,9 @@ export class ProductsController {
   }
 
   /**
-   * GET /products/:id/reviews
+   * GET /products/:id/reviews (120 req / min / user)
    */
-  @SkipThrottle()
+  @Throttle({ products: { limit: 120, ttl: 60000 } })
   @Get(':id/reviews')
   async getProductReviews(
     @Param() params: ProductIdParamDto,
