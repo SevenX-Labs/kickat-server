@@ -18,18 +18,23 @@ export class EmailService {
 
     const subject = 'Your Kickat Verification Code';
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <h2 style="color: #333; text-align: center;">Kickat Account Verification</h2>
-        <p style="font-size: 16px; color: #555;">Hello,</p>
-        <p style="font-size: 16px; color: #555;">Use the following 6-digit Verification Code to verify your email address on Kickat:</p>
-        <div style="text-align: center; margin: 30px 0;">
-          <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #4F46E5; background-color: #F3F4F6; padding: 12px 24px; border-radius: 6px; display: inline-block;">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff;">
+        <div style="text-align: center; padding-bottom: 20px; border-bottom: 1px solid #f3f4f6; margin-bottom: 24px;">
+          <a href="https://kickat.co.in" target="_blank" style="text-decoration: none;">
+            <img src="https://kickat.co.in/logo-clean.png" alt="KickAt" width="140" style="max-width: 140px; height: auto; display: inline-block; vertical-align: middle;" />
+          </a>
+        </div>
+        <h2 style="color: #111827; text-align: center; font-size: 20px; font-weight: 700; margin-top: 0;">Kickat Account Verification</h2>
+        <p style="font-size: 15px; color: #374151; margin: 16px 0;">Hello,</p>
+        <p style="font-size: 15px; color: #374151; margin: 16px 0;">Use the following 6-digit Verification Code to verify your email address on Kickat:</p>
+        <div style="text-align: center; margin: 28px 0;">
+          <span style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #ff5b29; background-color: #fff7ed; padding: 14px 28px; border-radius: 8px; border: 1px solid #ffedd5; display: inline-block;">
             ${otp}
           </span>
         </div>
-        <p style="font-size: 14px; color: #777;">This code is valid for <strong>10 minutes</strong>. Please do not share this code with anyone.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 12px; color: #999; text-align: center;">If you did not request this email, please ignore it.</p>
+        <p style="font-size: 14px; color: #6b7280; margin: 16px 0;">This code is valid for <strong>10 minutes</strong>. Please do not share this code with anyone.</p>
+        <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 24px 0 16px 0;" />
+        <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 0;">If you did not request this email, please ignore it.</p>
       </div>
     `;
 

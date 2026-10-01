@@ -31,12 +31,19 @@ export class EmailService {
       this.configService.get<string>('RESEND_FROM') ||
       'Kickat <support@kickat.co.in>';
 
-    const htmlContent = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-      <h2 style="color: #1a1a1a; margin-top: 0;">${params.subject}</h2>
-      <p style="color: #4a4a4a; font-size: 16px; line-height: 1.5;">${params.body}</p>
-      <hr style="border: 0; border-top: 1px solid #eeeeee; margin: 20px 0;" />
-      <p style="color: #888888; font-size: 12px; text-align: center;">KickAt Notifications</p>
-    </div>`;
+    const htmlContent = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff;">
+        <div style="text-align: center; padding-bottom: 20px; border-bottom: 1px solid #f3f4f6; margin-bottom: 24px;">
+          <a href="https://kickat.co.in" target="_blank" style="text-decoration: none;">
+            <img src="https://kickat.co.in/logo-clean.png" alt="KickAt" width="140" style="max-width: 140px; height: auto; display: inline-block; vertical-align: middle;" />
+          </a>
+        </div>
+        <h2 style="color: #111827; margin-top: 0; font-size: 20px; font-weight: 700;">${params.subject}</h2>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 16px 0;">${params.body}</p>
+        <hr style="border: 0; border-top: 1px solid #f3f4f6; margin: 24px 0 16px 0;" />
+        <p style="color: #9ca3af; font-size: 12px; text-align: center; margin: 0;">© KickAt. Premium Pet Accessories. All rights reserved.</p>
+      </div>
+    `;
 
     if (!resendApiKey) {
       this.logger.error('[RESEND ERROR] RESEND_API_KEY is not configured in environment variables.');
