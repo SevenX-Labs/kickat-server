@@ -923,8 +923,11 @@ export class OrdersService {
   async getOrderInvoice(id: string) {
     const order = await this.findOrderByIdOrNumber(id);
 
-    const taxRate = 0.18; // 18% GST standard
-    const taxAmount = Number((order.subtotal * taxRate).toFixed(2));
+    const taxSettings = this.settingsService ? await this.settingsService.getTaxSettingsRaw() : null;
+    const defaultGstPercentage = taxSettings?.gstEnabled ? Number(taxSettings.gstPercentage ?? 0) : 0;
+    const gstPercentage = order.gstPercentage ?? (order.gstAmount && order.subtotal ? Math.round((order.gstAmount / order.subtotal) * 100) : defaultGstPercentage);
+    const taxRate = gstPercentage / 100;
+    const taxAmount = order.gstAmount ?? Number((order.subtotal * taxRate).toFixed(2));
     const cgst = Number((taxAmount / 2).toFixed(2));
     const sgst = Number((taxAmount / 2).toFixed(2));
 
@@ -938,7 +941,7 @@ export class OrdersService {
         quantity: item.quantity,
         unitPrice: item.price,
         totalPrice: item.totalPrice,
-        taxRate: '18%',
+        taxRate: `${gstPercentage}%`,
         taxAmount: itemTax,
       };
     });

@@ -59,6 +59,10 @@ describe('Admin ReportsService', () => {
           orderNumber: 'ORD-1001',
           createdAt: new Date('2026-08-10'),
           subtotal: 1000,
+          gstPercentage: 18,
+          gstAmount: 180,
+          gstPercentage: 18,
+          gstAmount: 180,
           deliveryFee: 50,
           grandTotal: 1050,
           paymentMethod: PaymentMethodEnum.UPI,
@@ -72,7 +76,9 @@ describe('Admin ReportsService', () => {
       prisma.order.findMany.mockResolvedValue(mockOrders);
       prisma.order.count.mockResolvedValue(1);
       prisma.order.aggregate.mockResolvedValue({
-        _sum: { grandTotal: 1050, subtotal: 1000, deliveryFee: 50 },
+        _sum: { grandTotal: 1050, subtotal: 1000,
+          gstPercentage: 18,
+          gstAmount: 180, deliveryFee: 50 },
       });
       prisma.orderItem.aggregate.mockResolvedValue({
         _sum: { quantity: 2 },
@@ -97,6 +103,8 @@ describe('Admin ReportsService', () => {
           orderNumber: 'ORD-1001',
           createdAt: new Date('2026-08-10'),
           subtotal: 1000,
+          gstPercentage: 18,
+          gstAmount: 180,
           deliveryFee: 50,
           grandTotal: 1050,
           paymentMethod: PaymentMethodEnum.UPI,
@@ -280,6 +288,8 @@ describe('Admin ReportsService', () => {
           orderNumber: 'ORD-1001',
           createdAt: new Date('2026-08-10'),
           subtotal: 1000,
+          gstPercentage: 18,
+          gstAmount: 180,
           grandTotal: 1180,
           paymentMethod: PaymentMethodEnum.UPI,
           user: { name: 'John Doe', email: 'john@example.com' },
@@ -290,7 +300,9 @@ describe('Admin ReportsService', () => {
       prisma.order.findMany.mockResolvedValue(mockOrders);
       prisma.order.count.mockResolvedValue(1);
       prisma.order.aggregate.mockResolvedValue({
-        _sum: { subtotal: 1000, grandTotal: 1180 },
+        _sum: { subtotal: 1000,
+          gstPercentage: 18,
+          gstAmount: 180, grandTotal: 1180 },
       });
 
       const result = await service.getGstReport({ page: 1, limit: 10 });

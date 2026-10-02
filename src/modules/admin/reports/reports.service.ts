@@ -660,11 +660,14 @@ export class ReportsService {
       }),
     ]);
 
-    const taxRate = 0.18; // 18% standard GST
+    const taxSettings = this.settingsService ? await this.settingsService.getTaxSettingsRaw() : null;
+    const defaultGstPercentage = taxSettings?.gstEnabled ? Number(taxSettings.gstPercentage ?? 0) : 0;
 
     const formattedInvoices = orders.map((order) => {
+      const gstPercentage = order.gstPercentage ?? (order.gstAmount && order.subtotal ? Math.round((order.gstAmount / order.subtotal) * 100) : defaultGstPercentage);
+      const taxRate = gstPercentage / 100;
       const taxableAmount = order.subtotal;
-      const totalTax = Number((taxableAmount * taxRate).toFixed(2));
+      const totalTax = order.gstAmount ?? Number((taxableAmount * taxRate).toFixed(2));
       const state = (order.address?.state || 'Maharashtra').toLowerCase();
       const isInterState = !state.includes('maharashtra') && !state.includes('mh');
 
@@ -687,7 +690,7 @@ export class ReportsService {
         state: order.address?.state || 'Maharashtra',
         isInterState,
         taxableAmount,
-        gstRate: '18%',
+        gstRate: `${gstPercentage}%`,
         cgstAmount,
         sgstAmount,
         igstAmount,
@@ -698,7 +701,7 @@ export class ReportsService {
     });
 
     const totalTaxable = Number((aggregates._sum.subtotal ?? 0).toFixed(2));
-    const totalGst = Number((totalTaxable * taxRate).toFixed(2));
+    const totalGst = Number(formattedInvoices.reduce((sum, inv) => sum + inv.totalTaxAmount, 0).toFixed(2));
     const totalCgst = Number((totalGst / 2).toFixed(2));
     const totalSgst = Number((totalGst / 2).toFixed(2));
     const totalPages = Math.ceil(total / limit);

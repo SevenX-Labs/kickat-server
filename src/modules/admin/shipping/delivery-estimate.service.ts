@@ -273,9 +273,7 @@ export class DeliveryEstimateService {
             };
           }
 
-          if (variant.productId) {
-            return this.resolveProductSpecs(variant.productId);
-          }
+          return { weight: 0.5 };
         }
       } catch (err) {
         this.logger.warn(`Could not resolve variant specs for ${variantId}: ${err}`);

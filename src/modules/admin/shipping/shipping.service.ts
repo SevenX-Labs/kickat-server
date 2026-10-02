@@ -721,8 +721,10 @@ export class ShippingService {
       let itemHeight: number | null = null;
 
       const product = productMap.get(item.productId);
-      if (product) {
-        if (item.variantId && Array.isArray(product.variants)) {
+      const isVariantItem = Boolean(item.variantId || item.variantName);
+
+      if (isVariantItem) {
+        if (product && item.variantId && Array.isArray(product.variants)) {
           const variant = product.variants.find(
             (v: any) => v.id === item.variantId,
           );
@@ -741,7 +743,7 @@ export class ShippingService {
               itemHeight = variant.shippingHeightCm;
             }
 
-            // Legacy weight fallback if structured is absent
+            // Legacy weight fallback on variant attributes or variant name
             if (unitWeightKg === null) {
               unitWeightKg = this.parseWeightStringToKg(
                 (variant.attributes as any)?.weight,
@@ -753,36 +755,32 @@ export class ShippingService {
           }
         }
 
-        // Product-level structured fields for simple products
-        if (unitWeightKg === null && typeof product.shippingWeightKg === "number" && product.shippingWeightKg > 0) {
-          unitWeightKg = product.shippingWeightKg;
-        }
-        if (itemLength === null && typeof product.shippingLengthCm === "number" && product.shippingLengthCm > 0) {
-          itemLength = product.shippingLengthCm;
-        }
-        if (itemBreadth === null && typeof product.shippingBreadthCm === "number" && product.shippingBreadthCm > 0) {
-          itemBreadth = product.shippingBreadthCm;
-        }
-        if (itemHeight === null && typeof product.shippingHeightCm === "number" && product.shippingHeightCm > 0) {
-          itemHeight = product.shippingHeightCm;
-        }
-
-        // Legacy weight fallback
         if (unitWeightKg === null && item.variantName) {
           unitWeightKg = this.parseWeightStringToKg(item.variantName);
         }
+      } else if (product) {
+        // Simple product (no variant)
+        if (typeof product.shippingWeightKg === "number" && product.shippingWeightKg > 0) {
+          unitWeightKg = product.shippingWeightKg;
+        }
+        if (typeof product.shippingLengthCm === "number" && product.shippingLengthCm > 0) {
+          itemLength = product.shippingLengthCm;
+        }
+        if (typeof product.shippingBreadthCm === "number" && product.shippingBreadthCm > 0) {
+          itemBreadth = product.shippingBreadthCm;
+        }
+        if (typeof product.shippingHeightCm === "number" && product.shippingHeightCm > 0) {
+          itemHeight = product.shippingHeightCm;
+        }
+
         if (unitWeightKg === null && product.attributes) {
           unitWeightKg = this.parseWeightStringToKg(
             (product.attributes as any)?.weight,
           );
         }
-      }
-
-      if (unitWeightKg === null && item.variantName) {
-        unitWeightKg = this.parseWeightStringToKg(item.variantName);
-      }
-      if (unitWeightKg === null && item.productName) {
-        unitWeightKg = this.parseWeightStringToKg(item.productName);
+        if (unitWeightKg === null && item.productName) {
+          unitWeightKg = this.parseWeightStringToKg(item.productName);
+        }
       }
 
       if (unitWeightKg === null || unitWeightKg <= 0) {

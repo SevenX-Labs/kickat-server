@@ -60,7 +60,7 @@ export const DEFAULT_TAX_SETTINGS = {
 
 export const DEFAULT_DELIVERY_SETTINGS = {
   deliveryFeeEnabled: true,
-  deliveryFee: 50,
+  deliveryFee: 0,
   freeDeliveryThreshold: 499,
   estimatedDays: 3,
   courierDefault: "Delhivery",
