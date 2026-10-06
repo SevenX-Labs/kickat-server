@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import {
   ExportReportDto,
   OrdersReportQueryDto,
@@ -13,7 +14,10 @@ import { Response } from 'express';
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   /**
    * Helper to parse and resolve date range defaults

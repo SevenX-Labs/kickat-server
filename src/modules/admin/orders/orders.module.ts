@@ -4,9 +4,10 @@ import { Module } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { RazorpayService } from '../../payments/razorpay.service';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, SettingsModule],
   controllers: [OrdersController],
   providers: [OrdersService, RazorpayService, InvoicePdfService],
 })

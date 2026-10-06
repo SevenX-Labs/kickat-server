@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import {
   AdminCancelOrderDto,
   AdminOrderSortEnum,
@@ -29,6 +30,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly invoicePdfService: InvoicePdfService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   /**

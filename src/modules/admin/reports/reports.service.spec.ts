@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ReportsService } from './reports.service';
+import { SettingsService } from '../settings/settings.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
 
@@ -35,6 +36,7 @@ describe('Admin ReportsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReportsService,
+        { provide: SettingsService, useValue: { getTaxSettingsRaw: jest.fn().mockResolvedValue({ gstEnabled: false }) } },
         {
           provide: PrismaService,
           useValue: mockPrismaService,
