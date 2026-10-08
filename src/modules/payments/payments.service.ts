@@ -30,6 +30,21 @@ const UUID_V4_REGEX =
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
 
+  /**
+   * In-flight refund attempts keyed by orderId, so concurrent callers in this
+   * process coalesce onto one gateway refund instead of issuing two.
+   */
+  private readonly activeRefundLocks = new Map<
+    string,
+    Promise<{
+      success: boolean;
+      refundInitiated: boolean;
+      message: string;
+      providerRefundId?: string | null;
+      amount?: number;
+    }>
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly razorpayService: RazorpayService,
@@ -922,6 +937,54 @@ export class PaymentsService {
     providerRefundId?: string | null;
     amount?: number;
   }> {
+    // Serialize refunds per order within this process.
+    //
+    // The DB guards below read committed state, so two callers that arrive at
+    // the same instant can both pass them and both reach the gateway. Rather
+    // than racing a second refund, a caller that finds one in flight awaits it
+    // and reports that same outcome — so the money moves once and no caller is
+    // told the refund failed.
+    //
+    // Cross-instance safety still comes from the callers' atomic DB claims
+    // (admin cancel claims the order, customer cancel claims the status, a
+    // late capture claims paymentStatus), which let only one of them call this
+    // method at all. Mirrors ShippingService.activeShipmentLocks.
+    const inFlight = this.activeRefundLocks.get(params.orderId);
+    if (inFlight) {
+      this.logger.warn(
+        `Refund already in progress for order ${params.orderId}; awaiting the in-flight attempt instead of calling the gateway again.`,
+      );
+      return inFlight;
+    }
+
+    const attempt = this.performRefundForOrder(params);
+    this.activeRefundLocks.set(params.orderId, attempt);
+
+    try {
+      return await attempt;
+    } finally {
+      this.activeRefundLocks.delete(params.orderId);
+    }
+  }
+
+  private async performRefundForOrder(params: {
+    orderId: string;
+    amount?: number;
+    reason?: string;
+    actorType?: string;
+    /**
+     * Admin who triggered the refund, when one did. Recorded on the
+     * RefundAudit so the refund.processed webhook keeps the ADMIN
+     * attribution when it promotes the audit to REFUNDED.
+     */
+    adminId?: string;
+  }): Promise<{
+    success: boolean;
+    refundInitiated: boolean;
+    message: string;
+    providerRefundId?: string | null;
+    amount?: number;
+  }> {
     const { orderId, reason, actorType = 'CUSTOMER', adminId } = params;
 
     const order = await this.prisma.order.findUnique({
@@ -950,6 +1013,39 @@ export class PaymentsService {
         success: true,
         refundInitiated: false,
         message: `No refund required (paymentStatus=${order.paymentStatus})`,
+      };
+    }
+
+    // Double-refund guard: block only on a refund that is still live.
+    //
+    // A FAILED row is deliberately NOT a blocker. The `refund.failed` webhook
+    // stamps providerRefundId onto a FAILED audit and reverts paymentStatus to
+    // COMPLETED precisely so the refund can be retried, so matching on
+    // providerRefundId alone would make that retry path unreachable.
+    const existingLiveRefund = await this.prisma.refundAudit.findFirst({
+      where: {
+        orderId: order.id,
+        status: { notIn: ['FAILED'] },
+        OR: [
+          { status: { in: ['REFUND_INITIATED', 'REFUNDED', 'COD_REFUNDED'] } },
+          // Catches a gateway-accepted refund whose local write did not land
+          // (see the recovery insert in the hard-gate path below).
+          { providerRefundId: { not: null } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existingLiveRefund) {
+      this.logger.warn(
+        `Refund already recorded for order ${order.orderNumber} (auditId=${existingLiveRefund.id}, status=${existingLiveRefund.status}, providerRefundId=${existingLiveRefund.providerRefundId}). Skipping gateway call.`,
+      );
+      return {
+        success: true,
+        refundInitiated: false,
+        message: `A refund is already recorded for this order (status=${existingLiveRefund.status})`,
+        providerRefundId: existingLiveRefund.providerRefundId || null,
+        amount: existingLiveRefund.amount,
       };
     }
 
@@ -985,7 +1081,7 @@ export class PaymentsService {
           initiatedByAdminId: adminId || null,
           initiatedAt: new Date(),
           failureReason: reason ? `Cancellation: ${reason}` : null,
-          idempotencyKey: `cancel_refund_${order.id}`,
+          idempotencyKey: `cancel_refund_${order.id}_cod_${Date.now()}`,
         },
       });
 
@@ -1016,7 +1112,7 @@ export class PaymentsService {
           failedAt: new Date(),
           failureReason:
             'No razorpayPaymentId on the captured payment; manual refund required',
-          idempotencyKey: `cancel_refund_${order.id}`,
+          idempotencyKey: `cancel_refund_${order.id}_failed_${Date.now()}`,
         },
       });
 
@@ -1033,8 +1129,18 @@ export class PaymentsService {
     }
 
     // Call the gateway refund API.
+    //
+    // `receipt` is a merchant-side reference for reconciliation only: Razorpay
+    // does NOT deduplicate refunds on it. True gateway idempotency needs the
+    // X-Razorpay-Idempotency header, which the razorpay SDK (v2.9.8) cannot
+    // send — `payments.refund()` accepts only (paymentId, params[, callback]).
+    // Protection against a duplicate refund is therefore DB-state based: the
+    // paymentStatus check and the live-refund guard above, plus the callers'
+    // atomic claims.
+    const gatewayReceipt = `cancel_${order.orderNumber}`.slice(0, 40);
+    let refund: { id: string; amount: number; status: string };
     try {
-      const refund = await this.razorpayService.createRefund({
+      refund = await this.razorpayService.createRefund({
         paymentId: capturedPayment.razorpayPaymentId,
         amountInPaise: Math.round(refundAmount * 100),
         notes: {
@@ -1042,58 +1148,8 @@ export class PaymentsService {
           orderNumber: order.orderNumber,
           reason: reason || 'Order cancelled by customer',
         },
+        receipt: gatewayReceipt,
       });
-
-      await this.prisma.$transaction(async (tx) => {
-        await tx.refundAudit.create({
-          data: {
-            orderId: order.id,
-            userId: order.userId,
-            paymentId: capturedPayment.id,
-            amount: refundAmount,
-            currency: 'INR',
-            refundMethod: 'ORIGINAL_PAYMENT',
-            status: 'REFUND_INITIATED',
-            provider: 'RAZORPAY',
-            providerRefundId: refund.id,
-            actorType,
-            initiatedByAdminId: adminId || null,
-            initiatedAt: new Date(),
-            failureReason: reason ? `Cancellation: ${reason}` : null,
-            idempotencyKey: `cancel_refund_${order.id}`,
-          },
-        });
-
-        await tx.payment.update({
-          where: { id: capturedPayment.id },
-          data: { status: PaymentStatusEnum.REFUND_INITIATED },
-        });
-
-        await tx.order.update({
-          where: { id: order.id },
-          data: { paymentStatus: PaymentStatusEnum.REFUND_INITIATED },
-        });
-      });
-
-      this.logger.log(
-        `Refund initiated for order ${order.orderNumber}: refundId=${refund.id}, amount=₹${refundAmount}.`,
-      );
-
-      this.notificationsService.notifyRefundStatus({
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        userId: order.userId,
-        status: 'ONLINE_REFUND_INITIATED',
-        refundAmount,
-      });
-
-      return {
-        success: true,
-        refundInitiated: true,
-        message: 'Refund initiated successfully',
-        providerRefundId: refund.id,
-        amount: refundAmount,
-      };
     } catch (error: any) {
       const failureReason =
         error?.error?.description || error?.message || 'Razorpay refund failed';
@@ -1116,7 +1172,7 @@ export class PaymentsService {
             failedAt: new Date(),
             failureReason,
             failureCode: error?.error?.code || null,
-            idempotencyKey: `cancel_refund_${order.id}`,
+            idempotencyKey: `cancel_refund_${order.id}_failed_${Date.now()}`,
           },
         });
       } catch {
@@ -1141,6 +1197,107 @@ export class PaymentsService {
         message: `Refund initiation failed: ${failureReason}`,
       };
     }
+
+    // HARD GATE: Razorpay refund succeeded! The customer has been refunded at the gateway.
+    // Local DB/audit persistence failure must NEVER report failure to the caller,
+    // which could prompt a duplicate manual refund.
+    let dbPersisted = false;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refundAudit.create({
+          data: {
+            orderId: order.id,
+            userId: order.userId,
+            paymentId: capturedPayment.id,
+            amount: refundAmount,
+            currency: 'INR',
+            refundMethod: 'ORIGINAL_PAYMENT',
+            status: 'REFUND_INITIATED',
+            provider: 'RAZORPAY',
+            providerRefundId: refund.id,
+            actorType,
+            initiatedByAdminId: adminId || null,
+            initiatedAt: new Date(),
+            failureReason: reason ? `Cancellation: ${reason}` : null,
+            idempotencyKey: `cancel_refund_${order.id}_${refund.id}`,
+          },
+        });
+
+        await tx.payment.update({
+          where: { id: capturedPayment.id },
+          data: { status: PaymentStatusEnum.REFUND_INITIATED },
+        });
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: { paymentStatus: PaymentStatusEnum.REFUND_INITIATED },
+        });
+      });
+      dbPersisted = true;
+    } catch (dbErr: any) {
+      this.logger.error(
+        `Razorpay refund succeeded (refundId=${refund.id}), but local DB update threw error for order ${order.orderNumber}: ${dbErr?.message || dbErr}. Webhook will reconcile the order.`,
+      );
+
+      // The transaction rolled back, so nothing records that the gateway has
+      // already refunded this order — a later attempt would pass both guards
+      // and refund a second time. Insert the audit row on its own, outside any
+      // transaction, so the live-refund guard can see it.
+      //
+      // Status is REFUND_INITIATED so the `refund.processed` webhook finds it
+      // as its pending audit and promotes this same row to REFUNDED instead of
+      // creating a duplicate. Best-effort: if this write also fails the refund
+      // still succeeded, and the webhook reconciles from the payment record.
+      try {
+        await this.prisma.refundAudit.create({
+          data: {
+            orderId: order.id,
+            userId: order.userId,
+            paymentId: capturedPayment.id,
+            amount: refundAmount,
+            currency: 'INR',
+            refundMethod: 'ORIGINAL_PAYMENT',
+            status: 'REFUND_INITIATED',
+            provider: 'RAZORPAY',
+            providerRefundId: refund.id,
+            actorType,
+            initiatedByAdminId: adminId || null,
+            initiatedAt: new Date(),
+            failureReason: `Gateway refund succeeded; local persistence failed and was recorded out of band: ${dbErr?.message || dbErr}`,
+            idempotencyKey: `cancel_refund_${order.id}_${refund.id}`,
+          },
+        });
+        this.logger.warn(
+          `Recorded out-of-band refund audit for order ${order.orderNumber} (refundId=${refund.id}) to prevent a duplicate refund.`,
+        );
+      } catch (auditErr: any) {
+        this.logger.error(
+          `CRITICAL: Razorpay refund ${refund.id} for order ${order.orderNumber} could not be recorded locally (${auditErr?.message || auditErr}). A manual refund MUST NOT be issued for this order without checking Razorpay first.`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Refund initiated for order ${order.orderNumber}: refundId=${refund.id}, amount=₹${refundAmount} (dbPersisted=${dbPersisted}).`,
+    );
+
+    this.notificationsService.notifyRefundStatus({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      userId: order.userId,
+      status: 'ONLINE_REFUND_INITIATED',
+      refundAmount,
+    });
+
+    return {
+      success: true,
+      refundInitiated: true,
+      message: dbPersisted
+        ? 'Refund initiated successfully'
+        : 'Refund initiated with provider; local persistence pending reconciliation',
+      providerRefundId: refund.id,
+      amount: refundAmount,
+    };
   }
 
   /**

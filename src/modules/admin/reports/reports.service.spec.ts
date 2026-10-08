@@ -63,8 +63,6 @@ describe('Admin ReportsService', () => {
           subtotal: 1000,
           gstPercentage: 18,
           gstAmount: 180,
-          gstPercentage: 18,
-          gstAmount: 180,
           deliveryFee: 50,
           grandTotal: 1050,
           paymentMethod: PaymentMethodEnum.UPI,

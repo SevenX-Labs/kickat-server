@@ -633,5 +633,306 @@ describe('PaymentsService', () => {
         }),
       );
     });
+
+    it('HARD GATE: gateway success + simulated DB write error reports success, not failure', async () => {
+      prisma.$transaction.mockRejectedValueOnce(new Error('DB connection lost'));
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'CUSTOMER',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.refundInitiated).toBe(true);
+      expect(res.providerRefundId).toBe('rfnd_mock_1');
+      expect(res.message).toContain('pending reconciliation');
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+    });
+
+    it('Test C: existing FAILED audit allows legitimate retry without unique constraint collision', async () => {
+      // First attempt failed
+      prisma.refundAudit.findFirst.mockResolvedValueOnce(null); // No live refund
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+        adminId: 'admin-7',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.refundInitiated).toBe(true);
+      expect(res.providerRefundId).toBe('rfnd_mock_1');
+      expect(prisma.refundAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'REFUND_INITIATED',
+            providerRefundId: 'rfnd_mock_1',
+            idempotencyKey: `cancel_refund_${mockOrderId}_rfnd_mock_1`,
+          }),
+        }),
+      );
+    });
+
+    it('Test D: existing live REFUND_INITIATED or REFUNDED audit blocks second gateway call', async () => {
+      prisma.refundAudit.findFirst.mockResolvedValueOnce({
+        id: 'audit-active-1',
+        status: 'REFUND_INITIATED',
+        amount: 1500,
+        providerRefundId: 'rfnd_existing_1',
+      });
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(res.refundInitiated).toBe(false);
+      expect(res.message).toContain('A refund is already recorded');
+      expect(res.providerRefundId).toBe('rfnd_existing_1');
+      expect(razorpayService.createRefund).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Stateful RefundAudit store so a second attempt sees what the first one
+     * wrote. `findFirst` emulates the live-refund guard's real predicate
+     * (status NOT IN (FAILED) AND (status IN (live...) OR providerRefundId
+     * IS NOT NULL)) and `create` enforces the unique idempotencyKey.
+     */
+    const useStatefulAudits = () => {
+      const rows: any[] = [];
+
+      prisma.refundAudit.create.mockImplementation(async ({ data }: any) => {
+        if (
+          data.idempotencyKey &&
+          rows.some((r) => r.idempotencyKey === data.idempotencyKey)
+        ) {
+          const err: any = new Error(
+            'Unique constraint failed on the fields: (`idempotencyKey`)',
+          );
+          err.code = 'P2002';
+          throw err;
+        }
+        const row = { id: `aud-${rows.length + 1}`, ...data };
+        rows.push(row);
+        return row;
+      });
+
+      prisma.refundAudit.findFirst.mockImplementation(async ({ where }: any) => {
+        const matches = rows.filter((r) => {
+          if (where.orderId && r.orderId !== where.orderId) return false;
+          if (where.status?.notIn?.includes(r.status)) return false;
+          if (!where.OR) return true;
+          return where.OR.some(
+            (c: any) =>
+              (c.status?.in && c.status.in.includes(r.status)) ||
+              (c.providerRefundId?.not === null && r.providerRefundId != null),
+          );
+        });
+        return matches.length > 0 ? matches[matches.length - 1] : null;
+      });
+
+      return rows;
+    };
+
+    it('Test A: a second attempt makes no gateway call', async () => {
+      const rows = useStatefulAudits();
+
+      const first = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+      expect(first.refundInitiated).toBe(true);
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+
+      const second = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(second.refundInitiated).toBe(false);
+      expect(second.message).toContain('already recorded');
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+      expect(rows).toHaveLength(1);
+    });
+
+    it('Test A2: an order already past COMPLETED is refused before any lookup', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...paidOrder,
+        paymentStatus: PaymentStatusEnum.REFUND_INITIATED,
+      });
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(res.refundInitiated).toBe(false);
+      expect(razorpayService.createRefund).not.toHaveBeenCalled();
+    });
+
+    it('Test B / Gap 3: local persistence failure still blocks a duplicate gateway refund', async () => {
+      const rows = useStatefulAudits();
+      // The whole persistence transaction fails after the gateway succeeded.
+      prisma.$transaction.mockRejectedValueOnce(new Error('DB connection lost'));
+
+      const first = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'CUSTOMER',
+      });
+
+      // Hard gate: still reported as a success, never as FAILED.
+      expect(first.success).toBe(true);
+      expect(first.refundInitiated).toBe(true);
+      expect(first.providerRefundId).toBe('rfnd_mock_1');
+      expect(first.message).toContain('pending reconciliation');
+
+      // The out-of-band recovery row was written outside the transaction, and
+      // carries the provider refund id the guard keys off.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        status: 'REFUND_INITIATED',
+        providerRefundId: 'rfnd_mock_1',
+        idempotencyKey: `cancel_refund_${mockOrderId}_rfnd_mock_1`,
+      });
+      expect(rows[0].failureReason).toContain('local persistence failed');
+
+      // A retry must NOT refund again, even though paymentStatus never moved.
+      const retry = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(retry.refundInitiated).toBe(false);
+      expect(retry.providerRefundId).toBe('rfnd_mock_1');
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+    });
+
+    it('Test B2: the recovery row is the one the refund.processed webhook promotes', async () => {
+      const rows = useStatefulAudits();
+      prisma.$transaction.mockRejectedValueOnce(new Error('DB connection lost'));
+
+      await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'CUSTOMER',
+      });
+
+      // The webhook looks for the newest REFUND_INITIATED audit on the order;
+      // the recovery row must satisfy that, so it is promoted rather than
+      // duplicated.
+      expect(rows[0].status).toBe('REFUND_INITIATED');
+      expect(rows[0].orderId).toBe(mockOrderId);
+    });
+
+    it('Test E: concurrent attempts produce exactly one real gateway refund', async () => {
+      useStatefulAudits();
+
+      const results = await Promise.all([
+        service.initiateRefundForOrder({ orderId: mockOrderId, actorType: 'ADMIN' }),
+        service.initiateRefundForOrder({ orderId: mockOrderId, actorType: 'CUSTOMER' }),
+      ]);
+
+      // The money moves exactly once...
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+      // ...and the second caller coalesces onto that same attempt rather than
+      // being told the refund failed (which would invite a manual refund).
+      expect(results.every((r) => r.success)).toBe(true);
+      expect(results.every((r) => r.providerRefundId === 'rfnd_mock_1')).toBe(true);
+      expect(prisma.refundAudit.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('Test E2: a concurrent loser still reports the real provider refund id', async () => {
+      useStatefulAudits();
+
+      const results = await Promise.all([
+        service.initiateRefundForOrder({ orderId: mockOrderId, actorType: 'ADMIN' }),
+        service.initiateRefundForOrder({ orderId: mockOrderId, actorType: 'ADMIN' }),
+      ]);
+
+      for (const res of results) {
+        expect(res.providerRefundId).toBe('rfnd_mock_1');
+      }
+    });
+
+    it('Test F: a manual admin refund already recorded blocks the cancel-time refund', async () => {
+      // POST /admin/orders/:id/refund records a REFUND_INITIATED audit without
+      // moving paymentStatus off COMPLETED.
+      prisma.refundAudit.findFirst.mockResolvedValue({
+        id: 'aud-manual-1',
+        status: 'REFUND_INITIATED',
+        amount: 1500,
+        providerRefundId: null,
+        idempotencyKey: `admin_refund_${mockOrderId}_1700000000000`,
+      });
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+        adminId: 'admin-7',
+      });
+
+      expect(res.refundInitiated).toBe(false);
+      expect(res.message).toContain('already recorded');
+      expect(razorpayService.createRefund).not.toHaveBeenCalled();
+    });
+
+    it('Test G: repeating an admin cancel refund does not refund twice', async () => {
+      useStatefulAudits();
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await service.initiateRefundForOrder({
+          orderId: mockOrderId,
+          actorType: 'ADMIN',
+          adminId: 'admin-7',
+        });
+      }
+
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+    });
+
+    it('Gap 1: a FAILED audit carrying a providerRefundId still allows a retry', async () => {
+      // This is the state refund.failed leaves behind: it stamps the provider
+      // refund id on a FAILED row and reverts paymentStatus to COMPLETED so
+      // the refund can be retried.
+      prisma.refundAudit.findFirst.mockImplementation(async ({ where }: any) => {
+        const row = {
+          id: 'aud-failed-1',
+          status: 'FAILED',
+          providerRefundId: 'rfnd_failed_1',
+          amount: 1500,
+        };
+        if (where.status?.notIn?.includes(row.status)) return null;
+        return row;
+      });
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(res.refundInitiated).toBe(true);
+      expect(razorpayService.createRefund).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles COD cancellation refund without gateway call and with distinct key', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...paidOrder,
+        paymentMethod: PaymentMethodEnum.COD,
+      });
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(res.refundInitiated).toBe(true);
+      expect(razorpayService.createRefund).not.toHaveBeenCalled();
+      expect(prisma.refundAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            refundMethod: 'COD',
+            status: 'REFUND_INITIATED',
+          }),
+        }),
+      );
+    });
   });
 });

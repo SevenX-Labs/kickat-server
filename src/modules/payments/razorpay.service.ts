@@ -84,6 +84,7 @@ export class RazorpayService implements OnModuleInit {
     paymentId: string;
     amountInPaise: number;
     notes?: Record<string, string>;
+    receipt?: string;
   }): Promise<{ id: string; amount: number; status: string }> {
     if (!this.razorpay) {
       throw new BadRequestException('Razorpay client is not initialized.');
@@ -93,6 +94,7 @@ export class RazorpayService implements OnModuleInit {
       const refund = await this.razorpay.payments.refund(params.paymentId, {
         amount: Math.round(params.amountInPaise),
         notes: params.notes,
+        ...(params.receipt ? { receipt: params.receipt } : {}),
       });
       return {
         id: refund.id,

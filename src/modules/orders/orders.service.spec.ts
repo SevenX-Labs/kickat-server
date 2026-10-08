@@ -168,12 +168,12 @@ describe('OrdersService', () => {
       expect(res.orders).toHaveLength(2);
       expect(res.orders[0].items).toHaveLength(1);
       expect(res.orders[0].items[0].orderId).toBe(mockOrderId);
-      expect(res.orders[0].items[0].productSlug).toBe('pet-food-premium');
-      expect(res.orders[0].items[0].imageUrl).toBe('food.png');
+      expect((res.orders[0].items[0] as any).productSlug).toBe('pet-food-premium');
+      expect((res.orders[0].items[0] as any).imageUrl).toBe('food.png');
       expect(res.orders[1].items).toHaveLength(1);
       expect(res.orders[1].items[0].orderId).toBe(secondOrderId);
-      expect(res.orders[1].items[0].productSlug).toBe('chew-toy');
-      expect(res.orders[1].items[0].brand).toBe('Chewy');
+      expect((res.orders[1].items[0] as any).productSlug).toBe('chew-toy');
+      expect((res.orders[1].items[0] as any).brand).toBe('Chewy');
     });
 
     it('handles an empty page without issuing product lookups', async () => {
