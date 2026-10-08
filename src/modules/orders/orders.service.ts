@@ -109,12 +109,6 @@ export class OrdersService {
     if (order.trackingNumber && order.trackingNumber.trim().length > 0) {
       return false;
     }
-    if (
-      order.shiprocketShipmentId &&
-      order.shiprocketShipmentId.trim().length > 0
-    ) {
-      return false;
-    }
     return true;
   }
 
@@ -867,9 +861,9 @@ export class OrdersService {
       );
     }
 
-    // GUARD 2 — even in a pre-shipment status, once the courier has an AWB or
-    // a provider shipment exists, the parcel is in motion. Never allow cancel.
-    if (order.trackingNumber || order.shiprocketShipmentId) {
+    // GUARD 2 — even in a pre-shipment status, once the courier has an AWB assigned,
+    // the parcel is in motion. Never allow cancel.
+    if (order.trackingNumber && order.trackingNumber.trim().length > 0) {
       throw new ConflictException(
         'Order has already been handed to the courier and can no longer be cancelled. Please contact support for assistance.',
       );
@@ -905,7 +899,6 @@ export class OrdersService {
           userId,
           orderStatus: { notIn: nonCancellableStatuses },
           OR: [{ trackingNumber: null }, { trackingNumber: '' }],
-          shiprocketShipmentId: null,
         },
         data: {
           orderStatus: OrderStatusEnum.CANCELLED,

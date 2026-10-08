@@ -353,7 +353,7 @@ describe('OrdersService', () => {
       );
     });
 
-    it('reports cancellable=false once a provider shipment exists', async () => {
+    it('reports cancellable=true when a provider shipment draft exists but no AWB assigned', async () => {
       prisma.order.findUnique.mockResolvedValue({
         ...mockOrder,
         orderStatus: OrderStatusEnum.PROCESSING,
@@ -363,10 +363,8 @@ describe('OrdersService', () => {
 
       const res = await service.getOrderById(mockUserId, mockOrderId);
 
-      expect(res.order.cancellable).toBe(false);
-      expect(res.order.cancellationBlockedReason).toContain(
-        'handed to the courier',
-      );
+      expect(res.order.cancellable).toBe(true);
+      expect(res.order.cancellationBlockedReason).toBeNull();
     });
 
     it('exposes the backend-owned reason catalog, with requiresNote only on other', async () => {
@@ -458,9 +456,8 @@ describe('OrdersService', () => {
         }),
       ).rejects.toThrow(ConflictException);
 
-      // The claim is guarded on both the AWB and the shipment id.
+      // The claim is guarded on the courier AWB (tracking number).
       const where = prisma.order.updateMany.mock.calls[0][0].where;
-      expect(where.shiprocketShipmentId).toBeNull();
       expect(where.OR).toEqual([
         { trackingNumber: null },
         { trackingNumber: '' },
