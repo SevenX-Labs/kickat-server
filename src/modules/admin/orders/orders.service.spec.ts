@@ -8,11 +8,13 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
 import { AdminOrderSortEnum, AdminOrdersQueryDto } from './dto/admin-order.dto';
 import { ShippingService } from '../shipping/shipping.service';
+import { PaymentsService } from '../../payments/payments.service';
 
 describe('Admin OrdersService', () => {
   let service: OrdersService;
   let prisma: any;
   const mockShippingService = { cancelShipmentForOrder: jest.fn() };
+  const mockPaymentsService = { initiateRefundForOrder: jest.fn() };
 
     const mockPrismaService = {
     order: {
@@ -59,6 +61,7 @@ describe('Admin OrdersService', () => {
         { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from("pdf-data")) } },
         OrdersService,
         { provide: ShippingService, useValue: mockShippingService },
+        { provide: PaymentsService, useValue: mockPaymentsService },
         { provide: SettingsService, useValue: { getTaxSettingsRaw: jest.fn().mockResolvedValue({ gstEnabled: false }) } },
         {
           provide: PrismaService,
@@ -292,6 +295,13 @@ describe('Admin OrdersService', () => {
       ],
     };
 
+    const paidOrder = {
+      ...baseOrder,
+      paymentMethod: PaymentMethodEnum.UPI,
+      paymentStatus: PaymentStatusEnum.COMPLETED,
+      grandTotal: 1049,
+    };
+
     const arrangeCancel = (order: any) => {
       prisma.order.findFirst.mockResolvedValue(order);
       prisma.order.updateMany.mockResolvedValue({ count: 1 });
@@ -299,6 +309,14 @@ describe('Admin OrdersService', () => {
         ...order,
         orderStatus: OrderStatusEnum.CANCELLED,
         cancelReason: 'Customer requested',
+      });
+      prisma.refundAudit.findFirst.mockResolvedValue(null);
+      mockPaymentsService.initiateRefundForOrder.mockResolvedValue({
+        success: true,
+        refundInitiated: true,
+        message: 'Refund initiated successfully',
+        providerRefundId: 'rfnd_1',
+        amount: order.grandTotal ?? 0,
       });
     };
 
@@ -425,6 +443,170 @@ describe('Admin OrdersService', () => {
       ).rejects.toThrow('Order is already cancelled');
       expect(prisma.product.update).not.toHaveBeenCalled();
       expect(mockShippingService.cancelShipmentForOrder).not.toHaveBeenCalled();
+      expect(mockPaymentsService.initiateRefundForOrder).not.toHaveBeenCalled();
+    });
+
+    describe('automatic refund', () => {
+      it('refunds a captured payment once, as ADMIN, after the DB commit', async () => {
+        const callOrder: string[] = [];
+        prisma.$transaction.mockImplementationOnce(async (cb: any) => {
+          const res = await cb(prisma);
+          callOrder.push('commit');
+          return res;
+        });
+        arrangeCancel({
+          ...paidOrder,
+          shiprocketOrderId: '555',
+          shiprocketShipmentId: 'ship-1',
+        });
+        mockPaymentsService.initiateRefundForOrder.mockImplementation(async () => {
+          callOrder.push('refund');
+          return {
+            success: true,
+            refundInitiated: true,
+            message: 'Refund initiated successfully',
+            providerRefundId: 'rfnd_1',
+            amount: 1049,
+          };
+        });
+        mockShippingService.cancelShipmentForOrder.mockImplementation(async () => {
+          callOrder.push('shipment');
+          return { success: true, message: 'Shiprocket order 555 cancelled' };
+        });
+
+        const result = await service.cancelOrder(
+          'ord-1',
+          { reason: 'Out of stock', reasonOther: 'warehouse damage' },
+          'admin-7',
+        );
+
+        expect(mockPaymentsService.initiateRefundForOrder).toHaveBeenCalledTimes(1);
+        expect(mockPaymentsService.initiateRefundForOrder).toHaveBeenCalledWith({
+          orderId: 'ord-1',
+          reason: 'Out of stock — warehouse damage',
+          actorType: 'ADMIN',
+          adminId: 'admin-7',
+        });
+        // refund and shipment cancel both happen only after the commit
+        expect(callOrder).toEqual(['commit', 'refund', 'shipment']);
+        expect(result.refund).toEqual({
+          attempted: true,
+          success: true,
+          status: 'INITIATED',
+          amount: 1049,
+          reason: 'Refund initiated successfully',
+          providerRefundId: 'rfnd_1',
+        });
+        expect(result.message).toContain('Order cancelled successfully');
+        // restock and the shipment sync stay untouched
+        expect(prisma.product.update).toHaveBeenCalledTimes(2);
+        expect(result.shipmentCancellation.success).toBe(true);
+      });
+
+      it('attempts no refund for an unpaid PENDING order', async () => {
+        arrangeCancel({
+          ...baseOrder,
+          paymentMethod: PaymentMethodEnum.UPI,
+          paymentStatus: PaymentStatusEnum.PENDING,
+        });
+
+        const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+        expect(mockPaymentsService.initiateRefundForOrder).not.toHaveBeenCalled();
+        expect(result.refund.attempted).toBe(false);
+        expect(result.refund.status).toBe('NOT_REQUIRED');
+        expect(result.message).toContain('Order cancelled successfully');
+      });
+
+      it('attempts no refund for a COD order with nothing captured', async () => {
+        arrangeCancel({
+          ...baseOrder,
+          paymentMethod: PaymentMethodEnum.COD,
+          paymentStatus: PaymentStatusEnum.PENDING,
+        });
+
+        const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+        expect(mockPaymentsService.initiateRefundForOrder).not.toHaveBeenCalled();
+        expect(result.refund.status).toBe('NOT_REQUIRED');
+      });
+
+      it('never reports success when the gateway refund fails, and keeps the cancellation', async () => {
+        arrangeCancel(paidOrder);
+        mockPaymentsService.initiateRefundForOrder.mockResolvedValue({
+          success: false,
+          refundInitiated: false,
+          message: 'Refund initiation failed: card network declined',
+        });
+
+        const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+        expect(result.success).toBe(true);
+        expect(result.data.orderStatus).toBe(OrderStatusEnum.CANCELLED);
+        expect(prisma.product.update).toHaveBeenCalledTimes(2);
+        expect(result.refund.success).toBe(false);
+        expect(result.refund.status).toBe('FAILED');
+        expect(result.refund.amount).toBe(1049);
+        expect(result.message).toContain('refund could not be initiated automatically');
+      });
+
+      it('never reports success when the refund call throws', async () => {
+        arrangeCancel(paidOrder);
+        mockPaymentsService.initiateRefundForOrder.mockRejectedValue(
+          new Error('gateway unreachable'),
+        );
+
+        const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+        expect(result.data.orderStatus).toBe(OrderStatusEnum.CANCELLED);
+        expect(result.refund.success).toBe(false);
+        expect(result.refund.status).toBe('FAILED');
+        expect(result.refund.reason).toContain('gateway unreachable');
+      });
+
+      it('does not stack a second refund when one is already recorded', async () => {
+        arrangeCancel(paidOrder);
+        prisma.refundAudit.findFirst.mockResolvedValue({
+          id: 'aud-1',
+          status: 'REFUND_INITIATED',
+          amount: 1049,
+          providerRefundId: 'rfnd_existing',
+        });
+
+        const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+        expect(mockPaymentsService.initiateRefundForOrder).not.toHaveBeenCalled();
+        expect(result.refund.attempted).toBe(false);
+        expect(result.refund.status).toBe('ALREADY_REFUNDED');
+        expect(result.refund.providerRefundId).toBe('rfnd_existing');
+        expect(prisma.refundAudit.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              orderId: 'ord-1',
+              status: { in: ['REFUND_INITIATED', 'REFUNDED', 'COD_REFUNDED'] },
+            },
+          }),
+        );
+      });
+
+      it('reports both failures when the refund and the shipment cancel fail', async () => {
+        arrangeCancel({ ...paidOrder, shiprocketShipmentId: 'ship-1' });
+        mockPaymentsService.initiateRefundForOrder.mockResolvedValue({
+          success: false,
+          refundInitiated: false,
+          message: 'gateway down',
+        });
+        mockShippingService.cancelShipmentForOrder.mockRejectedValue(
+          new Error('Shiprocket 400'),
+        );
+
+        const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+        expect(result.refund.success).toBe(false);
+        expect(result.shipmentCancellation.success).toBe(false);
+        expect(result.message).toContain('could not be cancelled automatically');
+        expect(result.message).toContain('refund could not be initiated automatically');
+      });
     });
   });
 

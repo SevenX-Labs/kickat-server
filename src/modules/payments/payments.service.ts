@@ -909,6 +909,12 @@ export class PaymentsService {
     amount?: number;
     reason?: string;
     actorType?: string;
+    /**
+     * Admin who triggered the refund, when one did. Recorded on the
+     * RefundAudit so the refund.processed webhook keeps the ADMIN
+     * attribution when it promotes the audit to REFUNDED.
+     */
+    adminId?: string;
   }): Promise<{
     success: boolean;
     refundInitiated: boolean;
@@ -916,7 +922,7 @@ export class PaymentsService {
     providerRefundId?: string | null;
     amount?: number;
   }> {
-    const { orderId, reason, actorType = 'CUSTOMER' } = params;
+    const { orderId, reason, actorType = 'CUSTOMER', adminId } = params;
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -976,6 +982,7 @@ export class PaymentsService {
           status: 'REFUND_INITIATED',
           provider: 'MANUAL',
           actorType,
+          initiatedByAdminId: adminId || null,
           initiatedAt: new Date(),
           failureReason: reason ? `Cancellation: ${reason}` : null,
           idempotencyKey: `cancel_refund_${order.id}`,
@@ -1004,6 +1011,7 @@ export class PaymentsService {
           status: 'FAILED',
           provider: 'RAZORPAY',
           actorType,
+          initiatedByAdminId: adminId || null,
           initiatedAt: new Date(),
           failedAt: new Date(),
           failureReason:
@@ -1049,6 +1057,7 @@ export class PaymentsService {
             provider: 'RAZORPAY',
             providerRefundId: refund.id,
             actorType,
+            initiatedByAdminId: adminId || null,
             initiatedAt: new Date(),
             failureReason: reason ? `Cancellation: ${reason}` : null,
             idempotencyKey: `cancel_refund_${order.id}`,
@@ -1102,6 +1111,7 @@ export class PaymentsService {
             status: 'FAILED',
             provider: 'RAZORPAY',
             actorType,
+            initiatedByAdminId: adminId || null,
             initiatedAt: new Date(),
             failedAt: new Date(),
             failureReason,

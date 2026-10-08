@@ -96,8 +96,9 @@ export class OrdersController {
   async cancelOrder(
     @Param('id') id: string,
     @Body() dto: AdminCancelOrderDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.ordersService.cancelOrder(id, dto);
+    return this.ordersService.cancelOrder(id, dto, adminId);
   }
 
   /**

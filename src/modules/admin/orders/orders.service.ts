@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { ShippingService } from '../shipping/shipping.service';
+import { PaymentsService } from '../../payments/payments.service';
 import {
   AdminCancelOrderDto,
   AdminOrderSortEnum,
@@ -34,6 +35,7 @@ export class OrdersService {
     private readonly invoicePdfService: InvoicePdfService,
     private readonly settingsService: SettingsService,
     @Optional() private readonly shippingService?: ShippingService,
+    @Optional() private readonly paymentsService?: PaymentsService,
   ) {}
 
   /**
@@ -481,7 +483,7 @@ export class OrdersService {
    * POST /api/v1/admin/orders/:id/cancel
    * Cancel order and automatically restock product inventory
    */
-  async cancelOrder(id: string, dto: AdminCancelOrderDto) {
+  async cancelOrder(id: string, dto: AdminCancelOrderDto, adminId?: string) {
     const order = await this.findOrderByIdOrNumber(id);
     const oldStatus = order.orderStatus;
 
@@ -547,22 +549,196 @@ export class OrdersService {
       newStatus: 'CANCELLED',
     });
 
-    // 3. Provider shipment sync — only after the DB transaction has committed,
-    // so no transaction is held open across the Shiprocket HTTP call.
+    // ---- Post-cancel side effects -----------------------------------------
+    // Both run only after the DB transaction has committed (so no transaction
+    // is held open across an external HTTP call) and both are independent:
+    // each is awaited in its own guard so one failing never blocks the other
+    // and never rolls back the cancellation.
+
+    // 3. Refund any money that was actually captured. Same placement and
+    // semantics as the customer cancel flow, which refunds before touching
+    // the provider shipment.
+    const refund = await this.refundCancelledOrder(order, dto, adminId);
+
+    // 4. Provider shipment sync.
     const shipmentCancellation = await this.cancelProviderShipment(
       order,
       oldStatus,
     );
 
+    const warnings: string[] = [];
+    if (shipmentCancellation.attempted && !shipmentCancellation.success) {
+      warnings.push(
+        'the courier shipment could not be cancelled automatically (cancel it in Shiprocket manually)',
+      );
+    }
+    if (refund.attempted && !refund.success) {
+      warnings.push(
+        'the refund could not be initiated automatically (process it manually)',
+      );
+    }
+
     return {
       success: true,
       message:
-        shipmentCancellation.attempted && !shipmentCancellation.success
-          ? 'Order cancelled and inventory restocked, but the courier shipment could not be cancelled automatically. Cancel it in Shiprocket manually.'
+        warnings.length > 0
+          ? `Order cancelled and inventory restocked, but ${warnings.join(' and ')}.`
           : 'Order cancelled successfully and inventory restocked',
       data: updatedOrder,
       shipmentCancellation,
+      refund,
     };
+  }
+
+  /**
+   * Refunds a captured payment after an admin cancellation, reusing
+   * PaymentsService.initiateRefundForOrder() — the exact same gateway path the
+   * customer cancel flow uses — with the admin recorded as the actor.
+   *
+   * Never throws: the order is already CANCELLED and restocked, so a refund
+   * problem must never undo that. The outcome is awaited and returned instead,
+   * so the admin response never claims a refund succeeded when it did not.
+   *
+   * Double-refund protection:
+   *  - Unpaid / COD-without-capture orders (paymentStatus != COMPLETED) are
+   *    skipped outright, and initiateRefundForOrder re-reads the order and
+   *    applies the same check itself, so a payment confirmed concurrently
+   *    cannot slip through.
+   *  - An order that already carries a live refund record (from the manual
+   *    POST /admin/orders/:id/refund endpoint, a return, or an earlier
+   *    cancellation) is skipped, because that endpoint records a refund
+   *    without moving paymentStatus away from COMPLETED.
+   *  - A successful initiation moves paymentStatus to REFUND_INITIATED, so a
+   *    later manual refund call cannot stack a second gateway refund on top.
+   */
+  private async refundCancelledOrder(
+    order: {
+      id: string;
+      orderNumber: string;
+      grandTotal: number;
+      paymentMethod: PaymentMethodEnum;
+      paymentStatus: PaymentStatusEnum;
+    },
+    dto: AdminCancelOrderDto,
+    adminId?: string,
+  ): Promise<{
+    attempted: boolean;
+    success: boolean;
+    status:
+      | 'NOT_REQUIRED'
+      | 'ALREADY_REFUNDED'
+      | 'INITIATED'
+      | 'FAILED'
+      | 'UNAVAILABLE';
+    amount: number | null;
+    reason: string;
+    providerRefundId: string | null;
+  }> {
+    // No money captured -> nothing to reverse (unpaid online order, or a COD
+    // order that was never collected).
+    if (order.paymentStatus !== PaymentStatusEnum.COMPLETED) {
+      return {
+        attempted: false,
+        success: true,
+        status: 'NOT_REQUIRED',
+        amount: null,
+        reason: `No payment captured — no refund required (paymentStatus=${order.paymentStatus})`,
+        providerRefundId: null,
+      };
+    }
+
+    // A refund already recorded for this order (manual admin refund, return,
+    // or an earlier cancellation) must never be stacked with another one.
+    const existingRefund = await this.prisma.refundAudit.findFirst({
+      where: {
+        orderId: order.id,
+        status: { in: ['REFUND_INITIATED', 'REFUNDED', 'COD_REFUNDED'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existingRefund) {
+      this.logger.warn(
+        `Skipping automatic refund for cancelled order ${order.orderNumber} (id=${order.id}): a refund is already recorded (auditId=${existingRefund.id}, status=${existingRefund.status}, amount=₹${existingRefund.amount}).`,
+      );
+      return {
+        attempted: false,
+        success: true,
+        status: 'ALREADY_REFUNDED',
+        amount: existingRefund.amount,
+        reason: `A refund is already recorded for this order (status=${existingRefund.status})`,
+        providerRefundId: existingRefund.providerRefundId || null,
+      };
+    }
+
+    if (!this.paymentsService) {
+      this.logger.warn(
+        `PaymentsService unavailable; refund of ₹${order.grandTotal} for cancelled order ${order.orderNumber} (id=${order.id}) must be processed manually.`,
+      );
+      return {
+        attempted: true,
+        success: false,
+        status: 'UNAVAILABLE',
+        amount: order.grandTotal,
+        reason:
+          'Payments service unavailable; the refund must be processed manually',
+        providerRefundId: null,
+      };
+    }
+
+    const reasonText = dto.reasonOther?.trim()
+      ? `${dto.reason} — ${dto.reasonOther.trim()}`
+      : dto.reason;
+
+    try {
+      const result = await this.paymentsService.initiateRefundForOrder({
+        orderId: order.id,
+        reason: reasonText,
+        actorType: 'ADMIN',
+        adminId,
+      });
+
+      if (!result.refundInitiated) {
+        this.logger.error(
+          `Automatic refund NOT initiated for cancelled order ${order.orderNumber} (id=${order.id}, amount=₹${order.grandTotal}): ${result.message}`,
+        );
+        return {
+          attempted: true,
+          success: false,
+          status: 'FAILED',
+          amount: result.amount ?? order.grandTotal,
+          reason: result.message,
+          providerRefundId: result.providerRefundId ?? null,
+        };
+      }
+
+      this.logger.log(
+        `Automatic refund initiated for cancelled order ${order.orderNumber} (id=${order.id}): amount=₹${result.amount ?? order.grandTotal}, refundId=${result.providerRefundId ?? 'n/a'}.`,
+      );
+      return {
+        attempted: true,
+        success: true,
+        status: 'INITIATED',
+        amount: result.amount ?? order.grandTotal,
+        reason: result.message,
+        providerRefundId: result.providerRefundId ?? null,
+      };
+    } catch (refundErr: any) {
+      // initiateRefundForOrder is already non-throwing, but stay defensive: a
+      // refund problem must never undo a successful cancellation.
+      const message = refundErr?.message || String(refundErr);
+      this.logger.error(
+        `Refund initiation threw for cancelled order ${order.orderNumber} (id=${order.id}, amount=₹${order.grandTotal}): ${message}`,
+      );
+      return {
+        attempted: true,
+        success: false,
+        status: 'FAILED',
+        amount: order.grandTotal,
+        reason: `Refund initiation failed: ${message}`,
+        providerRefundId: null,
+      };
+    }
   }
 
   /**

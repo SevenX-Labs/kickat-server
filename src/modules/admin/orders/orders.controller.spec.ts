@@ -80,15 +80,19 @@ describe('Admin OrdersController', () => {
     expect(mockOrdersService.updateOrderStatus).toHaveBeenCalledWith('ord-1', dto);
   });
 
-  it('cancelOrder should delegate to service', async () => {
+  it('cancelOrder should delegate to service with authenticated adminId', async () => {
     const expected = { success: true, message: 'Cancelled' };
     mockOrdersService.cancelOrder.mockResolvedValue(expected);
 
     const dto: AdminCancelOrderDto = { reason: 'Customer requested' };
-    const result = await controller.cancelOrder('ord-1', dto);
+    const result = await controller.cancelOrder('ord-1', dto, 'admin-1');
 
     expect(result).toBe(expected);
-    expect(mockOrdersService.cancelOrder).toHaveBeenCalledWith('ord-1', dto);
+    expect(mockOrdersService.cancelOrder).toHaveBeenCalledWith(
+      'ord-1',
+      dto,
+      'admin-1',
+    );
   });
 
   it('processRefund should delegate to service with authenticated adminId', async () => {

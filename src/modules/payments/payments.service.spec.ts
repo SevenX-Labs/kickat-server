@@ -82,6 +82,7 @@ describe('PaymentsService', () => {
       }),
       verifySignature: jest.fn().mockReturnValue(true),
       verifyWebhookSignature: jest.fn().mockReturnValue(true),
+      createRefund: jest.fn().mockResolvedValue({ id: 'rfnd_mock_1' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -524,6 +525,113 @@ describe('PaymentsService', () => {
         }),
       );
       expect(res.success).toBe(true);
+    });
+  });
+
+  describe('initiateRefundForOrder', () => {
+    const paidOrder = {
+      ...mockOrder,
+      paymentStatus: PaymentStatusEnum.COMPLETED,
+    };
+
+    beforeEach(() => {
+      prisma.order.findUnique.mockResolvedValue(paidOrder);
+      prisma.payment.findFirst.mockResolvedValue({
+        id: mockPaymentId,
+        orderId: mockOrderId,
+        status: PaymentStatusEnum.COMPLETED,
+        razorpayPaymentId: 'pay_captured_1',
+      });
+    });
+
+    it('moves the order to REFUND_INITIATED and records the admin actor', async () => {
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        reason: 'Out of stock',
+        actorType: 'ADMIN',
+        adminId: 'admin-7',
+      });
+
+      expect(res.refundInitiated).toBe(true);
+      expect(razorpayService.createRefund).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paymentId: 'pay_captured_1',
+          amountInPaise: 150000,
+        }),
+      );
+      // This transition is what stops a second refund being stacked later.
+      expect(prisma.order.update).toHaveBeenCalledWith({
+        where: { id: mockOrderId },
+        data: { paymentStatus: PaymentStatusEnum.REFUND_INITIATED },
+      });
+      expect(prisma.refundAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'REFUND_INITIATED',
+            actorType: 'ADMIN',
+            initiatedByAdminId: 'admin-7',
+            providerRefundId: 'rfnd_mock_1',
+          }),
+        }),
+      );
+    });
+
+    it('defaults to no admin attribution when no adminId is supplied', async () => {
+      await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'CUSTOMER',
+      });
+
+      expect(prisma.refundAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            actorType: 'CUSTOMER',
+            initiatedByAdminId: null,
+          }),
+        }),
+      );
+    });
+
+    it('refuses a second refund once the order left COMPLETED', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        paymentStatus: PaymentStatusEnum.REFUND_INITIATED,
+      });
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+      });
+
+      expect(res.refundInitiated).toBe(false);
+      expect(res.message).toContain('No refund required');
+      expect(razorpayService.createRefund).not.toHaveBeenCalled();
+    });
+
+    it('never throws when the gateway refund fails, and reports the failure', async () => {
+      razorpayService.createRefund.mockRejectedValue(
+        new Error('card network declined'),
+      );
+
+      const res = await service.initiateRefundForOrder({
+        orderId: mockOrderId,
+        actorType: 'ADMIN',
+        adminId: 'admin-7',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.refundInitiated).toBe(false);
+      expect(res.message).toContain('card network declined');
+      // Cancellation must not be left looking refunded.
+      expect(prisma.order.update).not.toHaveBeenCalled();
+      expect(prisma.refundAudit.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'FAILED',
+            initiatedByAdminId: 'admin-7',
+          }),
+        }),
+      );
     });
   });
 });
