@@ -122,6 +122,68 @@ describe('OrdersService', () => {
       expect(res.orders).toHaveLength(1);
       expect(res.pagination.total).toBe(1);
     });
+
+    it('enriches a whole page of orders in one batched lookup', async () => {
+      const secondOrderId = '55555555-5555-4555-8555-555555555555';
+      const secondProductId = '66666666-6666-4666-8666-666666666666';
+
+      prisma.order.findMany.mockResolvedValueOnce([
+        { ...mockOrder, items: [...mockOrder.items] },
+        {
+          ...mockOrder,
+          id: secondOrderId,
+          orderNumber: 'ORD-654321',
+          items: [
+            {
+              id: '77777777-7777-4777-8777-777777777777',
+              orderId: secondOrderId,
+              productId: secondProductId,
+              variantId: null,
+              quantity: 1,
+              price: 250,
+              totalPrice: 250,
+              productName: 'Chew Toy',
+            },
+          ],
+        },
+      ]);
+      prisma.order.count.mockResolvedValueOnce(2);
+      prisma.product.findMany.mockResolvedValueOnce([
+        { id: mockProductId, slug: 'pet-food-premium', imageUrl: 'food.png', images: [], name: 'Pet Food Premium', brand: 'Acme' },
+        { id: secondProductId, slug: 'chew-toy', imageUrl: 'toy.png', images: [], name: 'Chew Toy', brand: 'Chewy' },
+      ]);
+
+      const res = await service.getOrders(mockUserId, { page: 1, limit: 10 });
+
+      // One product lookup for the entire page, not one per order
+      expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.product.findMany.mock.calls[0][0].where.id.in).toEqual(
+        expect.arrayContaining([mockProductId, secondProductId]),
+      );
+
+      // Each order keeps exactly its own enriched items
+      expect(res.orders).toHaveLength(2);
+      expect(res.orders[0].items).toHaveLength(1);
+      expect(res.orders[0].items[0].orderId).toBe(mockOrderId);
+      expect(res.orders[0].items[0].productSlug).toBe('pet-food-premium');
+      expect(res.orders[0].items[0].imageUrl).toBe('food.png');
+      expect(res.orders[1].items).toHaveLength(1);
+      expect(res.orders[1].items[0].orderId).toBe(secondOrderId);
+      expect(res.orders[1].items[0].productSlug).toBe('chew-toy');
+      expect(res.orders[1].items[0].brand).toBe('Chewy');
+    });
+
+    it('handles an empty page without issuing product lookups', async () => {
+      prisma.order.findMany.mockResolvedValueOnce([]);
+      prisma.order.count.mockResolvedValueOnce(0);
+      prisma.product.findMany.mockClear();
+
+      const res = await service.getOrders(mockUserId, { page: 1, limit: 10 });
+
+      expect(res.orders).toEqual([]);
+      expect(res.pagination.totalPages).toBe(0);
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('getOrderById', () => {

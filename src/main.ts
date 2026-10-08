@@ -189,7 +189,17 @@ async function bootstrap() {
       'Accept',
       'Origin',
     ],
-    exposedHeaders: ['x-request-id', 'Content-Range', 'X-Total-Count'],
+    exposedHeaders: [
+      'x-request-id',
+      'Content-Range',
+      'X-Total-Count',
+      // Let the browser client read throttling state so it can back off
+      // instead of retrying a 429 straight away.
+      'Retry-After',
+      'X-RateLimit-Limit',
+      'X-RateLimit-Remaining',
+      'X-RateLimit-Reset',
+    ],
     maxAge: 86400,
   });
 

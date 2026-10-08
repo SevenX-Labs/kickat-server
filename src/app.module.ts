@@ -101,12 +101,12 @@ import { VaultModule as AdminVaultModule } from './modules/admin/vault/vault.mod
         {
           name: 'wishlist',
           ttl: minutes(1),
-          limit: 120, // 120 req / min / user
+          limit: 120, // 120 mutations / min / user; GETs adapt to 240
         },
         {
           name: 'orders',
           ttl: minutes(1),
-          limit: 60, // 60 req / min / user
+          limit: 60, // 60 mutations / min / user; GETs adapt to 240
         },
         {
           name: 'address-read',

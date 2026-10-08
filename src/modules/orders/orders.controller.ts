@@ -24,12 +24,15 @@ import { OrderAgainQueryDto } from './dto/order-again-query.dto';
 @Auth()
 @Controller('orders')
 @UseGuards(ThrottlerGuard)
+// 60 mutations / min / user. GET requests are widened to 240 / min / user by
+// AppThrottlerGuard, since the order list, detail, timeline and tracking views
+// fan out into several reads per render.
 @Throttle({ orders: { limit: 60, ttl: 60000 } })
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   /**
-   * GET /orders (60 req / min / user)
+   * GET /orders (240 req / min / user)
    */
   @Get()
   async getOrders(
@@ -62,7 +65,7 @@ export class OrdersController {
   }
 
   /**
-   * GET /orders/:id (60 req / min / user)
+   * GET /orders/:id (240 req / min / user)
    */
   @Get(':id')
   async getOrderById(
@@ -84,7 +87,7 @@ export class OrdersController {
   }
 
   /**
-   * GET /orders/:id/tracking (60 req / min / user)
+   * GET /orders/:id/tracking (240 req / min / user)
    */
   @Get(':id/tracking')
   async getOrderTracking(

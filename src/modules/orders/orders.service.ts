@@ -209,14 +209,28 @@ export class OrdersService {
       this.prisma.order.count({ where }),
     ]);
 
-    const enrichedOrders = await Promise.all(
-      orders.map(async (ord) => {
-        if (ord.items && ord.items.length > 0) {
-          ord.items = await this.enrichItemsWithProductData(ord.items);
-        }
-        return ord;
-      }),
-    );
+    // Enrich every order's items in ONE batched pass. Enriching per order
+    // issued 2 extra queries per order (2 x page size round-trips); collecting
+    // the items first keeps it at 2 queries for the whole page.
+    const allItems = orders.flatMap((ord) => ord.items ?? []);
+    const enrichedItems = await this.enrichItemsWithProductData(allItems);
+
+    const enrichedItemsByOrderId = new Map<string, any[]>();
+    for (const item of enrichedItems) {
+      const bucket = enrichedItemsByOrderId.get(item.orderId);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        enrichedItemsByOrderId.set(item.orderId, [item]);
+      }
+    }
+
+    const enrichedOrders = orders.map((ord) => {
+      if (ord.items && ord.items.length > 0) {
+        ord.items = enrichedItemsByOrderId.get(ord.id) ?? ord.items;
+      }
+      return ord;
+    });
 
     return {
       success: true,

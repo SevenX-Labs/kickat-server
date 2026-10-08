@@ -12,6 +12,6 @@ export class WishlistQueryDto {
   @Type(() => Number)
   @IsInt({ message: 'limit must be an integer' })
   @Min(1, { message: 'limit must be at least 1' })
-  @Max(50, { message: 'limit cannot exceed 50' })
+  @Max(100, { message: 'limit cannot exceed 100' })
   limit?: number = 10;
 }

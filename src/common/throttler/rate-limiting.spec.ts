@@ -7,6 +7,7 @@ import {
   minutes,
   hours,
 } from '@nestjs/throttler';
+import { JwtService } from '@nestjs/jwt';
 import { AppThrottlerGuard } from './app-throttler.guard';
 import { LruThrottlerStorage } from './lru-throttler-storage';
 
@@ -21,6 +22,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
     guestSessionId?: string;
     ip?: string;
     url?: string;
+    method?: string;
     handlerName?: string;
     className?: string;
   }): ExecutionContext => {
@@ -30,6 +32,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
       guestSessionId,
       ip = '192.168.1.100',
       url = '/api/v1/products',
+      method = 'GET',
       handlerName = 'getProducts',
       className = 'ProductsController',
     } = options;
@@ -45,6 +48,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
     const req: any = {
       ip,
       url,
+      method,
       originalUrl: url,
       headers,
       body: guestSessionId ? { guestSessionId } : {},
@@ -205,8 +209,8 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
         className: 'OrdersController',
       });
 
-      // User consumes 60 requests on orders (orders limit is 60)
-      for (let i = 1; i <= 60; i++) {
+      // User consumes the full authenticated read quota on orders (240)
+      for (let i = 1; i <= 240; i++) {
         await guard.canActivate(ordersContext);
       }
       await expect(guard.canActivate(ordersContext)).rejects.toThrow();
@@ -355,6 +359,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
       const checkoutContext = createMockContext({
         userId: 'checkout-shopper',
         url: '/api/v1/checkout/place-order',
+        method: 'POST',
         handlerName: 'placeOrder',
         className: 'CheckoutController',
       });
@@ -369,6 +374,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
       const payCreateContext = createMockContext({
         userId: 'pay-shopper',
         url: '/api/v1/payments/create-order',
+        method: 'POST',
         handlerName: 'createPaymentOrder',
         className: 'PaymentsController',
       });
@@ -381,6 +387,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
       const payVerifyContext = createMockContext({
         userId: 'pay-shopper',
         url: '/api/v1/payments/verify',
+        method: 'POST',
         handlerName: 'verifyPayment',
         className: 'PaymentsController',
       });
@@ -395,6 +402,7 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
       const otpContext = createMockContext({
         ip: '198.51.100.99',
         url: '/api/v1/auth/otp/send',
+        method: 'POST',
         handlerName: 'sendOtp',
         className: 'AuthController',
       });
@@ -403,6 +411,158 @@ describe('Production LRU Rate-Limiting Hardening Suite', () => {
         expect(await guard.canActivate(otpContext)).toBe(true);
       }
       await expect(guard.canActivate(otpContext)).rejects.toThrow();
+    });
+  });
+
+  describe('Guard-order independence (regression)', () => {
+    const ACCESS_SECRET = 'test-access-secret-at-least-32-characters-long';
+    const signer = new JwtService({});
+    let previousSecret: string | undefined;
+
+    beforeAll(() => {
+      previousSecret = process.env.JWT_ACCESS_SECRET;
+      process.env.JWT_ACCESS_SECRET = ACCESS_SECRET;
+    });
+
+    afterAll(() => {
+      if (previousSecret === undefined) {
+        delete process.env.JWT_ACCESS_SECRET;
+      } else {
+        process.env.JWT_ACCESS_SECRET = previousSecret;
+      }
+    });
+
+    it('resolves user identity from a validly signed token when req.user is not populated yet', async () => {
+      // ThrottlerGuard runs before JwtAuthGuard, so req.user is undefined here.
+      const token = signer.sign({ sub: 'real-customer-7' }, { secret: ACCESS_SECRET });
+      const ctx = createMockContext({ jwtToken: token, ip: '203.0.113.5' });
+
+      const tracker = await guard.getTracker(ctx.switchToHttp().getRequest());
+      expect(tracker).toBe('user:real-customer-7');
+    });
+
+    it('does not let two logged-in users behind one IP share a bucket', async () => {
+      const tokenA = signer.sign({ sub: 'shared-ip-user-a' }, { secret: ACCESS_SECRET });
+      const tokenB = signer.sign({ sub: 'shared-ip-user-b' }, { secret: ACCESS_SECRET });
+
+      const makeCtx = (token: string) =>
+        createMockContext({
+          jwtToken: token,
+          ip: '198.51.100.1', // same egress IP for both users
+          url: '/api/v1/orders',
+          handlerName: 'getOrders',
+          className: 'OrdersController',
+        });
+
+      for (let i = 1; i <= 240; i++) {
+        expect(await guard.canActivate(makeCtx(tokenA))).toBe(true);
+      }
+      await expect(guard.canActivate(makeCtx(tokenA))).rejects.toThrow();
+
+      // User B shares the IP but must keep an independent quota
+      expect(await guard.canActivate(makeCtx(tokenB))).toBe(true);
+    });
+
+    it('falls back to IP for a token signed with the wrong secret', async () => {
+      const forged = signer.sign({ sub: 'victim-user-999' }, { secret: 'not-the-real-secret' });
+      const ctx = createMockContext({ jwtToken: forged, ip: '198.51.100.77' });
+
+      const tracker = await guard.getTracker(ctx.switchToHttp().getRequest());
+      expect(tracker).toBe('ip:198.51.100.77');
+    });
+
+    it('falls back to IP for an expired access token', async () => {
+      const expired = signer.sign(
+        { sub: 'expired-user' },
+        { secret: ACCESS_SECRET, expiresIn: '-1s' },
+      );
+      const ctx = createMockContext({ jwtToken: expired, ip: '198.51.100.78' });
+
+      const tracker = await guard.getTracker(ctx.switchToHttp().getRequest());
+      expect(tracker).toBe('ip:198.51.100.78');
+    });
+
+    it('never adopts an admin token identity for customer throttling', async () => {
+      const adminToken = signer.sign(
+        { sub: 'admin-1', type: 'admin' },
+        { secret: ACCESS_SECRET },
+      );
+      const ctx = createMockContext({ jwtToken: adminToken, ip: '198.51.100.79' });
+
+      const tracker = await guard.getTracker(ctx.switchToHttp().getRequest());
+      expect(tracker).toBe('ip:198.51.100.79');
+    });
+  });
+
+  describe('Read vs mutation separation', () => {
+    it('order reads get the wide quota while order mutations stay at 60/min', async () => {
+      const cancelCtx = createMockContext({
+        userId: 'order-mutator',
+        url: '/api/v1/orders/abc/cancel',
+        method: 'PATCH',
+        handlerName: 'cancelOrder',
+        className: 'OrdersController',
+      });
+
+      for (let i = 1; i <= 60; i++) {
+        expect(await guard.canActivate(cancelCtx)).toBe(true);
+      }
+      await expect(guard.canActivate(cancelCtx)).rejects.toThrow();
+    });
+
+    it('GET /profile is not capped by the tighter address-mutation limit', async () => {
+      const profileReadCtx = createMockContext({
+        userId: 'profile-reader',
+        url: '/api/v1/profile',
+        method: 'GET',
+        handlerName: 'getProfile',
+        className: 'ProfileController',
+      });
+
+      // address-mutation allows only 30/min; reads must get the 60/min bucket
+      for (let i = 1; i <= 60; i++) {
+        expect(await guard.canActivate(profileReadCtx)).toBe(true);
+      }
+      await expect(guard.canActivate(profileReadCtx)).rejects.toThrow();
+    });
+
+    it('a query string cannot make a route match a foreign throttler domain', async () => {
+      const searchCtx = createMockContext({
+        userId: 'query-probe-user',
+        url: '/api/v1/products?q=%2Fcheckout',
+        method: 'GET',
+        handlerName: 'getProducts',
+        className: 'ProductsController',
+      });
+
+      // Would trip the 20/min checkout throttler if the query string were matched
+      for (let i = 1; i <= 120; i++) {
+        expect(await guard.canActivate(searchCtx)).toBe(true);
+      }
+    });
+  });
+
+  describe('429 response shape', () => {
+    it('reports a Retry-After so the client can back off', async () => {
+      const ctx = createMockContext({
+        userId: 'retry-after-user',
+        url: '/api/v1/checkout/place-order',
+        method: 'POST',
+        handlerName: 'placeOrder',
+        className: 'CheckoutController',
+      });
+
+      for (let i = 1; i <= 20; i++) {
+        await guard.canActivate(ctx);
+      }
+
+      await expect(guard.canActivate(ctx)).rejects.toMatchObject({
+        status: 429,
+        response: { retryAfter: expect.any(Number) },
+      });
+
+      const res = ctx.switchToHttp().getResponse();
+      expect(res.header).toHaveBeenCalledWith('Retry-After', expect.any(String));
     });
   });
 });
