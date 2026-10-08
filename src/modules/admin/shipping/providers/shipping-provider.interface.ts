@@ -167,6 +167,14 @@ export interface ShippingProvider {
   ): Promise<AvailableCourier | null>;
   assignAwb?(params: AssignAwbParams): Promise<AssignAwbResult>;
   getPickupLocationPincode?(pickupLocation: string): Promise<string | null>;
+  /**
+   * Cancels a forward shipment/order with the provider. Optional so providers
+   * that do not support cancellation (e.g. the null provider) remain valid.
+   */
+  cancelShipment?(params: {
+    shiprocketOrderId?: string | null;
+    shiprocketShipmentId?: string | null;
+  }): Promise<{ success: boolean; message: string }>;
   createReturnPickup(
     params: CreateReturnPickupParams,
   ): Promise<ReturnPickupResult>;

@@ -78,11 +78,13 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
       },
       product: {
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       productVariant: {
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
@@ -494,6 +496,9 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
       await expect(
         ordersService.cancelOrder(mockUserA, mockOrderId, {
           reason: CancelReasonEnum.OTHER,
+          // "other" requires a free-text note, so supply one — this test
+          // exercises the concurrency guard, not reason validation.
+          reasonOther: 'Duplicate order placed by accident',
         }),
       ).rejects.toThrow(ConflictException);
 

@@ -65,6 +65,7 @@ enum PaymentStatusEnum {
   PENDING
   COMPLETED
   FAILED
+  REFUND_INITIATED
   REFUNDED
 }
 
@@ -518,6 +519,7 @@ model Order {
   deliverySlot         String?
   deliveryInstructions String?
   cancelReason         String?
+  cancelReasonCode     String?
   cancelReasonOther    String?
   cancelledAt          DateTime?
   trackingNumber       String?

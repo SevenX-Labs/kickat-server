@@ -1,4 +1,4 @@
-import { NotificationsService } from "../notifications/notifications.service";
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   BadRequestException,
   ConflictException,
@@ -8,11 +8,18 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RazorpayService } from './razorpay.service';
-import { CreatePaymentOrderDto, PaymentMethodType } from './dto/create-payment-order.dto';
+import {
+  CreatePaymentOrderDto,
+  PaymentMethodType,
+} from './dto/create-payment-order.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { RetryPaymentDto } from './dto/retry-payment.dto';
 import { ConfirmCodDto } from './dto/confirm-cod.dto';
-import { PaymentMethodEnum, PaymentStatusEnum, OrderStatusEnum } from '@prisma/client';
+import {
+  PaymentMethodEnum,
+  PaymentStatusEnum,
+  OrderStatusEnum,
+} from '@prisma/client';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -38,9 +45,7 @@ export class PaymentsService {
 
   private validateUuid(id: string, paramName: string = 'id'): string {
     if (!id || typeof id !== 'string' || !UUID_V4_REGEX.test(id)) {
-      throw new BadRequestException(
-        `${paramName} must be a valid UUID v4`,
-      );
+      throw new BadRequestException(`${paramName} must be a valid UUID v4`);
     }
     return id;
   }
@@ -342,7 +347,8 @@ export class PaymentsService {
       }
       return {
         success: true,
-        message: 'Payment retry request already processed (idempotent response)',
+        message:
+          'Payment retry request already processed (idempotent response)',
         paymentId: existingPayment.id,
         orderId: existingPayment.orderId,
         razorpayOrderId: existingPayment.razorpayOrderId,
@@ -366,7 +372,10 @@ export class PaymentsService {
       throw new ConflictException('Order not in retryable state');
     }
 
-    if (order.orderStatus === 'CANCELLED' || order.orderStatus === 'DELIVERED') {
+    if (
+      order.orderStatus === 'CANCELLED' ||
+      order.orderStatus === 'DELIVERED'
+    ) {
       throw new ConflictException('Order not in retryable state');
     }
 
@@ -544,11 +553,7 @@ export class PaymentsService {
   /**
    * POST /payments/cod/confirm
    */
-  async confirmCod(
-    userId: string,
-    idempotencyKey: string,
-    dto: ConfirmCodDto,
-  ) {
+  async confirmCod(userId: string, idempotencyKey: string, dto: ConfirmCodDto) {
     const validKey = this.validateIdempotencyKey(idempotencyKey);
     this.validateUuid(dto.orderId, 'orderId');
 
@@ -655,6 +660,250 @@ export class PaymentsService {
   }
 
   /**
+   * Initiates a refund for an order whose payment was already captured.
+   *
+   * Used by the customer-facing cancel flow (and reusable by admin flows). It:
+   *  1. Finds the captured payment for the order.
+   *  2. Calls the Razorpay refund API with the stored razorpayPaymentId.
+   *  3. Records a RefundAudit row in REFUND_INITIATED (or FAILED) state.
+   *  4. Moves the order + payment to REFUND_INITIATED.
+   *
+   * The `refund.processed` webhook later promotes everything to REFUNDED.
+   *
+   * This method NEVER throws: the caller (order cancellation) must still
+   * succeed even if the gateway refund call fails, so failures are reported
+   * through the returned result and recorded for retry.
+   */
+  async initiateRefundForOrder(params: {
+    orderId: string;
+    amount?: number;
+    reason?: string;
+    actorType?: string;
+  }): Promise<{
+    success: boolean;
+    refundInitiated: boolean;
+    message: string;
+    providerRefundId?: string | null;
+    amount?: number;
+  }> {
+    const { orderId, reason, actorType = 'CUSTOMER' } = params;
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+        userId: true,
+        grandTotal: true,
+        paymentMethod: true,
+        paymentStatus: true,
+      },
+    });
+
+    if (!order) {
+      return {
+        success: false,
+        refundInitiated: false,
+        message: 'Order not found for refund initiation',
+      };
+    }
+
+    // Only captured payments are refundable.
+    if (order.paymentStatus !== PaymentStatusEnum.COMPLETED) {
+      return {
+        success: true,
+        refundInitiated: false,
+        message: `No refund required (paymentStatus=${order.paymentStatus})`,
+      };
+    }
+
+    const refundAmount = params.amount ?? order.grandTotal;
+
+    if (refundAmount <= 0 || refundAmount > order.grandTotal) {
+      return {
+        success: false,
+        refundInitiated: false,
+        message: `Invalid refund amount ${refundAmount} for order total ${order.grandTotal}`,
+      };
+    }
+
+    // Locate the captured payment carrying the gateway transaction id.
+    const capturedPayment = await this.prisma.payment.findFirst({
+      where: { orderId: order.id, status: PaymentStatusEnum.COMPLETED },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // COD orders have no gateway capture to reverse — handled manually by admin.
+    if (order.paymentMethod === PaymentMethodEnum.COD) {
+      await this.prisma.refundAudit.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          paymentId: capturedPayment?.id || null,
+          amount: refundAmount,
+          currency: 'INR',
+          refundMethod: 'COD',
+          status: 'REFUND_INITIATED',
+          provider: 'MANUAL',
+          actorType,
+          initiatedAt: new Date(),
+          failureReason: reason ? `Cancellation: ${reason}` : null,
+          idempotencyKey: `cancel_refund_${order.id}`,
+        },
+      });
+
+      return {
+        success: true,
+        refundInitiated: true,
+        message:
+          'COD refund recorded for manual processing (no gateway capture to reverse)',
+        amount: refundAmount,
+      };
+    }
+
+    if (!capturedPayment?.razorpayPaymentId) {
+      // Payment marked COMPLETED but no gateway id -> cannot auto-refund.
+      await this.prisma.refundAudit.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          paymentId: capturedPayment?.id || null,
+          amount: refundAmount,
+          currency: 'INR',
+          refundMethod: 'ORIGINAL_PAYMENT',
+          status: 'FAILED',
+          provider: 'RAZORPAY',
+          actorType,
+          initiatedAt: new Date(),
+          failedAt: new Date(),
+          failureReason:
+            'No razorpayPaymentId on the captured payment; manual refund required',
+          idempotencyKey: `cancel_refund_${order.id}`,
+        },
+      });
+
+      this.logger.error(
+        `Cannot auto-refund order ${order.orderNumber}: captured payment has no razorpayPaymentId.`,
+      );
+
+      return {
+        success: false,
+        refundInitiated: false,
+        message:
+          'Captured payment has no gateway reference; refund flagged for manual processing',
+      };
+    }
+
+    // Call the gateway refund API.
+    try {
+      const refund = await this.razorpayService.createRefund({
+        paymentId: capturedPayment.razorpayPaymentId,
+        amountInPaise: Math.round(refundAmount * 100),
+        notes: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          reason: reason || 'Order cancelled by customer',
+        },
+      });
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refundAudit.create({
+          data: {
+            orderId: order.id,
+            userId: order.userId,
+            paymentId: capturedPayment.id,
+            amount: refundAmount,
+            currency: 'INR',
+            refundMethod: 'ORIGINAL_PAYMENT',
+            status: 'REFUND_INITIATED',
+            provider: 'RAZORPAY',
+            providerRefundId: refund.id,
+            actorType,
+            initiatedAt: new Date(),
+            failureReason: reason ? `Cancellation: ${reason}` : null,
+            idempotencyKey: `cancel_refund_${order.id}`,
+          },
+        });
+
+        await tx.payment.update({
+          where: { id: capturedPayment.id },
+          data: { status: PaymentStatusEnum.REFUND_INITIATED },
+        });
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: { paymentStatus: PaymentStatusEnum.REFUND_INITIATED },
+        });
+      });
+
+      this.logger.log(
+        `Refund initiated for order ${order.orderNumber}: refundId=${refund.id}, amount=₹${refundAmount}.`,
+      );
+
+      this.notificationsService.notifyRefundStatus({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        status: 'ONLINE_REFUND_INITIATED',
+        refundAmount,
+      });
+
+      return {
+        success: true,
+        refundInitiated: true,
+        message: 'Refund initiated successfully',
+        providerRefundId: refund.id,
+        amount: refundAmount,
+      };
+    } catch (error: any) {
+      const failureReason =
+        error?.error?.description || error?.message || 'Razorpay refund failed';
+
+      // Record the failure so it can be retried; leave paymentStatus COMPLETED.
+      try {
+        await this.prisma.refundAudit.create({
+          data: {
+            orderId: order.id,
+            userId: order.userId,
+            paymentId: capturedPayment.id,
+            amount: refundAmount,
+            currency: 'INR',
+            refundMethod: 'ORIGINAL_PAYMENT',
+            status: 'FAILED',
+            provider: 'RAZORPAY',
+            actorType,
+            initiatedAt: new Date(),
+            failedAt: new Date(),
+            failureReason,
+            failureCode: error?.error?.code || null,
+            idempotencyKey: `cancel_refund_${order.id}`,
+          },
+        });
+      } catch {
+        // Audit write failure must not mask the original gateway error.
+      }
+
+      this.logger.error(
+        `Refund initiation FAILED for order ${order.orderNumber}: ${failureReason}`,
+      );
+
+      this.notificationsService.notifyRefundStatus({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        status: 'ONLINE_REFUND_FAILED',
+        refundAmount,
+      });
+
+      return {
+        success: false,
+        refundInitiated: false,
+        message: `Refund initiation failed: ${failureReason}`,
+      };
+    }
+  }
+
+  /**
    * POST /payments/webhook
    */
   async handleWebhook(
@@ -720,12 +969,8 @@ export class PaymentsService {
       throw error;
     }
 
-    const razorpayOrderId =
-      paymentEntity?.order_id ||
-      orderEntity?.id;
-    const razorpayPaymentId =
-      paymentEntity?.id ||
-      refundEntity?.payment_id;
+    const razorpayOrderId = paymentEntity?.order_id || orderEntity?.id;
+    const razorpayPaymentId = paymentEntity?.id || refundEntity?.payment_id;
 
     if (razorpayOrderId || razorpayPaymentId) {
       const payment = await this.prisma.payment.findFirst({
@@ -735,7 +980,11 @@ export class PaymentsService {
             ...(razorpayPaymentId ? [{ razorpayPaymentId }] : []),
           ],
         },
-        include: { order: { select: { orderNumber: true } } },
+        // orderStatus is selected so refund handling can tell a CANCELLED
+        // order apart from a RETURNED one without an extra query.
+        include: {
+          order: { select: { orderNumber: true, orderStatus: true } },
+        },
       });
 
       if (payment) {
@@ -750,7 +999,8 @@ export class PaymentsService {
                 where: { id: payment.id },
                 data: {
                   status: PaymentStatusEnum.COMPLETED,
-                  razorpayPaymentId: paymentEntity?.id || payment.razorpayPaymentId,
+                  razorpayPaymentId:
+                    paymentEntity?.id || payment.razorpayPaymentId,
                   razorpaySignature: signature || payment.razorpaySignature,
                 },
               });
@@ -777,7 +1027,8 @@ export class PaymentsService {
 
             this.notificationsService.notifyPaymentSuccess({
               orderId: payment.orderId,
-              orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+              orderNumber:
+                (payment as any).order?.orderNumber || payment.orderId,
               userId: payment.userId,
               grandTotal: payment.amount,
             });
@@ -817,7 +1068,8 @@ export class PaymentsService {
 
             this.notificationsService.notifyPaymentFailed({
               orderId: payment.orderId,
-              orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+              orderNumber:
+                (payment as any).order?.orderNumber || payment.orderId,
               userId: payment.userId,
             });
           }
@@ -843,15 +1095,32 @@ export class PaymentsService {
             : null;
 
           if (!existingAudit || existingAudit.status !== 'REFUNDED') {
-            const rAmt = refundEntity?.amount ? refundEntity.amount / 100 : payment.amount;
+            const rAmt = refundEntity?.amount
+              ? refundEntity.amount / 100
+              : payment.amount;
+
+            // A refund can originate from a RETURN or from a CANCELLATION.
+            // Only move the order into RETURNED when it was not cancelled — a
+            // cancelled order is terminal and must stay CANCELLED so its
+            // timeline never shows post-cancellation return/delivery stages.
+            const wasCancelled =
+              (payment as any).order?.orderStatus === OrderStatusEnum.CANCELLED;
 
             await this.prisma.$transaction(async (tx) => {
               await tx.order.update({
                 where: { id: payment.orderId },
                 data: {
-                  orderStatus: 'RETURNED',
+                  ...(wasCancelled
+                    ? {}
+                    : { orderStatus: OrderStatusEnum.RETURNED }),
                   paymentStatus: PaymentStatusEnum.REFUNDED,
                 },
+              });
+
+              // Keep the payment row in step with the order.
+              await tx.payment.update({
+                where: { id: payment.id },
+                data: { status: PaymentStatusEnum.REFUNDED },
               });
 
               const pendingAudit = await tx.refundAudit.findFirst({
@@ -869,7 +1138,9 @@ export class PaymentsService {
                     status: 'REFUNDED',
                     providerRefundId: refundId || pendingAudit.providerRefundId,
                     completedAt: new Date(),
-                    actorType: pendingAudit.initiatedByAdminId ? 'ADMIN' : 'RAZORPAY_WEBHOOK',
+                    actorType: pendingAudit.initiatedByAdminId
+                      ? 'ADMIN'
+                      : 'RAZORPAY_WEBHOOK',
                     idempotencyKey,
                   },
                 });
@@ -897,7 +1168,8 @@ export class PaymentsService {
             if (eventType === 'refund.processed') {
               this.notificationsService.notifyRefundStatus({
                 orderId: payment.orderId,
-                orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+                orderNumber:
+                  (payment as any).order?.orderNumber || payment.orderId,
                 userId: payment.userId,
                 status: 'ONLINE_REFUND_SUCCESS',
                 refundAmount: rAmt,
@@ -929,6 +1201,24 @@ export class PaymentsService {
             const failureCode = refundEntity?.error_code || null;
 
             await this.prisma.$transaction(async (tx) => {
+              // Revert an in-flight REFUND_INITIATED back to COMPLETED so the
+              // refund can be retried. The order itself stays CANCELLED /
+              // RETURNED — only the payment state is rolled back.
+              await tx.order.updateMany({
+                where: {
+                  id: payment.orderId,
+                  paymentStatus: PaymentStatusEnum.REFUND_INITIATED,
+                },
+                data: { paymentStatus: PaymentStatusEnum.COMPLETED },
+              });
+              await tx.payment.updateMany({
+                where: {
+                  id: payment.id,
+                  status: PaymentStatusEnum.REFUND_INITIATED,
+                },
+                data: { status: PaymentStatusEnum.COMPLETED },
+              });
+
               const pendingAudit = await tx.refundAudit.findFirst({
                 where: {
                   orderId: payment.orderId,
@@ -946,7 +1236,9 @@ export class PaymentsService {
                     failedAt: new Date(),
                     failureReason,
                     failureCode,
-                    actorType: pendingAudit.initiatedByAdminId ? 'ADMIN' : 'RAZORPAY_WEBHOOK',
+                    actorType: pendingAudit.initiatedByAdminId
+                      ? 'ADMIN'
+                      : 'RAZORPAY_WEBHOOK',
                     idempotencyKey,
                   },
                 });
@@ -956,7 +1248,9 @@ export class PaymentsService {
                     orderId: payment.orderId,
                     userId: payment.userId,
                     paymentId: payment.id,
-                    amount: refundEntity?.amount ? refundEntity.amount / 100 : payment.amount,
+                    amount: refundEntity?.amount
+                      ? refundEntity.amount / 100
+                      : payment.amount,
                     currency: 'INR',
                     refundMethod: 'ONLINE',
                     status: 'FAILED',
@@ -978,7 +1272,8 @@ export class PaymentsService {
             );
             this.notificationsService.notifyRefundStatus({
               orderId: payment.orderId,
-              orderNumber: (payment as any).order?.orderNumber || payment.orderId,
+              orderNumber:
+                (payment as any).order?.orderNumber || payment.orderId,
               userId: payment.userId,
               status: 'ONLINE_REFUND_FAILED',
             });

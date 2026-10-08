@@ -1,41 +1,175 @@
-import { StockAlertService } from "../notifications/stock-alert.service";
-import { InvoicePdfService } from "./invoice-pdf.service";
-import { NotificationsService } from "../notifications/notifications.service";
-import { SettingsService } from "../admin/settings/settings.service";
+import { StockAlertService } from '../notifications/stock-alert.service';
+import { InvoicePdfService } from './invoice-pdf.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SettingsService } from '../admin/settings/settings.service';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GetOrdersQueryDto, OrderStatusQueryEnum, OrderTypeQueryEnum } from './dto/get-orders-query.dto';
+import {
+  GetOrdersQueryDto,
+  OrderStatusQueryEnum,
+  OrderTypeQueryEnum,
+} from './dto/get-orders-query.dto';
 import { GetReturnsQueryDto } from './dto/get-returns-query.dto';
-import { CancelOrderDto } from './dto/cancel-order.dto';
+import {
+  CancelOrderDto,
+  CancelReasonEnum,
+  CANCEL_REASON_LABELS,
+} from './dto/cancel-order.dto';
 import { ReturnOrderDto } from './dto/return-order.dto';
 import { ReorderDto, ReorderItemDto } from './dto/reorder.dto';
 import { OrderAgainQueryDto } from './dto/order-again-query.dto';
-import { OrderStatusEnum } from '@prisma/client';
+import { OrderStatusEnum, PaymentStatusEnum } from '@prisma/client';
+import { PaymentsService } from '../payments/payments.service';
+import { ShippingService } from '../admin/shipping/shipping.service';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * Order lifecycle (enforced server-side):
+ *
+ *   PENDING (unpaid) -> PLACED (paid/COD) -> PROCESSING
+ *     -> PACKED -> SHIPPED (AWB assigned) -> OUT_FOR_DELIVERY -> DELIVERED
+ *   Terminal: CANCELLED, RETURN_INITIATED, RETURNED
+ *
+ * Cancellation is a PRE-SHIPMENT action only. These are the only states from
+ * which a customer may cancel, and additionally the order must not yet carry a
+ * courier AWB / provider shipment id.
+ */
+const CANCELLABLE_STATUSES: OrderStatusEnum[] = [
+  OrderStatusEnum.PENDING,
+  OrderStatusEnum.PLACED,
+  OrderStatusEnum.PROCESSING,
+];
+
+/**
+ * Preset reasons surfaced to the client so the cancellation dropdown is driven
+ * by the backend instead of being hardcoded in the frontend.
+ */
+const CANCELLATION_REASON_OPTIONS = [
+  CancelReasonEnum.ORDERED_BY_MISTAKE,
+  CancelReasonEnum.FOUND_CHEAPER,
+  CancelReasonEnum.DELIVERY_TOO_SLOW,
+  CancelReasonEnum.CHANGE_ITEMS,
+  CancelReasonEnum.OTHER,
+].map((code) => ({
+  code,
+  label: CANCEL_REASON_LABELS[code],
+  requiresNote: code === CancelReasonEnum.OTHER,
+}));
+
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
     private readonly stockAlertService: StockAlertService,
     private readonly invoicePdfService: InvoicePdfService,
+    @Optional() private readonly paymentsService?: PaymentsService,
+    @Optional() private readonly shippingService?: ShippingService,
   ) {}
+
+  /**
+   * SINGLE SOURCE OF TRUTH for whether an order may be cancelled.
+   *
+   * Returns true only when ALL of the following hold:
+   *  - orderStatus is PENDING | PLACED | PROCESSING (pre-shipment)
+   *  - no courier AWB has been assigned (trackingNumber empty)
+   *  - no provider shipment exists (shiprocketShipmentId empty)
+   *
+   * Used both to gate the cancel endpoint and to compute the `cancellable`
+   * flag the order detail page reads to show/hide the Cancel Order button.
+   */
+  isCancellable(order: {
+    orderStatus: OrderStatusEnum;
+    trackingNumber?: string | null;
+    shiprocketShipmentId?: string | null;
+  }): boolean {
+    if (!CANCELLABLE_STATUSES.includes(order.orderStatus)) {
+      return false;
+    }
+    if (order.trackingNumber && order.trackingNumber.trim().length > 0) {
+      return false;
+    }
+    if (
+      order.shiprocketShipmentId &&
+      order.shiprocketShipmentId.trim().length > 0
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Explains, in customer-facing language, why an order cannot be cancelled.
+   * Returned alongside `cancellable: false` so the UI can show a reason.
+   */
+  private getCancellationBlockedReason(order: {
+    orderStatus: OrderStatusEnum;
+    trackingNumber?: string | null;
+    shiprocketShipmentId?: string | null;
+  }): string | null {
+    if (this.isCancellable(order)) return null;
+
+    if (order.orderStatus === OrderStatusEnum.CANCELLED) {
+      return 'This order has already been cancelled.';
+    }
+    if (
+      order.orderStatus === OrderStatusEnum.RETURNED ||
+      order.orderStatus === OrderStatusEnum.RETURN_INITIATED
+    ) {
+      return 'This order is in the returns process and cannot be cancelled.';
+    }
+    if (order.orderStatus === OrderStatusEnum.DELIVERED) {
+      return 'This order has been delivered. You can request a return instead.';
+    }
+    if (
+      order.orderStatus === OrderStatusEnum.SHIPPED ||
+      order.orderStatus === OrderStatusEnum.OUT_FOR_DELIVERY
+    ) {
+      return 'This order is already on its way and can no longer be cancelled.';
+    }
+    if (order.orderStatus === OrderStatusEnum.PACKED) {
+      return 'This order is already packed for dispatch and can no longer be cancelled.';
+    }
+    // Pre-shipment status but an AWB/shipment already exists.
+    return 'This order has already been handed to the courier and can no longer be cancelled. Please contact support for assistance.';
+  }
+
+  /**
+   * Attaches the computed cancellation fields to an order object.
+   * Purely additive — no existing field is modified or removed.
+   */
+  private withCancellationMeta<
+    T extends {
+      orderStatus: OrderStatusEnum;
+      trackingNumber?: string | null;
+      shiprocketShipmentId?: string | null;
+    },
+  >(
+    order: T,
+  ): T & { cancellable: boolean; cancellationBlockedReason: string | null } {
+    return {
+      ...order,
+      cancellable: this.isCancellable(order),
+      cancellationBlockedReason: this.getCancellationBlockedReason(order),
+    };
+  }
 
   private validateUuid(id: string, paramName: string = 'id'): string {
     if (!id || typeof id !== 'string' || !UUID_V4_REGEX.test(id)) {
-      throw new BadRequestException(
-        `${paramName} must be a valid UUID v4`,
-      );
+      throw new BadRequestException(`${paramName} must be a valid UUID v4`);
     }
     return id;
   }
@@ -43,14 +177,26 @@ export class OrdersService {
   private async enrichItemsWithProductData(items: any[]): Promise<any[]> {
     if (!items || items.length === 0) return items;
 
-    const productIds = Array.from(new Set(items.map((i) => i.productId).filter(Boolean)));
-    const variantIds = Array.from(new Set(items.map((i) => i.variantId).filter(Boolean))) as string[];
+    const productIds = Array.from(
+      new Set(items.map((i) => i.productId).filter(Boolean)),
+    );
+    const variantIds = Array.from(
+      new Set(items.map((i) => i.variantId).filter(Boolean)),
+    ) as string[];
 
     const products: any[] =
       productIds.length > 0
         ? await this.prisma.product.findMany({
             where: { id: { in: productIds } },
-            select: { id: true, slug: true, imageUrl: true, images: true, name: true, brand: true, petSpecies: true },
+            select: {
+              id: true,
+              slug: true,
+              imageUrl: true,
+              images: true,
+              name: true,
+              brand: true,
+              petSpecies: true,
+            },
           })
         : [];
 
@@ -77,9 +223,13 @@ export class OrdersService {
       const variant = item.variantId ? variantMap.get(item.variantId) : null;
       const imageUrl =
         variant?.imageUrl ||
-        (Array.isArray(variant?.images) && variant.images.length > 0 ? variant.images[0] : null) ||
+        (Array.isArray(variant?.images) && variant.images.length > 0
+          ? variant.images[0]
+          : null) ||
         prod?.imageUrl ||
-        (Array.isArray(prod?.images) && prod.images.length > 0 ? prod.images[0] : null) ||
+        (Array.isArray(prod?.images) && prod.images.length > 0
+          ? prod.images[0]
+          : null) ||
         null;
       const productSlug = prod?.slug || null;
       const brand = prod?.brand || 'KickAt Official';
@@ -229,7 +379,8 @@ export class OrdersService {
       if (ord.items && ord.items.length > 0) {
         ord.items = enrichedItemsByOrderId.get(ord.id) ?? ord.items;
       }
-      return ord;
+      // Additive: tell the client whether this order can still be cancelled.
+      return this.withCancellationMeta(ord);
     });
 
     return {
@@ -249,9 +400,13 @@ export class OrdersService {
    */
   async getOrderById(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
+
+    // `cancellable` drives the Cancel Order button on the order detail page;
+    // `cancellationReasons` drives the reason dropdown. Both are additive.
     return {
       success: true,
-      order,
+      order: this.withCancellationMeta(order),
+      cancellationReasons: CANCELLATION_REASON_OPTIONS,
     };
   }
 
@@ -412,19 +567,19 @@ export class OrdersService {
     courier: string | null,
     awb: string | null,
   ): string {
-    if (!awb) return "";
-    const c = (courier || "").toLowerCase();
-    if (c.includes("delhivery")) {
+    if (!awb) return '';
+    const c = (courier || '').toLowerCase();
+    if (c.includes('delhivery')) {
       return `https://www.delhivery.com/track/package/${awb}`;
     }
-    if (c.includes("shiprocket")) {
+    if (c.includes('shiprocket')) {
       return `https://shiprocket.co/tracking/${awb}`;
     }
-    if (c.includes("bluedart") || c.includes("blue dart")) {
-      return "https://www.bluedart.com/tracking";
+    if (c.includes('bluedart') || c.includes('blue dart')) {
+      return 'https://www.bluedart.com/tracking';
     }
-    if (c.includes("dtdc")) {
-      return "https://www.dtdc.in/tracking.asp";
+    if (c.includes('dtdc')) {
+      return 'https://www.dtdc.in/tracking.asp';
     }
     return `https://track.kickat.in/shipment/${awb}`;
   }
@@ -460,81 +615,84 @@ export class OrdersService {
     const timeline = isCancelled
       ? [
           {
-            stage: "ORDER_PLACED",
-            title: "Order Placed & Confirmed",
-            location: "Online Platform",
+            stage: 'ORDER_PLACED',
+            title: 'Order Placed & Confirmed',
+            location: 'Online Platform',
             timestamp: order.createdAt,
             isCompleted: true,
             isCurrent: false,
-            description: "Customer order placed and payment verified.",
+            description: 'Customer order placed and payment verified.',
           },
           {
-            stage: "CANCELLED",
-            title: "Order Cancelled",
-            location: "Online Platform",
+            stage: 'CANCELLED',
+            title: 'Order Cancelled',
+            location: 'Online Platform',
             timestamp: order.cancelledAt || order.updatedAt,
             isCompleted: true,
             isCurrent: true,
             description: order.cancelReason
               ? `Reason: ${order.cancelReason}`
-              : "Order was cancelled.",
+              : 'Order was cancelled.',
           },
         ]
       : [
           {
-            stage: "ORDER_PLACED",
-            title: "Order Placed & Confirmed",
-            location: "Online Platform",
+            stage: 'ORDER_PLACED',
+            title: 'Order Placed & Confirmed',
+            location: 'Online Platform',
             timestamp: order.createdAt,
             isCompleted: true,
             isCurrent: currentStatusIndex <= 0,
-            description: "Customer order placed and payment verified.",
+            description: 'Customer order placed and payment verified.',
           },
           {
-            stage: "PACKED",
-            title: "Packed at Warehouse",
-            location: "Kickat Central Hub, Mumbai",
+            stage: 'PACKED',
+            title: 'Packed at Warehouse',
+            location: 'Kickat Central Hub, Mumbai',
             timestamp: currentStatusIndex >= 2 ? order.updatedAt : null,
             isCompleted: currentStatusIndex >= 2 || isRTO,
             isCurrent: currentStatusIndex === 1 || currentStatusIndex === 2,
-            description: "Items picked, verified, and safely packed.",
+            description: 'Items picked, verified, and safely packed.',
           },
           {
-            stage: "SHIPPED",
-            title: "Handed Over to Courier",
-            location: "Mumbai Logistics Hub",
+            stage: 'SHIPPED',
+            title: 'Handed Over to Courier',
+            location: 'Mumbai Logistics Hub',
             timestamp: currentStatusIndex >= 3 ? order.updatedAt : null,
             isCompleted: currentStatusIndex >= 3 || isRTO,
             isCurrent: currentStatusIndex === 3,
             description:
               courier && awb
                 ? `Package picked up by ${courier} under AWB ${awb}.`
-                : "Package handed over to logistics carrier.",
+                : 'Package handed over to logistics carrier.',
           },
           {
-            stage: "IN_TRANSIT",
-            title: "In Transit to Destination Hub",
-            location: `${order.address?.city || "Destination"} Regional Sorting Facility`,
+            stage: 'IN_TRANSIT',
+            title: 'In Transit to Destination Hub',
+            location: `${order.address?.city || 'Destination'} Regional Sorting Facility`,
             timestamp: currentStatusIndex >= 3 ? order.updatedAt : null,
             isCompleted: currentStatusIndex >= 3 || isRTO,
             isCurrent: currentStatusIndex === 3,
-            description: "Package in transit between logistics hubs.",
+            description: 'Package in transit between logistics hubs.',
           },
           {
-            stage: "OUT_FOR_DELIVERY",
-            title: "Out for Delivery",
-            location: `${order.address?.city || "Local"} Delivery Center`,
+            stage: 'OUT_FOR_DELIVERY',
+            title: 'Out for Delivery',
+            location: `${order.address?.city || 'Local'} Delivery Center`,
             timestamp: currentStatusIndex >= 4 ? order.updatedAt : null,
             isCompleted: currentStatusIndex >= 4,
             isCurrent: currentStatusIndex === 4,
-            description: "Delivery executive assigned and out for delivery.",
+            description: 'Delivery executive assigned and out for delivery.',
           },
           {
-            stage: isRTO ? "RTO_INITIATED" : "DELIVERED",
-            title: isRTO ? "Return to Origin (RTO)" : "Delivered to Recipient",
-            location: `${order.address?.city || ""}, ${order.address?.state || ""}`.trim() || "Customer Address",
+            stage: isRTO ? 'RTO_INITIATED' : 'DELIVERED',
+            title: isRTO ? 'Return to Origin (RTO)' : 'Delivered to Recipient',
+            location:
+              `${order.address?.city || ''}, ${order.address?.state || ''}`.trim() ||
+              'Customer Address',
             timestamp:
-              order.orderStatus === OrderStatusEnum.DELIVERED || order.orderStatus === OrderStatusEnum.RETURNED
+              order.orderStatus === OrderStatusEnum.DELIVERED ||
+              order.orderStatus === OrderStatusEnum.RETURNED
                 ? order.deliveryDate || order.updatedAt
                 : null,
             isCompleted:
@@ -544,24 +702,26 @@ export class OrdersService {
               order.orderStatus === OrderStatusEnum.DELIVERED ||
               order.orderStatus === OrderStatusEnum.RETURNED,
             description: isRTO
-              ? "Shipment marked for Return to Origin."
-              : "Package safely delivered to recipient address.",
+              ? 'Shipment marked for Return to Origin.'
+              : 'Package safely delivered to recipient address.',
           },
         ];
 
-    let currentLocation = "Online Platform";
+    let currentLocation = 'Online Platform';
     if (isCancelled) {
-      currentLocation = "Order Cancelled";
+      currentLocation = 'Order Cancelled';
     } else if (order.orderStatus === OrderStatusEnum.DELIVERED) {
-      currentLocation = `${order.address?.city || ""}, ${order.address?.state || ""}`.trim() || "Delivered";
+      currentLocation =
+        `${order.address?.city || ''}, ${order.address?.state || ''}`.trim() ||
+        'Delivered';
     } else if (currentStatusIndex >= 4) {
-      currentLocation = `${order.address?.city || "Local"} Delivery Center`;
+      currentLocation = `${order.address?.city || 'Local'} Delivery Center`;
     } else if (currentStatusIndex >= 3) {
-      currentLocation = `${order.address?.city || "Regional"} Sorting Facility`;
+      currentLocation = `${order.address?.city || 'Regional'} Sorting Facility`;
     } else if (currentStatusIndex >= 2) {
-      currentLocation = "Kickat Central Hub, Mumbai";
+      currentLocation = 'Kickat Central Hub, Mumbai';
     } else if (courier && awb) {
-      currentLocation = "Kickat Logistics Facility, Mumbai";
+      currentLocation = 'Kickat Logistics Facility, Mumbai';
     }
 
     const checkpoints = timeline.filter((t) => t.isCompleted);
@@ -578,10 +738,13 @@ export class OrdersService {
       currentStatus: order.orderStatus,
       isRTO,
       isCancelled,
-      origin: "Kickat Central Warehouse, Mumbai, Maharashtra",
+      // Additive: lets the tracking screen show/hide a Cancel Order action.
+      cancellable: this.isCancellable(order),
+      cancellationBlockedReason: this.getCancellationBlockedReason(order),
+      origin: 'Kickat Central Warehouse, Mumbai, Maharashtra',
       destination: order.address
-        ? `${order.address.city || ""}, ${order.address.state || ""} ${order.address.pincode || ""}`.trim()
-        : "Customer Address",
+        ? `${order.address.city || ''}, ${order.address.state || ''} ${order.address.pincode || ''}`.trim()
+        : 'Customer Address',
       location: currentLocation,
       lastUpdated: order.updatedAt || order.createdAt,
       estimatedDelivery: order.estimatedDelivery || order.deliveryDate || null,
@@ -714,32 +877,69 @@ export class OrdersService {
       OrderStatusEnum.RETURN_INITIATED,
     ];
 
+    // GUARD 1 — status must still be pre-shipment. Message now reflects the
+    // order's ACTUAL state instead of always claiming it was already shipped.
     if (nonCancellableStatuses.includes(order.orderStatus)) {
       throw new ConflictException(
-        'Order already packed, shipped, delivered, or cancelled',
+        this.getCancellationBlockedReason(order) ??
+          'This order can no longer be cancelled.',
       );
     }
 
-    const restoredEvents: Array<{ productId: string; variantId?: string | null; previousStock: number; newStock: number }> = [];
+    // GUARD 2 — even in a pre-shipment status, once the courier has an AWB or
+    // a provider shipment exists, the parcel is in motion. Never allow cancel.
+    if (order.trackingNumber || order.shiprocketShipmentId) {
+      throw new ConflictException(
+        'Order has already been handed to the courier and can no longer be cancelled. Please contact support for assistance.',
+      );
+    }
+
+    // GUARD 3 — a reason is mandatory, and "other" must carry a note.
+    if (!dto.reason) {
+      throw new BadRequestException('A cancellation reason is required');
+    }
+    const reasonNote = dto.reasonOther?.trim() || null;
+    if (dto.reason === CancelReasonEnum.OTHER && !reasonNote) {
+      throw new BadRequestException(
+        'reasonOther is required when the cancellation reason is "other"',
+      );
+    }
+
+    const reasonLabel = CANCEL_REASON_LABELS[dto.reason] ?? dto.reason;
+
+    const restoredEvents: Array<{
+      productId: string;
+      variantId?: string | null;
+      previousStock: number;
+      newStock: number;
+    }> = [];
 
     const updatedOrder = await this.prisma.$transaction(async (tx) => {
+      // Atomic re-check: the status must still be cancellable AND no AWB /
+      // shipment may have appeared between the guard above and this write
+      // (the auto-shipment job can assign one concurrently).
       const updateRes = await tx.order.updateMany({
         where: {
           id: order.id,
           userId,
           orderStatus: { notIn: nonCancellableStatuses },
+          OR: [{ trackingNumber: null }, { trackingNumber: '' }],
+          shiprocketShipmentId: null,
         },
         data: {
           orderStatus: OrderStatusEnum.CANCELLED,
-          cancelReason: dto.reason,
-          cancelReasonOther: dto.reasonOther,
+          // Human-readable label kept in the existing cancelReason field for
+          // backward compatibility; machine code stored separately.
+          cancelReason: reasonLabel,
+          cancelReasonCode: dto.reason,
+          cancelReasonOther: reasonNote,
           cancelledAt: new Date(),
         },
       });
 
       if (updateRes.count === 0) {
         throw new ConflictException(
-          'Order already packed, shipped, delivered, or cancelled',
+          'This order can no longer be cancelled — it has just been handed to the courier or its status changed. Please refresh and try again.',
         );
       }
 
@@ -797,11 +997,97 @@ export class OrdersService {
       newStatus: 'CANCELLED',
     });
 
+    // ---- Post-cancel side effects -----------------------------------------
+    // Both are best-effort: the order is already CANCELLED and the customer's
+    // request has succeeded. Neither failure may propagate.
+
+    // 1. Refund any money that was actually captured.
+    let refund: {
+      required: boolean;
+      initiated: boolean;
+      message: string;
+      amount?: number;
+      providerRefundId?: string | null;
+    } = {
+      required: false,
+      initiated: false,
+      message: 'No payment captured — no refund required',
+    };
+
+    if (order.paymentStatus === PaymentStatusEnum.COMPLETED) {
+      refund.required = true;
+
+      if (this.paymentsService) {
+        try {
+          const result = await this.paymentsService.initiateRefundForOrder({
+            orderId: order.id,
+            reason: reasonNote ? `${reasonLabel} — ${reasonNote}` : reasonLabel,
+            actorType: 'CUSTOMER',
+          });
+          refund = {
+            required: true,
+            initiated: result.refundInitiated,
+            message: result.message,
+            amount: result.amount,
+            providerRefundId: result.providerRefundId ?? null,
+          };
+        } catch (refundErr: any) {
+          // initiateRefundForOrder is already non-throwing, but stay defensive:
+          // a refund problem must never undo a successful cancellation.
+          this.logger.error(
+            `Refund initiation threw for cancelled order ${order.orderNumber}: ${refundErr?.message || refundErr}`,
+          );
+          refund = {
+            required: true,
+            initiated: false,
+            message:
+              'Order cancelled, but the refund could not be initiated automatically. Our team will process it shortly.',
+          };
+        }
+      } else {
+        this.logger.warn(
+          `PaymentsService unavailable; refund for cancelled order ${order.orderNumber} must be processed manually.`,
+        );
+        refund = {
+          required: true,
+          initiated: false,
+          message:
+            'Order cancelled. Refund will be processed manually by our team.',
+        };
+      }
+    }
+
+    // 2. Cancel the provider shipment if one somehow exists (fire-and-forget).
+    if (
+      this.shippingService &&
+      (order.shiprocketOrderId || order.shiprocketShipmentId)
+    ) {
+      void this.shippingService
+        .cancelShipmentForOrder(order.id)
+        .then((res) => {
+          if (!res.success) {
+            this.logger.warn(
+              `Provider shipment cancellation did not succeed for order ${order.orderNumber}: ${res.message}`,
+            );
+          }
+        })
+        .catch((shipErr: any) => {
+          this.logger.warn(
+            `Provider shipment cancellation failed for order ${order.orderNumber}: ${shipErr?.message || shipErr}`,
+          );
+        });
+    }
+
     return {
       success: true,
       message: 'Order cancelled successfully',
       orderId: updatedOrder.id,
       status: updatedOrder.orderStatus,
+      // Additive cancellation detail for the client.
+      cancelReason: reasonLabel,
+      cancelReasonCode: dto.reason,
+      cancelReasonOther: reasonNote,
+      refund,
     };
   }
 
@@ -962,7 +1248,9 @@ export class OrdersService {
     const pagedEntries = aggregatedList.slice(skip, skip + limit);
 
     // Fetch full product and variant information using batch queries (eliminates N+1 queries)
-    const pagedProductIds = Array.from(new Set(pagedEntries.map((e) => e.productId)));
+    const pagedProductIds = Array.from(
+      new Set(pagedEntries.map((e) => e.productId)),
+    );
     const pagedVariantIds = Array.from(
       new Set(pagedEntries.map((e) => e.variantId).filter(Boolean)),
     ) as string[];
@@ -985,12 +1273,18 @@ export class OrdersService {
       });
     }
 
-    const productMap = new Map<string, any>(products.map((p: any) => [p.id, p]));
-    const variantMap = new Map<string, any>(variants.map((v: any) => [v.id, v]));
+    const productMap = new Map<string, any>(
+      products.map((p: any) => [p.id, p]),
+    );
+    const variantMap = new Map<string, any>(
+      variants.map((v: any) => [v.id, v]),
+    );
 
     const items = pagedEntries.map((entry) => {
       const product = productMap.get(entry.productId) || null;
-      const variant = entry.variantId ? variantMap.get(entry.variantId) || null : null;
+      const variant = entry.variantId
+        ? variantMap.get(entry.variantId) || null
+        : null;
 
       const inStock = product
         ? (variant ? variant.stock > 0 : product.stock > 0) &&
@@ -1100,12 +1394,16 @@ export class OrdersService {
     const [products, variants] = await Promise.all([
       this.prisma.product.findMany({ where: { id: { in: productIds } } }),
       variantIds.length > 0
-        ? this.prisma.productVariant.findMany({ where: { id: { in: variantIds } } })
+        ? this.prisma.productVariant.findMany({
+            where: { id: { in: variantIds } },
+          })
         : Promise.resolve<any[]>([]),
     ]);
 
     const productMap = new Map(products.map((p) => [p.id, p]));
-    const variantMap = new Map<string, any>((variants as any[]).map((v) => [v.id, v]));
+    const variantMap = new Map<string, any>(
+      (variants as any[]).map((v) => [v.id, v]),
+    );
 
     for (const item of order.items) {
       const product = productMap.get(item.productId);
@@ -1172,12 +1470,16 @@ export class OrdersService {
     const [products, variants] = await Promise.all([
       this.prisma.product.findMany({ where: { id: { in: productIds } } }),
       variantIds.length > 0
-        ? this.prisma.productVariant.findMany({ where: { id: { in: variantIds } } })
+        ? this.prisma.productVariant.findMany({
+            where: { id: { in: variantIds } },
+          })
         : Promise.resolve<any[]>([]),
     ]);
 
     const productMap = new Map(products.map((p) => [p.id, p]));
-    const variantMap = new Map<string, any>((variants as any[]).map((v) => [v.id, v]));
+    const variantMap = new Map<string, any>(
+      (variants as any[]).map((v) => [v.id, v]),
+    );
 
     for (const item of items) {
       const product = productMap.get(item.productId);

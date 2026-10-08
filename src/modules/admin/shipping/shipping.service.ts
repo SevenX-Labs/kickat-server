@@ -617,7 +617,7 @@ export class ShippingService {
    * Handles "1.5kg", "500g", "250 gm", "2 kgs", "500 grams", etc.
    */
   private parseWeightStringToKg(value: unknown): number | null {
-    if (typeof value === "number") {
+    if (typeof value === 'number') {
       if (isNaN(value) || value <= 0) return null;
       if (value > 50) {
         return Math.round((value / 1000) * 1000) / 1000;
@@ -625,7 +625,7 @@ export class ShippingService {
       return value;
     }
 
-    if (typeof value !== "string") return null;
+    if (typeof value !== 'string') return null;
 
     const str = value.trim().toLowerCase();
     if (!str) return null;
@@ -637,7 +637,7 @@ export class ShippingService {
       const num = parseFloat(unitMatch[1]);
       if (isNaN(num) || num <= 0) return null;
       const unit = unitMatch[2].toLowerCase();
-      if (["g", "gm", "gms", "gram", "grams"].includes(unit)) {
+      if (['g', 'gm', 'gms', 'gram', 'grams'].includes(unit)) {
         return Math.round((num / 1000) * 1000) / 1000;
       }
       return num;
@@ -661,7 +661,7 @@ export class ShippingService {
    * Multiplies each item unit weight by quantity.
    * If any item weight cannot be reliably resolved, returns null.
    */
-    /**
+  /**
    * Resolves order shipping package details (weight & dimensions) from structured product/variant fields
    * with fallback to legacy attributes for weight if structured field is not yet set.
    */
@@ -673,7 +673,12 @@ export class ShippingService {
       productName: string;
       variantName?: string | null;
     }>,
-  ): Promise<{ weight: number; length: number; breadth: number; height: number } | null> {
+  ): Promise<{
+    weight: number;
+    length: number;
+    breadth: number;
+    height: number;
+  } | null> {
     if (!items || items.length === 0) return null;
 
     const productIds = Array.from(
@@ -730,16 +735,28 @@ export class ShippingService {
           );
           if (variant) {
             // 1. Prefer structured variant shipping fields
-            if (typeof variant.shippingWeightKg === "number" && variant.shippingWeightKg > 0) {
+            if (
+              typeof variant.shippingWeightKg === 'number' &&
+              variant.shippingWeightKg > 0
+            ) {
               unitWeightKg = variant.shippingWeightKg;
             }
-            if (typeof variant.shippingLengthCm === "number" && variant.shippingLengthCm > 0) {
+            if (
+              typeof variant.shippingLengthCm === 'number' &&
+              variant.shippingLengthCm > 0
+            ) {
               itemLength = variant.shippingLengthCm;
             }
-            if (typeof variant.shippingBreadthCm === "number" && variant.shippingBreadthCm > 0) {
+            if (
+              typeof variant.shippingBreadthCm === 'number' &&
+              variant.shippingBreadthCm > 0
+            ) {
               itemBreadth = variant.shippingBreadthCm;
             }
-            if (typeof variant.shippingHeightCm === "number" && variant.shippingHeightCm > 0) {
+            if (
+              typeof variant.shippingHeightCm === 'number' &&
+              variant.shippingHeightCm > 0
+            ) {
               itemHeight = variant.shippingHeightCm;
             }
 
@@ -760,16 +777,28 @@ export class ShippingService {
         }
       } else if (product) {
         // Simple product (no variant)
-        if (typeof product.shippingWeightKg === "number" && product.shippingWeightKg > 0) {
+        if (
+          typeof product.shippingWeightKg === 'number' &&
+          product.shippingWeightKg > 0
+        ) {
           unitWeightKg = product.shippingWeightKg;
         }
-        if (typeof product.shippingLengthCm === "number" && product.shippingLengthCm > 0) {
+        if (
+          typeof product.shippingLengthCm === 'number' &&
+          product.shippingLengthCm > 0
+        ) {
           itemLength = product.shippingLengthCm;
         }
-        if (typeof product.shippingBreadthCm === "number" && product.shippingBreadthCm > 0) {
+        if (
+          typeof product.shippingBreadthCm === 'number' &&
+          product.shippingBreadthCm > 0
+        ) {
           itemBreadth = product.shippingBreadthCm;
         }
-        if (typeof product.shippingHeightCm === "number" && product.shippingHeightCm > 0) {
+        if (
+          typeof product.shippingHeightCm === 'number' &&
+          product.shippingHeightCm > 0
+        ) {
           itemHeight = product.shippingHeightCm;
         }
 
@@ -785,7 +814,7 @@ export class ShippingService {
 
       if (unitWeightKg === null || unitWeightKg <= 0) {
         this.logger.warn(
-          `Unable to resolve reliable weight for order item: "${item.productName}" (variant: "${item.variantName || ""}")`,
+          `Unable to resolve reliable weight for order item: "${item.productName}" (variant: "${item.variantName || ''}")`,
         );
         return null;
       }
@@ -839,7 +868,7 @@ export class ShippingService {
       );
       return {
         success: true,
-        message: "Shipment operation already in progress for this order",
+        message: 'Shipment operation already in progress for this order',
         isExisting: true,
         data: {
           orderId: order.id,
@@ -857,13 +886,17 @@ export class ShippingService {
 
     try {
       // 1. Idempotency check: if AWB is already assigned, DO NOT assign another AWB
-      if (order.trackingNumber && order.courierPartner && order.courierPartner !== "Unassigned") {
+      if (
+        order.trackingNumber &&
+        order.courierPartner &&
+        order.courierPartner !== 'Unassigned'
+      ) {
         this.logger.log(
           `AWB already assigned for order ${order.orderNumber} (courier: ${order.courierPartner}, tracking: ${order.trackingNumber}). Skipping assignment.`,
         );
         return {
           success: true,
-          message: "Shipment already exists for this order",
+          message: 'Shipment already exists for this order',
           isExisting: true,
           isAwbAssigned: true,
           data: {
@@ -890,31 +923,31 @@ export class ShippingService {
         );
       } else {
         // Customer validation (no fake fallback)
-        const customerEmail = (order.user?.email || "").trim();
+        const customerEmail = (order.user?.email || '').trim();
         if (!customerEmail || !EMAIL_REGEX.test(customerEmail)) {
           throw new BadRequestException(
-            "Valid customer email is required for Shiprocket shipment creation.",
+            'Valid customer email is required for Shiprocket shipment creation.',
           );
         }
 
-        const customerName = (order.user?.name || "").trim();
+        const customerName = (order.user?.name || '').trim();
         if (!customerName) {
           throw new BadRequestException(
-            "Customer name is required before creating a Shiprocket shipment.",
+            'Customer name is required before creating a Shiprocket shipment.',
           );
         }
 
-        const customerPhone = (order.user?.phone || "").trim();
+        const customerPhone = (order.user?.phone || '').trim();
         if (!customerPhone) {
           throw new BadRequestException(
-            "Customer phone number is required before creating a Shiprocket shipment.",
+            'Customer phone number is required before creating a Shiprocket shipment.',
           );
         }
 
         // Address validation
         if (!order.address) {
           throw new BadRequestException(
-            "Order does not have a delivery address associated.",
+            'Order does not have a delivery address associated.',
           );
         }
 
@@ -922,7 +955,7 @@ export class ShippingService {
         const buildingStreet = order.address.buildingStreet?.trim();
         if (!houseFlat && !buildingStreet) {
           throw new BadRequestException(
-            "Shipping address line is required for Shiprocket shipment creation.",
+            'Shipping address line is required for Shiprocket shipment creation.',
           );
         }
 
@@ -931,42 +964,44 @@ export class ShippingService {
         const pincode = order.address.pincode?.trim();
         if (!city || !state || !pincode) {
           throw new BadRequestException(
-            "Shipping city, state, and pincode are required for Shiprocket shipment creation.",
+            'Shipping city, state, and pincode are required for Shiprocket shipment creation.',
           );
         }
 
         // Order items validation
         if (!order.items || order.items.length === 0) {
           throw new BadRequestException(
-            "Order does not have any items associated.",
+            'Order does not have any items associated.',
           );
         }
 
         // Pickup location validation (no hardcoded fallback)
         const pickupLocation = (
           options?.pickupLocation ||
-          this.configService.get<string>("SHIPROCKET_PICKUP_LOCATION", "") ||
-          ""
+          this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', '') ||
+          ''
         ).trim();
 
         if (!pickupLocation) {
           throw new BadRequestException(
-            "Shiprocket pickup location is not configured.",
+            'Shiprocket pickup location is not configured.',
           );
         }
 
         // Package weight & dimensions validation & calculation (no silent fallbacks)
-        const resolvedPackage = await this.resolveOrderShippingPackage(order.items);
+        const resolvedPackage = await this.resolveOrderShippingPackage(
+          order.items,
+        );
 
         let totalWeight: number | null = null;
         if (options?.packageDetails?.weight !== undefined) {
           if (
-            typeof options.packageDetails.weight !== "number" ||
+            typeof options.packageDetails.weight !== 'number' ||
             isNaN(options.packageDetails.weight) ||
             options.packageDetails.weight <= 0
           ) {
             throw new BadRequestException(
-              "Shipment weight is required before creating a Shiprocket shipment.",
+              'Shipment weight is required before creating a Shiprocket shipment.',
             );
           }
           totalWeight = options.packageDetails.weight;
@@ -975,17 +1010,18 @@ export class ShippingService {
         }
 
         if (
-          typeof totalWeight !== "number" ||
+          typeof totalWeight !== 'number' ||
           isNaN(totalWeight) ||
           totalWeight <= 0
         ) {
           throw new BadRequestException(
-            "Shipment weight is required before creating a Shiprocket shipment.",
+            'Shipment weight is required before creating a Shiprocket shipment.',
           );
         }
 
         // Package dimensions validation
-        let dimensions: { length?: number; breadth?: number; height?: number } = {};
+        let dimensions: { length?: number; breadth?: number; height?: number } =
+          {};
         if (
           options?.packageDetails?.length !== undefined ||
           options?.packageDetails?.breadth !== undefined ||
@@ -996,15 +1032,15 @@ export class ShippingService {
           const h = options.packageDetails.height;
 
           if (
-            typeof l !== "number" ||
-            typeof b !== "number" ||
-            typeof h !== "number" ||
+            typeof l !== 'number' ||
+            typeof b !== 'number' ||
+            typeof h !== 'number' ||
             l <= 0 ||
             b <= 0 ||
             h <= 0
           ) {
             throw new BadRequestException(
-              "Package dimensions (length, breadth, height) must be positive numbers when provided.",
+              'Package dimensions (length, breadth, height) must be positive numbers when provided.',
             );
           }
           dimensions = { length: l, breadth: b, height: h };
@@ -1049,7 +1085,7 @@ export class ShippingService {
             city,
             state,
             pincode,
-            country: order.address.country || "India",
+            country: order.address.country || 'India',
           },
           items: order.items.map((item) => ({
             productId: item.productId,
@@ -1061,7 +1097,8 @@ export class ShippingService {
           })),
         };
 
-        const result = await this.shippingProvider.createShipment(shipmentParams);
+        const result =
+          await this.shippingProvider.createShipment(shipmentParams);
         remoteOrderId = result.orderId ? String(result.orderId) : null;
         shipmentId = result.shipmentId ? String(result.shipmentId) : null;
 
@@ -1073,11 +1110,13 @@ export class ShippingService {
             shiprocketOrderId: remoteOrderId,
             shiprocketShipmentId: shipmentId,
             courierPartner:
-              result.courierName || order.courierPartner || "Shiprocket",
+              result.courierName || order.courierPartner || 'Shiprocket',
             trackingNumber: result.awbCode || order.trackingNumber || null,
           },
           include: {
-            user: { select: { id: true, name: true, email: true, phone: true } },
+            user: {
+              select: { id: true, name: true, email: true, phone: true },
+            },
             address: true,
           },
         });
@@ -1095,7 +1134,7 @@ export class ShippingService {
       if (trackingNumber) {
         return {
           success: true,
-          message: "Forward shipment created successfully",
+          message: 'Forward shipment created successfully',
           isExisting: false,
           isAwbAssigned: true,
           data: {
@@ -1114,12 +1153,12 @@ export class ShippingService {
       // If provider does not support serviceability/AWB or no shipment ID returned:
       if (
         !shipmentId ||
-        typeof this.shippingProvider.getRecommendedCourier !== "function" ||
-        typeof this.shippingProvider.assignAwb !== "function"
+        typeof this.shippingProvider.getRecommendedCourier !== 'function' ||
+        typeof this.shippingProvider.assignAwb !== 'function'
       ) {
         return {
           success: true,
-          message: "Forward shipment created successfully",
+          message: 'Forward shipment created successfully',
           isExisting: false,
           data: {
             orderId: order.id,
@@ -1137,19 +1176,19 @@ export class ShippingService {
       // 3. Resolve pickup location & pincode
       const pickupLocation = (
         options?.pickupLocation ||
-        this.configService.get<string>("SHIPROCKET_PICKUP_LOCATION", "") ||
-        ""
+        this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', '') ||
+        ''
       ).trim();
 
       let pickupPostcode =
         options?.pickupPostcode ||
-        this.configService.get<string>("SHIPROCKET_PICKUP_PINCODE", "");
+        this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '');
       if (!pickupPostcode && this.shippingProvider.getPickupLocationPincode) {
         try {
           pickupPostcode =
             (await this.shippingProvider.getPickupLocationPincode(
               pickupLocation,
-            )) || "";
+            )) || '';
         } catch (pinErr: any) {
           this.logger.warn(
             `Could not resolve pickup pincode for location "${pickupLocation}": ${pinErr?.message || pinErr}`,
@@ -1158,26 +1197,31 @@ export class ShippingService {
       }
 
       // 4. Resolve package details
-      const resolvedPackage = await this.resolveOrderShippingPackage(order.items);
-      const weight = options?.packageDetails?.weight || resolvedPackage?.weight || 0.5;
+      const resolvedPackage = await this.resolveOrderShippingPackage(
+        order.items,
+      );
+      const weight =
+        options?.packageDetails?.weight || resolvedPackage?.weight || 0.5;
       const length = options?.packageDetails?.length || resolvedPackage?.length;
-      const breadth = options?.packageDetails?.breadth || resolvedPackage?.breadth;
+      const breadth =
+        options?.packageDetails?.breadth || resolvedPackage?.breadth;
       const height = options?.packageDetails?.height || resolvedPackage?.height;
-      const isCod = order.paymentMethod?.toUpperCase() === "COD";
+      const isCod = order.paymentMethod?.toUpperCase() === 'COD';
 
       // 5. Courier serviceability query
       let recommendedCourier: AvailableCourier | null = null;
       if (pickupPostcode && order.address?.pincode) {
         try {
-          recommendedCourier = await this.shippingProvider.getRecommendedCourier({
-            pickupPostcode,
-            deliveryPostcode: order.address.pincode,
-            weight,
-            cod: isCod,
-            length,
-            breadth,
-            height,
-          });
+          recommendedCourier =
+            await this.shippingProvider.getRecommendedCourier({
+              pickupPostcode,
+              deliveryPostcode: order.address.pincode,
+              weight,
+              cod: isCod,
+              length,
+              breadth,
+              height,
+            });
         } catch (serviceabilityErr: any) {
           this.logger.warn(
             `Courier serviceability check failed for order ${order.orderNumber} (shipment ${shipmentId}): ${serviceabilityErr?.message || serviceabilityErr}`,
@@ -1191,7 +1235,7 @@ export class ShippingService {
         );
         return {
           success: true,
-          message: "Shipment created; waiting for courier serviceability",
+          message: 'Shipment created; waiting for courier serviceability',
           isExisting: false,
           isAwbAssigned: false,
           data: {
@@ -1220,7 +1264,8 @@ export class ShippingService {
         );
         return {
           success: true,
-          message: "Shipment created, but AWB assignment failed. Ready for retry.",
+          message:
+            'Shipment created, but AWB assignment failed. Ready for retry.',
           isExisting: false,
           isAwbAssigned: false,
           data: {
@@ -1259,7 +1304,8 @@ export class ShippingService {
       }
 
       // 7. Persist real AWB and Courier to Order
-      const finalCourier = awbResult.courierName || recommendedCourier.courierName;
+      const finalCourier =
+        awbResult.courierName || recommendedCourier.courierName;
       const finalAwb = awbResult.awbCode;
 
       // Advance order status to PACKED (Ready to Ship / AWB Assigned)
@@ -1307,7 +1353,7 @@ export class ShippingService {
 
       return {
         success: true,
-        message: "Shipment created and AWB assigned successfully",
+        message: 'Shipment created and AWB assigned successfully',
         isExisting: false,
         isAwbAssigned: true,
         data: {
@@ -1325,5 +1371,76 @@ export class ShippingService {
     } finally {
       this.activeShipmentLocks.delete(order.id);
     }
+  }
+
+
+  
+  /**
+   * Cancels the forward shipment held with the active shipping provider for an
+   * order that has already been cancelled inside KickAt.
+   *
+   * This is intentionally tolerant: it never throws for "nothing to cancel" or
+   * for an unsupported provider, because the customer-facing cancel flow calls
+   * it as a best-effort cleanup step and must not fail because of it.
+   */
+  async cancelShipmentForOrder(orderIdentifier: string): Promise<{
+    success: boolean;
+    message: string;
+    data?: {
+      orderId: string;
+      orderNumber: string;
+      shiprocketOrderId: string | null;
+      shiprocketShipmentId: string | null;
+    };
+  }> {
+    const order = await this.findOrderByAnyIdentifier(orderIdentifier);
+
+    // Nothing was ever pushed to the provider -> nothing to cancel.
+    if (!order.shiprocketOrderId && !order.shiprocketShipmentId) {
+      this.logger.log(
+        `No provider shipment exists for order ${order.orderNumber}; skipping provider cancellation.`,
+      );
+      return {
+        success: true,
+        message: 'No provider shipment to cancel for this order',
+        data: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          shiprocketOrderId: order.shiprocketOrderId,
+          shiprocketShipmentId: order.shiprocketShipmentId,
+        },
+      };
+    }
+
+    // Active provider cannot cancel (e.g. the null/unconfigured provider).
+    if (typeof this.shippingProvider.cancelShipment !== 'function') {
+      this.logger.warn(
+        `Active shipping provider ${this.shippingProvider.providerName} does not support shipment cancellation (order ${order.orderNumber}).`,
+      );
+      return {
+        success: false,
+        message: `Provider ${this.shippingProvider.providerName} does not support shipment cancellation`,
+      };
+    }
+
+    const result = await this.shippingProvider.cancelShipment({
+      shiprocketOrderId: order.shiprocketOrderId,
+      shiprocketShipmentId: order.shiprocketShipmentId,
+    });
+
+    this.logger.log(
+      `Provider shipment cancellation for order ${order.orderNumber}: ${result.message}`,
+    );
+
+    return {
+      success: result.success,
+      message: result.message,
+      data: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        shiprocketOrderId: order.shiprocketOrderId,
+        shiprocketShipmentId: order.shiprocketShipmentId,
+      },
+    };
   }
 }

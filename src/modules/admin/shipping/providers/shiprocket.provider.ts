@@ -116,7 +116,10 @@ export class ShiprocketProvider implements ShippingProvider {
   private cachedToken: string | null = null;
   private tokenExpiresAt: number | null = null; // epoch ms
   private authPromise: Promise<string> | null = null;
-  private pickupLocationsCache: Array<{ pickup_location: string; pin_code: string }> | null = null;
+  private pickupLocationsCache: Array<{
+    pickup_location: string;
+    pin_code: string;
+  }> | null = null;
   private pickupLocationsCacheExpiresAt: number = 0;
 
   constructor(private readonly configService: ConfigService) {}
@@ -540,8 +543,7 @@ export class ShiprocketProvider implements ShippingProvider {
     );
 
     const orderId = res.order_id != null ? String(res.order_id) : null;
-    const shipmentId =
-      res.shipment_id != null ? String(res.shipment_id) : null;
+    const shipmentId = res.shipment_id != null ? String(res.shipment_id) : null;
 
     this.logger.log(
       `Shiprocket order created successfully for ${params.orderNumber}: order_id=${orderId}, shipment_id=${shipmentId}, status=${res.status || 'NEW'}.`,
@@ -553,8 +555,7 @@ export class ShiprocketProvider implements ShippingProvider {
       orderId,
       shipmentId,
       status: res.status || 'NEW',
-      statusCode:
-        typeof res.status_code === 'number' ? res.status_code : null,
+      statusCode: typeof res.status_code === 'number' ? res.status_code : null,
       awbCode: res.awb_code || null,
       courierName: res.courier_name || null,
       message: 'Shiprocket forward shipment created successfully',
@@ -574,13 +575,25 @@ export class ShiprocketProvider implements ShippingProvider {
       cod: params.cod ? '1' : '0',
     });
 
-    if ('length' in params && typeof params.length === 'number' && params.length > 0) {
+    if (
+      'length' in params &&
+      typeof params.length === 'number' &&
+      params.length > 0
+    ) {
       query.set('length', params.length.toString());
     }
-    if ('breadth' in params && typeof params.breadth === 'number' && params.breadth > 0) {
+    if (
+      'breadth' in params &&
+      typeof params.breadth === 'number' &&
+      params.breadth > 0
+    ) {
       query.set('breadth', params.breadth.toString());
     }
-    if ('height' in params && typeof params.height === 'number' && params.height > 0) {
+    if (
+      'height' in params &&
+      typeof params.height === 'number' &&
+      params.height > 0
+    ) {
       query.set('height', params.height.toString());
     }
 
@@ -636,14 +649,20 @@ export class ShiprocketProvider implements ShippingProvider {
 
     if (selectedCourier) {
       this.logger.log(
-        `Selected Shiprocket recommended courier: "${selectedCourier.courier_name}" (ID: ${selectedCourier.courier_company_id}, ETD: ${selectedCourier.etd || "N/A"}).`,
+        `Selected Shiprocket recommended courier: "${selectedCourier.courier_name}" (ID: ${selectedCourier.courier_company_id}, ETD: ${selectedCourier.etd || 'N/A'}).`,
       );
       return {
         courierCompanyId: selectedCourier.courier_company_id,
         courierName: selectedCourier.courier_name,
-        rate: typeof selectedCourier.rate === "number" ? selectedCourier.rate : undefined,
+        rate:
+          typeof selectedCourier.rate === 'number'
+            ? selectedCourier.rate
+            : undefined,
         etd: selectedCourier.etd,
-        rating: typeof selectedCourier.rating === "number" ? selectedCourier.rating : undefined,
+        rating:
+          typeof selectedCourier.rating === 'number'
+            ? selectedCourier.rating
+            : undefined,
         isRecommended: true,
       };
     }
@@ -651,14 +670,14 @@ export class ShiprocketProvider implements ShippingProvider {
     // Fallback: take first available courier
     const fallback = available[0];
     this.logger.log(
-      `No recommended courier match; selected first available courier: "${fallback.courier_name}" (ID: ${fallback.courier_company_id}, ETD: ${fallback.etd || "N/A"}).`,
+      `No recommended courier match; selected first available courier: "${fallback.courier_name}" (ID: ${fallback.courier_company_id}, ETD: ${fallback.etd || 'N/A'}).`,
     );
     return {
       courierCompanyId: fallback.courier_company_id,
       courierName: fallback.courier_name,
-      rate: typeof fallback.rate === "number" ? fallback.rate : undefined,
+      rate: typeof fallback.rate === 'number' ? fallback.rate : undefined,
       etd: fallback.etd,
-      rating: typeof fallback.rating === "number" ? fallback.rating : undefined,
+      rating: typeof fallback.rating === 'number' ? fallback.rating : undefined,
       isRecommended: false,
     };
   }
@@ -668,10 +687,10 @@ export class ShiprocketProvider implements ShippingProvider {
    */
   async assignAwb(params: AssignAwbParams): Promise<AssignAwbResult> {
     if (!params.shipmentId) {
-      throw new Error("shipment_id is required for Shiprocket AWB assignment.");
+      throw new Error('shipment_id is required for Shiprocket AWB assignment.');
     }
     if (!params.courierId) {
-      throw new Error("courier_id is required for Shiprocket AWB assignment.");
+      throw new Error('courier_id is required for Shiprocket AWB assignment.');
     }
 
     const payload = {
@@ -701,28 +720,30 @@ export class ShiprocketProvider implements ShippingProvider {
       courier_company_id?: number | string;
       message?: string;
       [key: string]: unknown;
-    }>("/courier/assign/awb", {
-      method: "POST",
+    }>('/courier/assign/awb', {
+      method: 'POST',
       body: JSON.stringify(payload),
     });
 
     const dataObj = res?.response?.data;
     const awbCode = dataObj?.awb_code || res?.awb_code || null;
     const courierName = dataObj?.courier_name || res?.courier_name || null;
-    const courierCompanyId = dataObj?.courier_company_id || res?.courier_company_id || params.courierId;
+    const courierCompanyId =
+      dataObj?.courier_company_id ||
+      res?.courier_company_id ||
+      params.courierId;
     const pickupScheduledDate = dataObj?.pickup_scheduled_date || null;
-    const shipmentId = dataObj?.shipment_id || res?.shipment_id || params.shipmentId;
+    const shipmentId =
+      dataObj?.shipment_id || res?.shipment_id || params.shipmentId;
     const orderId = dataObj?.order_id || res?.order_id || null;
 
-    const isSuccess =
-      res?.awb_assign_status === 1 ||
-      Boolean(awbCode);
+    const isSuccess = res?.awb_assign_status === 1 || Boolean(awbCode);
 
     if (!isSuccess || !awbCode) {
       const errorMsg =
-        (typeof res?.message === "string" && res.message) ||
-        (typeof (res as any)?.error === "string" && (res as any).error) ||
-        "Shiprocket AWB assignment was unsuccessful";
+        (typeof res?.message === 'string' && res.message) ||
+        (typeof (res as any)?.error === 'string' && (res as any).error) ||
+        'Shiprocket AWB assignment was unsuccessful';
       this.logger.error(
         `Shiprocket AWB assignment failed for shipment ${params.shipmentId}: ${errorMsg}`,
       );
@@ -734,7 +755,7 @@ export class ShiprocketProvider implements ShippingProvider {
     }
 
     this.logger.log(
-      `Shiprocket AWB successfully assigned: AWB=${awbCode}, courier="${courierName}" (ID: ${courierCompanyId}), pickup_scheduled_date=${pickupScheduledDate || "N/A"}.`,
+      `Shiprocket AWB successfully assigned: AWB=${awbCode}, courier="${courierName}" (ID: ${courierCompanyId}), pickup_scheduled_date=${pickupScheduledDate || 'N/A'}.`,
     );
 
     return {
@@ -744,8 +765,10 @@ export class ShiprocketProvider implements ShippingProvider {
       courierCompanyId,
       shipmentId: shipmentId ? String(shipmentId) : null,
       orderId: orderId ? String(orderId) : null,
-      pickupScheduledDate: pickupScheduledDate ? String(pickupScheduledDate) : null,
-      message: "AWB assigned successfully",
+      pickupScheduledDate: pickupScheduledDate
+        ? String(pickupScheduledDate)
+        : null,
+      message: 'AWB assigned successfully',
       rawResponse: res,
     };
   }
@@ -753,16 +776,23 @@ export class ShiprocketProvider implements ShippingProvider {
   /**
    * Resolves the 6-digit postal code of a Shiprocket pickup location
    */
-  async getPickupLocationPincode(pickupLocationName: string): Promise<string | null> {
-    const directPincode = (this.configService.get<string>("SHIPROCKET_PICKUP_PINCODE", "") || "").trim();
+  async getPickupLocationPincode(
+    pickupLocationName: string,
+  ): Promise<string | null> {
+    const directPincode = (
+      this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || ''
+    ).trim();
     if (directPincode && /^\d{6}$/.test(directPincode)) {
       return directPincode;
     }
 
-    const targetName = (pickupLocationName || "").trim().toLowerCase();
+    const targetName = (pickupLocationName || '').trim().toLowerCase();
     const now = Date.now();
 
-    if (!this.pickupLocationsCache || now > this.pickupLocationsCacheExpiresAt) {
+    if (
+      !this.pickupLocationsCache ||
+      now > this.pickupLocationsCacheExpiresAt
+    ) {
       try {
         const res = await this.requestWithAuth<{
           data?: {
@@ -771,7 +801,7 @@ export class ShiprocketProvider implements ShippingProvider {
               pin_code?: string;
             }>;
           };
-        }>("/settings/company/pickup", { method: "GET" });
+        }>('/settings/company/pickup', { method: 'GET' });
 
         const addresses = res?.data?.shipping_address;
         if (addresses && Array.isArray(addresses)) {
@@ -784,7 +814,9 @@ export class ShiprocketProvider implements ShippingProvider {
           this.pickupLocationsCacheExpiresAt = now + 60 * 60 * 1000; // 1 hour cache
         }
       } catch (err: any) {
-        this.logger.warn(`Failed to fetch Shiprocket pickup locations: ${err?.message || err}`);
+        this.logger.warn(
+          `Failed to fetch Shiprocket pickup locations: ${err?.message || err}`,
+        );
       }
     }
 
@@ -843,6 +875,71 @@ export class ShiprocketProvider implements ShippingProvider {
       `Shiprocket cancelReturnPickup not yet implemented for shipment ${_shipmentId}.`,
     );
     return Promise.resolve(false);
+  }
+
+  /**
+   * Cancels a forward shipment / order in Shiprocket.
+   *
+   * Shiprocket exposes two distinct cancel endpoints:
+   *  - POST /orders/cancel          -> cancels orders by Shiprocket order id
+   *  - POST /orders/cancel/shipment -> cancels awb-assigned shipments
+   *
+   * We prefer the order-level cancel (pre-AWB orders, which is the only state
+   * KickAt allows the customer to cancel from) and fall back to the shipment
+   * cancel when only a shipmentId is known.
+   */
+  async cancelShipment(params: {
+    shiprocketOrderId?: string | null;
+    shiprocketShipmentId?: string | null;
+  }): Promise<{ success: boolean; message: string }> {
+    const { shiprocketOrderId, shiprocketShipmentId } = params;
+
+    if (!shiprocketOrderId && !shiprocketShipmentId) {
+      return {
+        success: false,
+        message: 'No Shiprocket order or shipment identifier supplied',
+      };
+    }
+
+    // Order-level cancellation (expects an array of numeric Shiprocket order ids)
+    if (shiprocketOrderId) {
+      const numericOrderId = Number(shiprocketOrderId);
+      const ids = Number.isFinite(numericOrderId)
+        ? [numericOrderId]
+        : [shiprocketOrderId];
+
+      await this.requestWithAuth('/orders/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+
+      this.logger.log(
+        `Shiprocket order ${shiprocketOrderId} cancelled successfully.`,
+      );
+      return {
+        success: true,
+        message: `Shiprocket order ${shiprocketOrderId} cancelled`,
+      };
+    }
+
+    // Shipment-level cancellation fallback
+    const numericShipmentId = Number(shiprocketShipmentId);
+    const shipmentIds = Number.isFinite(numericShipmentId)
+      ? [numericShipmentId]
+      : [shiprocketShipmentId];
+
+    await this.requestWithAuth('/orders/cancel/shipment', {
+      method: 'POST',
+      body: JSON.stringify({ ids: shipmentIds }),
+    });
+
+    this.logger.log(
+      `Shiprocket shipment ${shiprocketShipmentId} cancelled successfully.`,
+    );
+    return {
+      success: true,
+      message: `Shiprocket shipment ${shiprocketShipmentId} cancelled`,
+    };
   }
 
   handleTrackingUpdate(): Promise<ReturnStatusUpdate> {
