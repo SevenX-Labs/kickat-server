@@ -19,6 +19,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { RecommendationModule } from './modules/recommendation/recommendation.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditService } from './common/services/audit.service';
 import { OtpCacheService } from './common/services/otp-cache.service';
@@ -156,6 +157,7 @@ import { VaultModule as AdminVaultModule } from './modules/admin/vault/vault.mod
     OrdersModule,
     ReviewsModule,
     NotificationsModule,
+    RecommendationModule,
     CategoriesModule,
     AdminAuthModule,
     DashboardModule,
