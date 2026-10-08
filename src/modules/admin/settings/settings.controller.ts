@@ -15,6 +15,7 @@ import {
   UpdateGeneralSettingsDto,
   UpdatePaymentSettingsDto,
   UpdateTaxSettingsDto,
+  UpdateManufacturingSettingsDto,
 } from "./dto/admin-settings.dto";
 
 @AdminAuth()
@@ -112,6 +113,22 @@ export class SettingsController {
   @Patch("delivery")
   async updateDeliverySettings(@Body() dto: UpdateDeliverySettingsDto) {
     return this.settingsService.updateDeliverySettings(dto);
+  }
+
+  /**
+   * GET /api/v1/admin/settings/manufacturing
+   */
+  @Get("manufacturing")
+  async getManufacturingSettings() {
+    return this.settingsService.getManufacturingSettings();
+  }
+
+  /**
+   * PATCH /api/v1/admin/settings/manufacturing
+   */
+  @Patch("manufacturing")
+  async updateManufacturingSettings(@Body() dto: UpdateManufacturingSettingsDto) {
+    return this.settingsService.updateManufacturingSettings(dto);
   }
 }
 

@@ -215,6 +215,45 @@ export class UpdateDeliverySettingsDto {
   isExtraFeeCompulsory?: boolean;
 }
 
+
+export class UpdateManufacturingSettingsDto {
+  @IsOptional()
+  @IsString({ message: "manufacturerName must be a string" })
+  manufacturerName?: string;
+
+  @IsOptional()
+  @IsString({ message: "manufacturerAddress must be a string" })
+  manufacturerAddress?: string;
+
+  @IsOptional()
+  @IsString({ message: "marketedBy must be a string" })
+  marketedBy?: string;
+
+  @IsOptional()
+  @IsString({ message: "countryOfOrigin must be a string" })
+  countryOfOrigin?: string;
+
+  @IsOptional()
+  @IsString({ message: "consumerCareEmail must be a string" })
+  consumerCareEmail?: string;
+
+  @IsOptional()
+  @IsString({ message: "consumerCarePhone must be a string" })
+  consumerCarePhone?: string;
+
+  @IsOptional()
+  @IsString({ message: "qualityStandard must be a string" })
+  qualityStandard?: string;
+
+  @IsOptional()
+  @IsString({ message: "cinNumber must be a string" })
+  cinNumber?: string;
+
+  @IsOptional()
+  @IsString({ message: "shelfLife must be a string" })
+  shelfLife?: string;
+}
+
 export class UpdateAllSettingsDto {
   @IsOptional()
   @ValidateNested()
@@ -235,4 +274,9 @@ export class UpdateAllSettingsDto {
   @ValidateNested()
   @Type(() => UpdateDeliverySettingsDto)
   delivery?: UpdateDeliverySettingsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateManufacturingSettingsDto)
+  manufacturing?: UpdateManufacturingSettingsDto;
 }

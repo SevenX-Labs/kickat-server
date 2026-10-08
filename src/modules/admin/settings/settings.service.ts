@@ -9,7 +9,20 @@ import {
   UpdateGeneralSettingsDto,
   UpdatePaymentSettingsDto,
   UpdateTaxSettingsDto,
+  UpdateManufacturingSettingsDto,
 } from "./dto/admin-settings.dto";
+
+export const DEFAULT_MANUFACTURING_SETTINGS = {
+  manufacturerName: "",
+  manufacturerAddress: "",
+  marketedBy: "",
+  countryOfOrigin: "India",
+  consumerCareEmail: "support@kickat.in",
+  consumerCarePhone: "+91 98765 43210",
+  qualityStandard: "",
+  cinNumber: "",
+  shelfLife: "24 Months from PKD",
+};
 
 export const DEFAULT_GENERAL_SETTINGS = {
   storeName: "Kickat",
@@ -147,11 +160,12 @@ export class SettingsService {
    * Returns consolidated view of the 4 settings groups
    */
   async getAllSettings() {
-    const [general, payment, tax, delivery] = await Promise.all([
+    const [general, payment, tax, delivery, manufacturing] = await Promise.all([
       this.getRawSettingGroup("general", DEFAULT_GENERAL_SETTINGS),
       this.getRawSettingGroup("payment", DEFAULT_PAYMENT_SETTINGS),
       this.getRawSettingGroup("tax", DEFAULT_TAX_SETTINGS),
       this.getRawSettingGroup("delivery", DEFAULT_DELIVERY_SETTINGS),
+      this.getRawSettingGroup("manufacturing", DEFAULT_MANUFACTURING_SETTINGS),
     ]);
 
     return {
@@ -396,15 +410,46 @@ export class SettingsService {
   }
 
   /**
+   * GET /api/v1/admin/settings/manufacturing
+   */
+  async getManufacturingSettings() {
+    const raw = await this.getRawSettingGroup("manufacturing", DEFAULT_MANUFACTURING_SETTINGS);
+    return {
+      success: true,
+      data: raw,
+    };
+  }
+
+  /**
+   * PATCH /api/v1/admin/settings/manufacturing
+   */
+  async updateManufacturingSettings(dto: UpdateManufacturingSettingsDto) {
+    const existing = await this.getRawSettingGroup("manufacturing", DEFAULT_MANUFACTURING_SETTINGS);
+    const merged = {
+      ...existing,
+      ...dto,
+    };
+
+    await this.saveRawSettingGroup("manufacturing", merged);
+
+    return {
+      success: true,
+      message: "Manufacturing settings updated successfully",
+      data: merged,
+    };
+  }
+
+  /**
    * GET /api/v1/settings/public
    * Public general settings for customer frontend (social links, contact info, maintenance mode, delivery & payment rules)
    */
   async getPublicGeneralSettings() {
-    const [general, delivery, tax, payment] = await Promise.all([
+    const [general, delivery, tax, payment, manufacturing] = await Promise.all([
       this.getRawSettingGroup("general", DEFAULT_GENERAL_SETTINGS),
       this.getRawSettingGroup("delivery", DEFAULT_DELIVERY_SETTINGS),
       this.getRawSettingGroup("tax", DEFAULT_TAX_SETTINGS),
       this.getRawSettingGroup("payment", DEFAULT_PAYMENT_SETTINGS),
+      this.getRawSettingGroup("manufacturing", DEFAULT_MANUFACTURING_SETTINGS),
     ]);
 
     return {
@@ -435,6 +480,26 @@ export class SettingsService {
           gstAppliesToDelivery: Boolean(tax.gstAppliesToDelivery),
           taxInclusive: Boolean(tax.taxInclusive),
         },
+        manufacturing: (() => {
+          const m = manufacturing || {};
+          const hasData = Boolean(
+            (m.manufacturerName && m.manufacturerName.trim()) ||
+            (m.marketedBy && m.marketedBy.trim()) ||
+            (m.manufacturerAddress && m.manufacturerAddress.trim())
+          );
+          if (!hasData) return null;
+          return {
+            manufacturerName: m.manufacturerName ? m.manufacturerName.trim() : null,
+            manufacturerAddress: m.manufacturerAddress ? m.manufacturerAddress.trim() : null,
+            marketedBy: m.marketedBy ? m.marketedBy.trim() : null,
+            countryOfOrigin: m.countryOfOrigin ? m.countryOfOrigin.trim() : "India",
+            consumerCareEmail: m.consumerCareEmail ? m.consumerCareEmail.trim() : null,
+            consumerCarePhone: m.consumerCarePhone ? m.consumerCarePhone.trim() : null,
+            qualityStandard: m.qualityStandard ? m.qualityStandard.trim() : null,
+            cinNumber: m.cinNumber ? m.cinNumber.trim() : null,
+            shelfLife: m.shelfLife ? m.shelfLife.trim() : null,
+          };
+        })(),
         payment: {
           razorpay: {
             enabled: Boolean(payment.razorpay?.enabled ?? true),
