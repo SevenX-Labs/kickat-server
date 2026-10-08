@@ -158,6 +158,15 @@ export interface ReturnStatusUpdate {
   timestamp?: string;
 }
 
+export interface ShipmentTrackingResult {
+  awb: string;
+  /** Raw provider scan activities (Shiprocket: date/status/activity/location/sr-status/sr-status-label). */
+  activities: any[];
+  currentStatus?: string | null;
+  etd?: string | null;
+  trackUrl?: string | null;
+}
+
 export interface ShippingProvider {
   readonly providerName: string;
   createShipment(params: CreateShipmentParams): Promise<CreateShipmentResult>;
@@ -175,6 +184,11 @@ export interface ShippingProvider {
     shiprocketOrderId?: string | null;
     shiprocketShipmentId?: string | null;
   }): Promise<{ success: boolean; message: string }>;
+  /**
+   * Pulls the raw courier scan activities for a forward shipment by AWB.
+   * Optional so providers without tracking (e.g. the null provider) stay valid.
+   */
+  getShipmentTrackingByAwb?(awb: string): Promise<ShipmentTrackingResult>;
   createReturnPickup(
     params: CreateReturnPickupParams,
   ): Promise<ReturnPickupResult>;

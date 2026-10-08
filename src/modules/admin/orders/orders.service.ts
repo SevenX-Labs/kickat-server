@@ -6,9 +6,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { ShippingService } from '../shipping/shipping.service';
 import {
   AdminCancelOrderDto,
   AdminOrderSortEnum,
@@ -31,6 +33,7 @@ export class OrdersService {
     private readonly notificationsService: NotificationsService,
     private readonly invoicePdfService: InvoicePdfService,
     private readonly settingsService: SettingsService,
+    @Optional() private readonly shippingService?: ShippingService,
   ) {}
 
   /**
@@ -487,7 +490,24 @@ export class OrdersService {
     }
 
     const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      // 1. Restock items if requested
+      // 1. Atomically claim the cancellation. A concurrent admin cancel that
+      // already committed makes this match nothing, so restock and the
+      // provider cancel below can never run twice for the same order.
+      const claim = await tx.order.updateMany({
+        where: { id: order.id, orderStatus: { not: OrderStatusEnum.CANCELLED } },
+        data: {
+          orderStatus: OrderStatusEnum.CANCELLED,
+          cancelledAt: new Date(),
+          cancelReason: dto.reason,
+          cancelReasonOther: dto.reasonOther || null,
+        },
+      });
+
+      if (claim.count === 0) {
+        throw new BadRequestException('Order is already cancelled');
+      }
+
+      // 2. Restock items if requested
       if (dto.restockItems !== false) {
         for (const item of order.items) {
           // Restock main product
@@ -506,23 +526,18 @@ export class OrdersService {
         }
       }
 
-      // 2. Mark order as CANCELLED
-      const updated = await tx.order.update({
+      return tx.order.findUnique({
         where: { id: order.id },
-        data: {
-          orderStatus: OrderStatusEnum.CANCELLED,
-          cancelledAt: new Date(),
-          cancelReason: dto.reason,
-          cancelReasonOther: dto.reasonOther || null,
-        },
         include: {
           items: true,
           user: { select: { id: true, name: true, email: true } },
         },
       });
-
-      return updated;
     });
+
+    if (!updatedOrder) {
+      throw new NotFoundException('Order not found');
+    }
 
     this.notificationsService.notifyOrderStatusChange({
       orderId: updatedOrder.id,
@@ -532,11 +547,99 @@ export class OrdersService {
       newStatus: 'CANCELLED',
     });
 
+    // 3. Provider shipment sync — only after the DB transaction has committed,
+    // so no transaction is held open across the Shiprocket HTTP call.
+    const shipmentCancellation = await this.cancelProviderShipment(
+      order,
+      oldStatus,
+    );
+
     return {
       success: true,
-      message: 'Order cancelled successfully and inventory restocked',
+      message:
+        shipmentCancellation.attempted && !shipmentCancellation.success
+          ? 'Order cancelled and inventory restocked, but the courier shipment could not be cancelled automatically. Cancel it in Shiprocket manually.'
+          : 'Order cancelled successfully and inventory restocked',
       data: updatedOrder,
+      shipmentCancellation,
     };
+  }
+
+  /**
+   * Cancels the order's forward shipment with the shipping provider after an
+   * admin cancellation, reusing ShippingService.cancelShipmentForOrder (the
+   * same call the customer cancel flow makes). Uses the same detection fields
+   * as the customer flow: shiprocketOrderId / shiprocketShipmentId.
+   *
+   * Like the customer flow this never throws — the order is already CANCELLED
+   * in KickAt — but the outcome is awaited and returned so the admin response
+   * never claims the shipment was cancelled when it was not.
+   */
+  private async cancelProviderShipment(
+    order: {
+      id: string;
+      orderNumber: string;
+      shiprocketOrderId?: string | null;
+      shiprocketShipmentId?: string | null;
+      trackingNumber?: string | null;
+    },
+    previousStatus: OrderStatusEnum,
+  ): Promise<{ attempted: boolean; success: boolean; message: string }> {
+    if (!order.shiprocketOrderId && !order.shiprocketShipmentId) {
+      return {
+        attempted: false,
+        success: true,
+        message: 'No provider shipment to cancel for this order',
+      };
+    }
+
+    // A delivered / returned shipment is already closed at the provider.
+    const closedShipmentStatuses: OrderStatusEnum[] = [
+      OrderStatusEnum.DELIVERED,
+      OrderStatusEnum.RETURNED,
+      OrderStatusEnum.RETURN_INITIATED,
+    ];
+    if (closedShipmentStatuses.includes(previousStatus)) {
+      this.logger.log(
+        `Skipping provider shipment cancellation for order ${order.orderNumber} (id=${order.id}): shipment already closed (status was ${previousStatus}).`,
+      );
+      return {
+        attempted: false,
+        success: true,
+        message: `Shipment already closed at provider (status was ${previousStatus})`,
+      };
+    }
+
+    if (!this.shippingService) {
+      this.logger.warn(
+        `ShippingService unavailable; provider shipment for cancelled order ${order.orderNumber} (id=${order.id}, shipmentId=${order.shiprocketShipmentId}) must be cancelled manually.`,
+      );
+      return {
+        attempted: true,
+        success: false,
+        message: 'Shipping service unavailable; cancel the shipment manually',
+      };
+    }
+
+    try {
+      const res = await this.shippingService.cancelShipmentForOrder(order.id);
+      if (!res.success) {
+        this.logger.warn(
+          `Provider shipment cancellation did not succeed for order ${order.orderNumber} (id=${order.id}, shipmentId=${order.shiprocketShipmentId}, awb=${order.trackingNumber}): ${res.message}`,
+        );
+      }
+      return { attempted: true, success: res.success, message: res.message };
+    } catch (shipErr: any) {
+      const message = shipErr?.message || String(shipErr);
+      this.logger.error(
+        `Provider shipment cancellation failed for order ${order.orderNumber} (id=${order.id}, shipmentId=${order.shiprocketShipmentId}, awb=${order.trackingNumber}): ${message}`,
+      );
+      return {
+        attempted: true,
+        success: false,
+        message: `Provider shipment cancellation failed: ${message}`,
+      };
+    }
   }
 
   /**

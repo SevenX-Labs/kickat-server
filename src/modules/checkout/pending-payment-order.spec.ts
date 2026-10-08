@@ -421,6 +421,77 @@ describe('Abandoned online payment (Issue 2)', () => {
     });
   });
 
+  describe('late capture after cleanup (limitation a)', () => {
+    beforeEach(() => {
+      prisma.order.findFirst.mockResolvedValue(pendingOrder);
+      prisma.payment.findFirst.mockResolvedValue({
+        id: paymentId,
+        orderId,
+        userId,
+        status: PaymentStatusEnum.PENDING,
+        razorpayOrderId: 'order_rzp_1',
+      });
+    });
+
+    it('refunds a capture that lands on an already-cancelled order, exactly once', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...pendingOrder,
+        orderStatus: OrderStatusEnum.CANCELLED,
+      });
+      // promotion claims (PENDING / visible) miss; the late-capture claim wins
+      prisma.order.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
+      const refundSpy = jest
+        .spyOn(paymentsService, 'initiateRefundForOrder')
+        .mockResolvedValue({
+          success: true,
+          refundInitiated: true,
+          message: 'Refund initiated successfully',
+        });
+
+      await paymentsService.verifyPayment(userId, {
+        orderId,
+        razorpayOrderId: 'order_rzp_1',
+        razorpayPaymentId: 'pay_1',
+        signature: 'sig',
+      });
+
+      expect(prisma.order.updateMany).toHaveBeenLastCalledWith({
+        where: expect.objectContaining({
+          id: orderId,
+          orderStatus: OrderStatusEnum.CANCELLED,
+        }),
+        data: { paymentStatus: PaymentStatusEnum.COMPLETED },
+      });
+      expect(refundSpy).toHaveBeenCalledTimes(1);
+      expect(refundSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ orderId, actorType: 'SYSTEM' }),
+      );
+      expect(prisma.product.updateMany).not.toHaveBeenCalled();
+      expect(shippingService.createShipmentForOrder).not.toHaveBeenCalled();
+    });
+
+    it('does not refund when another confirmation already claimed it', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...pendingOrder,
+        orderStatus: OrderStatusEnum.CANCELLED,
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
+      const refundSpy = jest.spyOn(paymentsService, 'initiateRefundForOrder');
+
+      await paymentsService.verifyPayment(userId, {
+        orderId,
+        razorpayOrderId: 'order_rzp_1',
+        razorpayPaymentId: 'pay_1',
+        signature: 'sig',
+      });
+
+      expect(refundSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('visibility', () => {
     it('never lists a PENDING order, even when asked for status=PENDING', async () => {
       await ordersService.getOrders(userId, { status: 'PENDING' } as any);

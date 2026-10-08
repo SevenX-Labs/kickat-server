@@ -5,12 +5,14 @@ import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import { ShiprocketWebhookService } from "./shiprocket-webhook.service";
+import { OrderTrackingEventsService } from "./order-tracking-events.service";
 
 describe("ShiprocketWebhookService", () => {
   let service: ShiprocketWebhookService;
   let prisma: any;
   let configService: any;
   let notificationsService: any;
+  let trackingEventsService: any;
 
   const sampleOrder: any = {
     id: "ord-uuid-1234-5678",
@@ -91,9 +93,14 @@ describe("ShiprocketWebhookService", () => {
       notifyOrderStatusChange: jest.fn(),
     };
 
+    trackingEventsService = {
+      recordEvents: jest.fn().mockResolvedValue(0),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShiprocketWebhookService,
+        { provide: OrderTrackingEventsService, useValue: trackingEventsService },
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: configService },
         { provide: NotificationsService, useValue: notificationsService },
@@ -594,5 +601,88 @@ describe("ShiprocketWebhookService", () => {
 
     expect(prisma.product.update).not.toHaveBeenCalled();
     expect(prisma.productVariant.update).not.toHaveBeenCalled();
+  });
+
+  describe("tracking event persistence", () => {
+    const scanPayload = {
+      shipment_id: 1617036672,
+      awb: "AWB-SR-998877",
+      current_status: "IN TRANSIT",
+      current_timestamp: "12 08 2026 10:00:00",
+      scans: [
+        {
+          date: "2026-08-11 09:00:00",
+          activity: "Shipment picked up",
+          location: "Bhiwandi_DC (Maharashtra)",
+          "sr-status-label": "PICKED UP",
+        },
+        {
+          date: "2026-08-12 10:00:00",
+          activity: "Bag received at facility",
+          location: "Pune_Hub (Maharashtra)",
+          "sr-status-label": "IN TRANSIT",
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      prisma.order.findFirst.mockResolvedValue({
+        ...sampleOrder,
+        orderStatus: OrderStatusEnum.SHIPPED,
+      });
+      prisma.webhookLog.create.mockResolvedValue({ id: "log-1" });
+      prisma.order.update.mockResolvedValue({
+        ...sampleOrder,
+        orderStatus: OrderStatusEnum.SHIPPED,
+      });
+    });
+
+    it("persists every scan carried by the webhook instead of discarding it", async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+
+      await service.processWebhook({
+        headers: { "x-api-key": "sr_webhook_secret_key_123" },
+        body: scanPayload,
+      });
+
+      expect(trackingEventsService.recordEvents).toHaveBeenCalledTimes(1);
+      const [orderId, events, ctx] = trackingEventsService.recordEvents.mock.calls[0];
+      expect(orderId).toBe(sampleOrder.id);
+      expect(ctx).toEqual({
+        source: "WEBHOOK",
+        awb: "AWB-SR-998877",
+        shipmentId: "1617036672",
+      });
+      expect(events.map((e: any) => [e.stage, e.location])).toEqual([
+        ["SHIPPED", "Bhiwandi_DC (Maharashtra)"],
+        ["IN_TRANSIT", "Pune_Hub (Maharashtra)"],
+      ]);
+    });
+
+    it("re-delivered webhook goes through the idempotent persistence path only", async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue({ id: "existing" });
+
+      const result = await service.processWebhook({
+        headers: { "x-api-key": "sr_webhook_secret_key_123" },
+        body: scanPayload,
+      });
+
+      expect(result.duplicate).toBe(true);
+      expect(trackingEventsService.recordEvents).toHaveBeenCalledTimes(1);
+      expect(prisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("a persistence failure never blocks the status update", async () => {
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      trackingEventsService.recordEvents.mockRejectedValue(new Error("db down"));
+
+      const result = await service.processWebhook({
+        headers: { "x-api-key": "sr_webhook_secret_key_123" },
+        body: { ...scanPayload, current_status: "DELIVERED" },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.statusUpdated).toBe(true);
+    });
   });
 });

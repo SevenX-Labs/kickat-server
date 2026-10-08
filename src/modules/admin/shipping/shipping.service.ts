@@ -24,6 +24,10 @@ import {
   UpdateShipmentStatusDto,
 } from './dto/admin-shipping.dto';
 import { OrderStatusEnum } from '@prisma/client';
+import {
+  buildTrackingTimeline,
+  serializeTrackingEvents,
+} from './tracking-events.util';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -512,72 +516,23 @@ export class ShippingService {
 
     const baseCreated = new Date(order.createdAt).getTime();
 
-    // Generate chronological checkpoints based on orderStatus
-    const statusOrder: OrderStatusEnum[] = [
-      OrderStatusEnum.PLACED,
-      OrderStatusEnum.PROCESSING,
-      OrderStatusEnum.PACKED,
-      OrderStatusEnum.SHIPPED,
-      OrderStatusEnum.OUT_FOR_DELIVERY,
-      OrderStatusEnum.DELIVERED,
-    ];
+    // Real courier scans persisted from Shiprocket (webhook + AWB sync). The
+    // timeline is built from them when present; otherwise it is a status-only
+    // milestone summary with no invented locations or timestamps.
+    const storedEvents = await this.prisma.orderTrackingEvent.findMany({
+      where: { orderId: order.id },
+      orderBy: [{ eventAt: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        rawStatus: true,
+        stage: true,
+        description: true,
+        location: true,
+        eventAt: true,
+        source: true,
+      },
+    });
 
-    const currentStatusIndex = statusOrder.indexOf(order.orderStatus);
-
-    const checkpoints = [
-      {
-        stage: 'ORDER_PLACED',
-        title: 'Order Placed & Confirmed',
-        location: 'Online Platform',
-        timestamp: new Date(baseCreated).toISOString(),
-        isCompleted: true,
-        description: 'Customer order placed and payment verified.',
-      },
-      {
-        stage: 'PACKED',
-        title: 'Packed at Warehouse',
-        location: 'Kickat Central Hub, Mumbai',
-        timestamp: new Date(baseCreated + 1 * 60 * 60 * 1000).toISOString(),
-        isCompleted: currentStatusIndex >= 2 || isRTO,
-        description: 'Items picked, verified, and safely packed.',
-      },
-      {
-        stage: 'SHIPPED',
-        title: 'Handed Over to Courier',
-        location: 'Mumbai Logistics Hub',
-        timestamp: new Date(baseCreated + 4 * 60 * 60 * 1000).toISOString(),
-        isCompleted: currentStatusIndex >= 3 || isRTO,
-        description: `Package picked up by ${courier} under AWB ${awb}.`,
-      },
-      {
-        stage: 'IN_TRANSIT',
-        title: 'In Transit to Destination Hub',
-        location: `${order.address?.city || 'Destination'} Regional Sorting Facility`,
-        timestamp: new Date(baseCreated + 24 * 60 * 60 * 1000).toISOString(),
-        isCompleted: currentStatusIndex >= 3 || isRTO,
-        description: 'Package in transit between logistics hubs.',
-      },
-      {
-        stage: 'OUT_FOR_DELIVERY',
-        title: 'Out for Delivery',
-        location: `${order.address?.city || 'Local'} Delivery Center`,
-        timestamp: new Date(baseCreated + 36 * 60 * 60 * 1000).toISOString(),
-        isCompleted: currentStatusIndex >= 4,
-        description: 'Delivery executive assigned and out for delivery.',
-      },
-      {
-        stage: isRTO ? 'RTO_INITIATED' : 'DELIVERED',
-        title: isRTO ? 'Return to Origin (RTO)' : 'Delivered to Recipient',
-        location: `${order.address?.city || ''}, ${order.address?.state || ''}`,
-        timestamp: new Date(baseCreated + 48 * 60 * 60 * 1000).toISOString(),
-        isCompleted:
-          order.orderStatus === OrderStatusEnum.DELIVERED ||
-          order.orderStatus === OrderStatusEnum.RETURNED,
-        description: isRTO
-          ? 'Shipment marked for Return to Origin.'
-          : 'Package safely delivered to recipient address.',
-      },
-    ];
+    const checkpoints = buildTrackingTimeline(order, storedEvents);
 
     const specCheckpoints = checkpoints
       .filter((c) => c.isCompleted)
@@ -608,6 +563,8 @@ export class ShippingService {
         trackingUrl: this.getCourierTrackingUrl(courier, awb),
         checkpoints: specCheckpoints,
         timeline: checkpoints,
+        // Additive: real provider scan events, chronological.
+        events: serializeTrackingEvents(storedEvents),
       },
     };
   }

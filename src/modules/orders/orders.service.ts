@@ -29,6 +29,12 @@ import { OrderAgainQueryDto } from './dto/order-again-query.dto';
 import { OrderStatusEnum, PaymentStatusEnum } from '@prisma/client';
 import { PaymentsService } from '../payments/payments.service';
 import { ShippingService } from '../admin/shipping/shipping.service';
+import {
+  buildTrackingTimeline,
+  getLatestEventLocation,
+  getTrackingPlaceholderMessage,
+  serializeTrackingEvents,
+} from '../admin/shipping/tracking-events.util';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -640,6 +646,11 @@ export class OrdersService {
 
   /**
    * GET /orders/:id/tracking
+   *
+   * `events` carries the real courier scans persisted from Shiprocket
+   * (webhook + AWB sync), oldest first. `timeline` is built from those events
+   * when present, otherwise it is a status-only milestone summary with no
+   * invented locations or timestamps.
    */
   async getOrderTracking(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
@@ -653,131 +664,36 @@ export class OrdersService {
       order.orderStatus === OrderStatusEnum.RETURNED;
     const isCancelled = order.orderStatus === OrderStatusEnum.CANCELLED;
 
-    // Standard progression milestones
-    const statusOrder: OrderStatusEnum[] = [
-      OrderStatusEnum.PLACED,
-      OrderStatusEnum.PROCESSING,
-      OrderStatusEnum.PACKED,
-      OrderStatusEnum.SHIPPED,
-      OrderStatusEnum.OUT_FOR_DELIVERY,
-      OrderStatusEnum.DELIVERED,
-    ];
+    const storedEvents = await this.prisma.orderTrackingEvent.findMany({
+      where: { orderId: order.id },
+      orderBy: [{ eventAt: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        rawStatus: true,
+        stage: true,
+        description: true,
+        location: true,
+        eventAt: true,
+        source: true,
+      },
+    });
 
-    const currentStatusIndex = statusOrder.indexOf(order.orderStatus);
+    const timeline = buildTrackingTimeline(order, storedEvents);
+    const events = serializeTrackingEvents(storedEvents);
 
-    // Dynamic timeline matching Admin milestones without fabricating future timestamps
-    const timeline = isCancelled
-      ? [
-          {
-            stage: 'ORDER_PLACED',
-            title: 'Order Placed & Confirmed',
-            location: 'Online Platform',
-            timestamp: order.createdAt,
-            isCompleted: true,
-            isCurrent: false,
-            description: 'Customer order placed and payment verified.',
-          },
-          {
-            stage: 'CANCELLED',
-            title: 'Order Cancelled',
-            location: 'Online Platform',
-            timestamp: order.cancelledAt || order.updatedAt,
-            isCompleted: true,
-            isCurrent: true,
-            description: order.cancelReason
-              ? `Reason: ${order.cancelReason}`
-              : 'Order was cancelled.',
-          },
-        ]
-      : [
-          {
-            stage: 'ORDER_PLACED',
-            title: 'Order Placed & Confirmed',
-            location: 'Online Platform',
-            timestamp: order.createdAt,
-            isCompleted: true,
-            isCurrent: currentStatusIndex <= 0,
-            description: 'Customer order placed and payment verified.',
-          },
-          {
-            stage: 'PACKED',
-            title: 'Packed at Warehouse',
-            location: 'Kickat Central Hub, Mumbai',
-            timestamp: currentStatusIndex >= 2 ? order.updatedAt : null,
-            isCompleted: currentStatusIndex >= 2 || isRTO,
-            isCurrent: currentStatusIndex === 1 || currentStatusIndex === 2,
-            description: 'Items picked, verified, and safely packed.',
-          },
-          {
-            stage: 'SHIPPED',
-            title: 'Handed Over to Courier',
-            location: 'Mumbai Logistics Hub',
-            timestamp: currentStatusIndex >= 3 ? order.updatedAt : null,
-            isCompleted: currentStatusIndex >= 3 || isRTO,
-            isCurrent: currentStatusIndex === 3,
-            description:
-              courier && awb
-                ? `Package picked up by ${courier} under AWB ${awb}.`
-                : 'Package handed over to logistics carrier.',
-          },
-          {
-            stage: 'IN_TRANSIT',
-            title: 'In Transit to Destination Hub',
-            location: `${order.address?.city || 'Destination'} Regional Sorting Facility`,
-            timestamp: currentStatusIndex >= 3 ? order.updatedAt : null,
-            isCompleted: currentStatusIndex >= 3 || isRTO,
-            isCurrent: currentStatusIndex === 3,
-            description: 'Package in transit between logistics hubs.',
-          },
-          {
-            stage: 'OUT_FOR_DELIVERY',
-            title: 'Out for Delivery',
-            location: `${order.address?.city || 'Local'} Delivery Center`,
-            timestamp: currentStatusIndex >= 4 ? order.updatedAt : null,
-            isCompleted: currentStatusIndex >= 4,
-            isCurrent: currentStatusIndex === 4,
-            description: 'Delivery executive assigned and out for delivery.',
-          },
-          {
-            stage: isRTO ? 'RTO_INITIATED' : 'DELIVERED',
-            title: isRTO ? 'Return to Origin (RTO)' : 'Delivered to Recipient',
-            location:
-              `${order.address?.city || ''}, ${order.address?.state || ''}`.trim() ||
-              'Customer Address',
-            timestamp:
-              order.orderStatus === OrderStatusEnum.DELIVERED ||
-              order.orderStatus === OrderStatusEnum.RETURNED
-                ? order.deliveryDate || order.updatedAt
-                : null,
-            isCompleted:
-              order.orderStatus === OrderStatusEnum.DELIVERED ||
-              order.orderStatus === OrderStatusEnum.RETURNED,
-            isCurrent:
-              order.orderStatus === OrderStatusEnum.DELIVERED ||
-              order.orderStatus === OrderStatusEnum.RETURNED,
-            description: isRTO
-              ? 'Shipment marked for Return to Origin.'
-              : 'Package safely delivered to recipient address.',
-          },
-        ];
-
-    let currentLocation = 'Online Platform';
+    let currentLocation: string | null = getLatestEventLocation(storedEvents);
     if (isCancelled) {
       currentLocation = 'Order Cancelled';
-    } else if (order.orderStatus === OrderStatusEnum.DELIVERED) {
+    } else if (
+      !currentLocation &&
+      order.orderStatus === OrderStatusEnum.DELIVERED
+    ) {
       currentLocation =
-        `${order.address?.city || ''}, ${order.address?.state || ''}`.trim() ||
-        'Delivered';
-    } else if (currentStatusIndex >= 4) {
-      currentLocation = `${order.address?.city || 'Local'} Delivery Center`;
-    } else if (currentStatusIndex >= 3) {
-      currentLocation = `${order.address?.city || 'Regional'} Sorting Facility`;
-    } else if (currentStatusIndex >= 2) {
-      currentLocation = 'Kickat Central Hub, Mumbai';
-    } else if (courier && awb) {
-      currentLocation = 'Kickat Logistics Facility, Mumbai';
+        `${order.address?.city || ''}, ${order.address?.state || ''}`
+          .replace(/^,\s*|,\s*$/g, '')
+          .trim() || null;
     }
 
+    const lastEvent = storedEvents[storedEvents.length - 1];
     const checkpoints = timeline.filter((t) => t.isCompleted);
 
     return {
@@ -800,14 +716,18 @@ export class OrdersService {
         ? `${order.address.city || ''}, ${order.address.state || ''} ${order.address.pincode || ''}`.trim()
         : 'Customer Address',
       location: currentLocation,
-      lastUpdated: order.updatedAt || order.createdAt,
+      lastUpdated: lastEvent?.eventAt || order.updatedAt || order.createdAt,
       estimatedDelivery: order.estimatedDelivery || order.deliveryDate || null,
+      // Additive: real provider scan events, chronological.
+      events,
+      hasTrackingEvents: events.length > 0,
+      trackingMessage: getTrackingPlaceholderMessage(order, storedEvents),
       checkpoints,
       timeline,
       history: checkpoints.map((cp) => ({
         location: cp.location,
         status: cp.title,
-        timestamp: cp.timestamp || order.createdAt,
+        timestamp: cp.timestamp,
       })),
     };
   }

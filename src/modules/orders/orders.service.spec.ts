@@ -94,6 +94,9 @@ describe('OrdersService', () => {
       cartItem: {
         upsert: jest.fn(),
       },
+      orderTrackingEvent: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn((callback) => callback(prisma)),
     };
 
@@ -225,6 +228,67 @@ describe('OrdersService', () => {
       const res = await service.getOrderTimeline(mockUserId, mockOrderId);
       expect(res.success).toBe(true);
       expect(res.timeline).toBeDefined();
+    });
+  });
+
+  describe('getOrderTracking', () => {
+    it('returns real persisted events chronologically with provider locations', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.SHIPPED,
+        trackingNumber: 'AWB1',
+        courierPartner: 'Delhivery',
+      });
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([
+        { rawStatus: 'PICKED UP', stage: 'SHIPPED', description: 'Picked up', location: null, eventAt: new Date('2026-08-11T00:00:00Z'), source: 'WEBHOOK' },
+        { rawStatus: 'IN TRANSIT', stage: 'IN_TRANSIT', description: 'Bag received', location: 'Pune_Hub', eventAt: new Date('2026-08-12T00:00:00Z'), source: 'POLL' },
+      ]);
+
+      const res = await service.getOrderTracking(mockUserId, mockOrderId);
+
+      expect(prisma.orderTrackingEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { orderId: mockOrderId } }),
+      );
+      expect(res.hasTrackingEvents).toBe(true);
+      expect(res.trackingMessage).toBeNull();
+      expect(res.events.map((e: any) => e.stage)).toEqual(['SHIPPED', 'IN_TRANSIT']);
+      expect(res.timeline.map((t: any) => t.stage)).toEqual(['ORDER_PLACED', 'SHIPPED', 'IN_TRANSIT']);
+      expect(res.timeline[1].location).toBeNull();
+      expect(res.location).toBe('Pune_Hub');
+      expect(res.lastUpdated).toEqual(new Date('2026-08-12T00:00:00Z'));
+    });
+
+    it('shows no fabricated hubs, timestamps or locations when no events exist', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.SHIPPED,
+      });
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([]);
+
+      const res = await service.getOrderTracking(mockUserId, mockOrderId);
+
+      expect(res.events).toEqual([]);
+      expect(res.trackingMessage).toBe('Tracking will appear once the shipment is picked up.');
+      expect(res.location).toBeNull();
+      const serialized = JSON.stringify(res.timeline);
+      expect(serialized).not.toMatch(/Hub|Sorting Facility|Delivery Center/);
+      for (const step of res.timeline.slice(1)) {
+        expect(step.timestamp).toBeNull();
+      }
+    });
+
+    it('ends a cancelled order timeline at CANCELLED', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.CANCELLED,
+        cancelledAt: new Date('2026-08-12T00:00:00Z'),
+      });
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([]);
+
+      const res = await service.getOrderTracking(mockUserId, mockOrderId);
+
+      expect(res.timeline[res.timeline.length - 1].stage).toBe('CANCELLED');
+      expect(res.timeline.map((t: any) => t.stage)).not.toContain('DELIVERED');
     });
   });
 

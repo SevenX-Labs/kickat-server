@@ -8,6 +8,8 @@ import { NullShippingProvider } from "./providers/null-shipping.provider";
 import { ShiprocketProvider } from "./providers/shiprocket.provider";
 import { DeliveryEstimateService } from "./delivery-estimate.service";
 import { DeliveryEstimateController } from "./delivery-estimate.controller";
+import { OrderTrackingEventsService } from "./order-tracking-events.service";
+import { ShipmentTrackingSyncService } from "./shipment-tracking-sync.service";
 
 @Module({
   imports: [NotificationsModule],
@@ -22,6 +24,8 @@ import { DeliveryEstimateController } from "./delivery-estimate.controller";
     NullShippingProvider,
     ShiprocketProvider,
     DeliveryEstimateService,
+    OrderTrackingEventsService,
+    ShipmentTrackingSyncService,
   ],
   exports: [
     ShippingService,
@@ -29,6 +33,8 @@ import { DeliveryEstimateController } from "./delivery-estimate.controller";
     NullShippingProvider,
     ShiprocketProvider,
     DeliveryEstimateService,
+    OrderTrackingEventsService,
+    ShipmentTrackingSyncService,
   ],
 })
 export class ShippingModule {}

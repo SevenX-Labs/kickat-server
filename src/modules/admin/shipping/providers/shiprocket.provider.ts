@@ -11,6 +11,7 @@ import {
   ReturnStatusUpdate,
   ReturnTrackingResult,
   ServiceabilityQueryParams,
+  ShipmentTrackingResult,
   ShippingProvider,
 } from './shipping-provider.interface';
 
@@ -939,6 +940,48 @@ export class ShiprocketProvider implements ShippingProvider {
     return {
       success: true,
       message: `Shiprocket shipment ${shiprocketShipmentId} cancelled`,
+    };
+  }
+
+  /**
+   * Pulls forward-shipment tracking from Shiprocket:
+   *   GET /courier/track/awb/{awb}
+   *
+   * Shiprocket returns either { tracking_data: {...} } or that object keyed by
+   * the AWB ({ "<awb>": { tracking_data: {...} } }); both are handled.
+   */
+  async getShipmentTrackingByAwb(awb: string): Promise<ShipmentTrackingResult> {
+    const cleanAwb = String(awb || '').trim();
+    if (!cleanAwb) {
+      throw new Error('AWB is required to fetch Shiprocket tracking');
+    }
+
+    const res = await this.requestWithAuth<any>(
+      `/courier/track/awb/${encodeURIComponent(cleanAwb)}`,
+      { method: 'GET' },
+    );
+
+    const root =
+      res?.tracking_data
+        ? res
+        : res?.[cleanAwb]?.tracking_data
+          ? res[cleanAwb]
+          : res;
+    const trackingData = root?.tracking_data || {};
+
+    const activities = Array.isArray(trackingData.shipment_track_activities)
+      ? trackingData.shipment_track_activities
+      : [];
+    const shipmentTrack = Array.isArray(trackingData.shipment_track)
+      ? trackingData.shipment_track[0]
+      : null;
+
+    return {
+      awb: cleanAwb,
+      activities,
+      currentStatus: shipmentTrack?.current_status ?? null,
+      etd: trackingData.etd ?? shipmentTrack?.edd ?? null,
+      trackUrl: trackingData.track_url ?? null,
     };
   }
 

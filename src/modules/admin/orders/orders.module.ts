@@ -5,9 +5,12 @@ import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { RazorpayService } from '../../payments/razorpay.service';
 import { SettingsModule } from '../settings/settings.module';
+import { ShippingModule } from '../shipping/shipping.module';
 
 @Module({
-  imports: [NotificationsModule, SettingsModule],
+  // ShippingModule: admin cancel syncs the cancellation to the shipping
+  // provider via ShippingService.cancelShipmentForOrder.
+  imports: [NotificationsModule, SettingsModule, ShippingModule],
   controllers: [OrdersController],
   providers: [OrdersService, RazorpayService, InvoicePdfService],
 })

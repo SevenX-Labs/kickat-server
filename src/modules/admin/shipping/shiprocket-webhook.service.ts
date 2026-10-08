@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -9,6 +10,8 @@ import { OrderStatusEnum, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import * as crypto from "crypto";
+import { OrderTrackingEventsService } from "./order-tracking-events.service";
+import { extractShiprocketWebhookEvents } from "./tracking-events.util";
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -139,6 +142,8 @@ export class ShiprocketWebhookService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly notificationsService: NotificationsService,
+    @Optional()
+    private readonly trackingEventsService?: OrderTrackingEventsService,
   ) {}
 
   /**
@@ -663,6 +668,29 @@ export class ShiprocketWebhookService {
     this.logger.log(
       `Shiprocket webhook matched order ${order.orderNumber} (id=${order.id}) via ${matchedBy}.`,
     );
+
+    // 4b. Persist the courier scan events carried by this webhook. Event rows
+    // are deduplicated on (orderId, rawStatus, eventAt), so this runs on every
+    // delivery (including re-deliveries) and is best-effort: a failure here
+    // must never block the status update below; the tracking sync cron
+    // re-pulls anything missed.
+    if (this.trackingEventsService) {
+      try {
+        await this.trackingEventsService.recordEvents(
+          order.id,
+          extractShiprocketWebhookEvents(payloadObject),
+          {
+            source: "WEBHOOK",
+            awb: awb || order.trackingNumber,
+            shipmentId: shipmentId || order.shiprocketShipmentId,
+          },
+        );
+      } catch (trackErr: any) {
+        this.logger.warn(
+          `Failed to persist tracking events for order ${order.orderNumber}: ${trackErr?.message || trackErr}`,
+        );
+      }
+    }
 
     // 5. Idempotency Check: Determine unique event ID
     const eventId =

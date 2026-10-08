@@ -28,6 +28,9 @@ describe('Admin ShippingService', () => {
     product: {
       findMany: jest.fn(),
     },
+    orderTrackingEvent: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 
   beforeEach(async () => {
@@ -253,18 +256,19 @@ describe('Admin ShippingService', () => {
   });
 
   describe('getShipmentTracking', () => {
-    it('should return tracking timeline with checkpoints and courier URL', async () => {
-      const existingOrder = {
-        id: 'ord-1',
-        orderNumber: 'ORD-1001',
-        orderStatus: OrderStatusEnum.SHIPPED,
-        courierPartner: 'Delhivery',
-        trackingNumber: 'DEL-998877',
-        createdAt: new Date('2026-08-10T10:00:00Z'),
-        address: { city: 'Pune', state: 'MH', pincode: '411001' },
-      };
+    const existingOrder = {
+      id: 'ord-1',
+      orderNumber: 'ORD-1001',
+      orderStatus: OrderStatusEnum.SHIPPED,
+      courierPartner: 'Delhivery',
+      trackingNumber: 'DEL-998877',
+      createdAt: new Date('2026-08-10T10:00:00Z'),
+      address: { city: 'Pune', state: 'MH', pincode: '411001' },
+    };
 
+    it('should return tracking timeline with checkpoints and courier URL', async () => {
       prisma.order.findFirst.mockResolvedValue(existingOrder);
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([]);
 
       const result = await service.getShipmentTracking('ord-1');
 
@@ -276,6 +280,51 @@ describe('Admin ShippingService', () => {
       expect(result.data.timeline[0].stage).toBe('ORDER_PLACED');
       expect(result.data.timeline[0].isCompleted).toBe(true);
       expect(result.data.trackingUrl).toContain('delhivery.com/track');
+    });
+
+    it('never fabricates hub locations or timestamps without provider events', async () => {
+      prisma.order.findFirst.mockResolvedValue(existingOrder);
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([]);
+
+      const result = await service.getShipmentTracking('ord-1');
+
+      expect(result.data.events).toEqual([]);
+      for (const step of result.data.timeline.slice(1)) {
+        expect(step.location).toBeNull();
+        expect(step.timestamp).toBeNull();
+      }
+    });
+
+    it('builds the timeline from real persisted events when present', async () => {
+      prisma.order.findFirst.mockResolvedValue(existingOrder);
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([
+        {
+          rawStatus: 'PICKED UP',
+          stage: 'SHIPPED',
+          description: 'Shipment picked up',
+          location: 'Bhiwandi_DC (Maharashtra)',
+          eventAt: new Date('2026-08-11T06:00:00Z'),
+          source: 'WEBHOOK',
+        },
+        {
+          rawStatus: 'IN TRANSIT',
+          stage: 'IN_TRANSIT',
+          description: 'Bag received at facility',
+          location: 'Pune_Hub (Maharashtra)',
+          eventAt: new Date('2026-08-12T06:00:00Z'),
+          source: 'POLL',
+        },
+      ]);
+
+      const result = await service.getShipmentTracking('ord-1');
+
+      expect(result.data.timeline.map((t: any) => t.stage)).toEqual([
+        'ORDER_PLACED',
+        'SHIPPED',
+        'IN_TRANSIT',
+      ]);
+      expect(result.data.timeline[2].location).toBe('Pune_Hub (Maharashtra)');
+      expect(result.data.events).toHaveLength(2);
     });
   });
 

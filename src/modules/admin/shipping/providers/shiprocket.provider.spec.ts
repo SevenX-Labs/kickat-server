@@ -622,4 +622,50 @@ describe('ShiprocketProvider', () => {
       expect(updateResult.status).toBe('PENDING_INTEGRATION');
     });
   });
+
+  describe('Forward tracking (getShipmentTrackingByAwb)', () => {
+    const activity = {
+      date: '2026-08-12 10:00:00',
+      status: 'X-ILL2F',
+      activity: 'Bag received at facility',
+      location: 'Pune_Hub (Maharashtra)',
+      'sr-status': '18',
+      'sr-status-label': 'IN TRANSIT',
+    };
+
+    const mockFetchSequence = (trackBody: any) => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ token: 'tkn' }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(trackBody) });
+    };
+
+    it('calls GET /courier/track/awb/{awb} and returns raw activities', async () => {
+      mockFetchSequence({
+        tracking_data: {
+          shipment_track: [{ current_status: 'IN TRANSIT', edd: '2026-08-14' }],
+          shipment_track_activities: [activity],
+          track_url: 'https://shiprocket.co/tracking/AWB1',
+        },
+      });
+
+      const res = await provider.getShipmentTrackingByAwb('AWB1');
+
+      expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(
+        'https://apiv2.shiprocket.in/v1/external/courier/track/awb/AWB1',
+      );
+      expect((global.fetch as jest.Mock).mock.calls[1][1].method).toBe('GET');
+      expect(res.activities).toEqual([activity]);
+      expect(res.currentStatus).toBe('IN TRANSIT');
+    });
+
+    it('handles the AWB-keyed response shape and empty tracking', async () => {
+      mockFetchSequence({ AWB2: { tracking_data: { shipment_track_activities: [activity] } } });
+      expect((await provider.getShipmentTrackingByAwb('AWB2')).activities).toHaveLength(1);
+
+      provider.invalidateTokenCache();
+      mockFetchSequence({ tracking_data: { track_status: 0, error: 'no activities' } });
+      expect((await provider.getShipmentTrackingByAwb('AWB3')).activities).toEqual([]);
+    });
+  });
 });

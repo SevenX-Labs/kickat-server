@@ -7,10 +7,12 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
 import { AdminOrderSortEnum, AdminOrdersQueryDto } from './dto/admin-order.dto';
+import { ShippingService } from '../shipping/shipping.service';
 
 describe('Admin OrdersService', () => {
   let service: OrdersService;
   let prisma: any;
+  const mockShippingService = { cancelShipmentForOrder: jest.fn() };
 
     const mockPrismaService = {
     order: {
@@ -56,6 +58,7 @@ describe('Admin OrdersService', () => {
         { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
         { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from("pdf-data")) } },
         OrdersService,
+        { provide: ShippingService, useValue: mockShippingService },
         { provide: SettingsService, useValue: { getTaxSettingsRaw: jest.fn().mockResolvedValue({ gstEnabled: false }) } },
         {
           provide: PrismaService,
@@ -275,25 +278,32 @@ describe('Admin OrdersService', () => {
   });
 
   describe('cancelOrder', () => {
-    it('should cancel order and automatically restock items', async () => {
-      const existingOrder = {
-        id: 'ord-1',
-        orderNumber: 'ORD-1001',
-        orderStatus: OrderStatusEnum.PLACED,
-        items: [
-          { productId: 'prod-1', variantId: 'var-1', quantity: 2 },
-          { productId: 'prod-2', variantId: null, quantity: 1 },
-        ],
-      };
+    const baseOrder = {
+      id: 'ord-1',
+      orderNumber: 'ORD-1001',
+      userId: 'user-1',
+      orderStatus: OrderStatusEnum.PLACED,
+      shiprocketOrderId: null as string | null,
+      shiprocketShipmentId: null as string | null,
+      trackingNumber: null as string | null,
+      items: [
+        { productId: 'prod-1', variantId: 'var-1', quantity: 2 },
+        { productId: 'prod-2', variantId: null, quantity: 1 },
+      ],
+    };
 
-      prisma.order.findFirst.mockResolvedValue(existingOrder);
-      prisma.product.update.mockResolvedValue({});
-      prisma.productVariant.update.mockResolvedValue({});
-      prisma.order.update.mockResolvedValue({
-        ...existingOrder,
+    const arrangeCancel = (order: any) => {
+      prisma.order.findFirst.mockResolvedValue(order);
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.findUnique.mockResolvedValue({
+        ...order,
         orderStatus: OrderStatusEnum.CANCELLED,
         cancelReason: 'Customer requested',
       });
+    };
+
+    it('should cancel order and automatically restock items', async () => {
+      arrangeCancel(baseOrder);
 
       const result = await service.cancelOrder('ord-1', {
         reason: 'Customer requested',
@@ -310,15 +320,114 @@ describe('Admin OrdersService', () => {
       prisma.order.findFirst.mockResolvedValue({
         id: 'ord-1',
         orderStatus: OrderStatusEnum.CANCELLED,
+        shiprocketShipmentId: 'ship-1',
       });
 
       await expect(
         service.cancelOrder('ord-1', { reason: 'Duplicate' }),
       ).rejects.toThrow(BadRequestException);
+      expect(mockShippingService.cancelShipmentForOrder).not.toHaveBeenCalled();
+    });
+
+    it('does not call the provider when the order has no shipment', async () => {
+      arrangeCancel(baseOrder);
+
+      const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+      expect(result.success).toBe(true);
+      expect(result.shipmentCancellation.attempted).toBe(false);
+      expect(mockShippingService.cancelShipmentForOrder).not.toHaveBeenCalled();
+      expect(prisma.product.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels the provider shipment once, after the DB transaction commits', async () => {
+      const callOrder: string[] = [];
+      prisma.$transaction.mockImplementationOnce(async (cb: any) => {
+        const res = await cb(prisma);
+        callOrder.push('commit');
+        return res;
+      });
+      mockShippingService.cancelShipmentForOrder.mockImplementation(async () => {
+        callOrder.push('provider');
+        return { success: true, message: 'Shiprocket order 555 cancelled' };
+      });
+      arrangeCancel({
+        ...baseOrder,
+        orderStatus: OrderStatusEnum.PACKED,
+        shiprocketOrderId: '555',
+        shiprocketShipmentId: 'ship-1',
+        trackingNumber: 'AWB1',
+      });
+
+      const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+      expect(mockShippingService.cancelShipmentForOrder).toHaveBeenCalledTimes(1);
+      expect(mockShippingService.cancelShipmentForOrder).toHaveBeenCalledWith('ord-1');
+      expect(callOrder).toEqual(['commit', 'provider']);
+      expect(result.shipmentCancellation).toEqual({
+        attempted: true,
+        success: true,
+        message: 'Shiprocket order 555 cancelled',
+      });
+      expect(result.message).toContain('Order cancelled successfully');
+      expect(prisma.product.update).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not report success for the shipment when the provider cancel throws', async () => {
+      mockShippingService.cancelShipmentForOrder.mockRejectedValue(
+        new Error('Shiprocket 400: cannot cancel'),
+      );
+      arrangeCancel({ ...baseOrder, shiprocketShipmentId: 'ship-1' });
+
+      const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+      expect(result.data.orderStatus).toBe(OrderStatusEnum.CANCELLED);
+      expect(result.shipmentCancellation.success).toBe(false);
+      expect(result.shipmentCancellation.message).toContain('cannot cancel');
+      expect(result.message).toContain('could not be cancelled automatically');
+    });
+
+    it('surfaces a non-success provider result without throwing', async () => {
+      mockShippingService.cancelShipmentForOrder.mockResolvedValue({
+        success: false,
+        message: 'Provider NULL does not support shipment cancellation',
+      });
+      arrangeCancel({ ...baseOrder, shiprocketOrderId: '555' });
+
+      const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+      expect(result.shipmentCancellation.success).toBe(false);
+      expect(result.message).toContain('could not be cancelled automatically');
+    });
+
+    it('skips the provider for a shipment already closed (delivered)', async () => {
+      arrangeCancel({
+        ...baseOrder,
+        orderStatus: OrderStatusEnum.DELIVERED,
+        shiprocketShipmentId: 'ship-1',
+      });
+
+      const result = await service.cancelOrder('ord-1', { reason: 'Ops' });
+
+      expect(result.shipmentCancellation.attempted).toBe(false);
+      expect(mockShippingService.cancelShipmentForOrder).not.toHaveBeenCalled();
+    });
+
+    it('loses the atomic claim on a concurrent cancel: no restock, no provider call', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        ...baseOrder,
+        shiprocketShipmentId: 'ship-1',
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.cancelOrder('ord-1', { reason: 'Ops' }),
+      ).rejects.toThrow('Order is already cancelled');
+      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(mockShippingService.cancelShipmentForOrder).not.toHaveBeenCalled();
     });
   });
 
-  
   describe("confirmCodRefund & confirmReturnReceived", () => {
     it("should reject COD refund before RETURN_RECEIVED", async () => {
       prisma.order.findFirst.mockResolvedValue({

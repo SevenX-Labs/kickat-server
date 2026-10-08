@@ -63,8 +63,8 @@ export class PaymentsService {
    * create a second shipment.
    *
    * A CANCELLED order (e.g. cancelled by the pending-order cleanup cron before
-   * a late capture landed) is never resurrected: only the payment state is
-   * recorded, leaving the order refundable.
+   * a late capture landed) is never resurrected: the payment is recorded and
+   * refunded automatically (refundLateCaptureOnCancelledOrder).
    */
   private async promoteOrderAfterPayment(orderId: string): Promise<{
     promoted: boolean;
@@ -167,11 +167,7 @@ export class PaymentsService {
     });
 
     if (!claimedFromPending && !claimedVisible) {
-      if (order.orderStatus === OrderStatusEnum.CANCELLED) {
-        this.logger.warn(
-          `Payment confirmed for already-cancelled order ${order.orderNumber}. Order stays CANCELLED; refund required.`,
-        );
-      }
+      await this.refundLateCaptureOnCancelledOrder(orderId, order.orderNumber);
       return { promoted: false, shipped: false };
     }
 
@@ -188,6 +184,61 @@ export class PaymentsService {
     const shipped = await this.createShipmentOnce(orderId);
 
     return { promoted: claimedFromPending, shipped };
+  }
+
+  /**
+   * A capture that lands after the order was cancelled (typically by the
+   * pending-order cleanup cron once the payment window expired). The order is
+   * never resurrected; the captured money is refunded automatically through
+   * the existing initiateRefundForOrder() path.
+   *
+   * Claimed with a conditional updateMany (CANCELLED + not yet COMPLETED /
+   * refunded), so a concurrent success-callback + webhook pair can only ever
+   * trigger one refund. initiateRefundForOrder never throws; a gateway failure
+   * is recorded in RefundAudit (FAILED) for manual follow-up.
+   */
+  private async refundLateCaptureOnCancelledOrder(
+    orderId: string,
+    orderNumber: string,
+  ): Promise<void> {
+    const claim = await this.prisma.order.updateMany({
+      where: {
+        id: orderId,
+        orderStatus: OrderStatusEnum.CANCELLED,
+        paymentStatus: {
+          notIn: [
+            PaymentStatusEnum.COMPLETED,
+            PaymentStatusEnum.REFUND_INITIATED,
+            PaymentStatusEnum.REFUNDED,
+          ],
+        },
+      },
+      data: { paymentStatus: PaymentStatusEnum.COMPLETED },
+    });
+
+    if (claim.count === 0) {
+      return;
+    }
+
+    this.logger.warn(
+      `Payment captured for already-cancelled order ${orderNumber}. Order stays CANCELLED; initiating automatic refund.`,
+    );
+
+    const refund = await this.initiateRefundForOrder({
+      orderId,
+      reason: 'Payment captured after the order was cancelled (payment window expired)',
+      actorType: 'SYSTEM',
+    });
+
+    if (refund.refundInitiated) {
+      this.logger.log(
+        `Automatic refund initiated for late capture on cancelled order ${orderNumber}: ${refund.message}`,
+      );
+    } else {
+      this.logger.error(
+        `Automatic refund for late capture on cancelled order ${orderNumber} was NOT initiated: ${refund.message}. Manual refund required.`,
+      );
+    }
   }
 
   /**

@@ -536,12 +536,36 @@ model Order {
   payments             Payment[]
   returns              OrderReturn[]
   refundAudits         RefundAudit[]
+  trackingEvents       OrderTrackingEvent[]
 
   @@index([userId])
   @@index([orderStatus])
   @@index([userId, createdAt])
   @@index([addressId])
   @@map("orders")
+}
+
+/// Real courier scan events for an order's forward shipment, as reported by
+/// the shipping provider (Shiprocket webhook scans or on-demand AWB tracking).
+/// Deduplicated on (orderId, rawStatus, eventAt) so re-delivered webhooks and
+/// repeated polls never create duplicate rows.
+model OrderTrackingEvent {
+  id          String   @id @default(uuid())
+  orderId     String
+  awb         String?
+  shipmentId  String?
+  rawStatus   String
+  stage       String
+  description String?
+  location    String?
+  eventAt     DateTime
+  source      String
+  createdAt   DateTime @default(now())
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, rawStatus, eventAt])
+  @@index([orderId, eventAt])
+  @@map("order_tracking_events")
 }
 
 model OrderItem {
