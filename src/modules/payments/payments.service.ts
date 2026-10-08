@@ -5,8 +5,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ShippingService } from '../admin/shipping/shipping.service';
 import { RazorpayService } from './razorpay.service';
 import {
   CreatePaymentOrderDto,
@@ -32,7 +34,203 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly razorpayService: RazorpayService,
     private readonly notificationsService: NotificationsService,
+    @Optional() private readonly shippingService?: ShippingService,
   ) {}
+
+  /**
+   * Public gateway key, so the checkout flow can hand Razorpay options to the
+   * client without depending on RazorpayService directly.
+   */
+  getGatewayKeyId(): string {
+    return this.razorpayService.getKeyId();
+  }
+
+  /**
+   * Promotes an order once its payment is confirmed, exactly once.
+   *
+   * Issue 2: for online payments the order is created hidden (orderStatus
+   * PENDING) with no stock taken and no shipment. The confirmation — whichever
+   * of the success callback (verifyPayment) or the Razorpay webhook wins the
+   * race — is the single point that:
+   *   1. flips the order to PLACED + paymentStatus COMPLETED,
+   *   2. decrements stock,
+   *   3. clears the cart and fulfills the stock reservation,
+   *   4. creates the Shiprocket shipment.
+   *
+   * The promotion is claimed with a conditional updateMany, so only one caller
+   * ever performs 2-4; the loser is a no-op. Shipment creation is additionally
+   * guarded on shiprocketShipmentId / trackingNumber so a replay can never
+   * create a second shipment.
+   *
+   * A CANCELLED order (e.g. cancelled by the pending-order cleanup cron before
+   * a late capture landed) is never resurrected: only the payment state is
+   * recorded, leaving the order refundable.
+   */
+  private async promoteOrderAfterPayment(orderId: string): Promise<{
+    promoted: boolean;
+    shipped: boolean;
+  }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+
+    if (!order) {
+      return { promoted: false, shipped: false };
+    }
+
+    let claimedFromPending = false;
+    let claimedVisible = false;
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Claim the hidden -> visible promotion.
+      const pendingClaim = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          orderStatus: OrderStatusEnum.PENDING,
+          paymentStatus: { not: PaymentStatusEnum.COMPLETED },
+        },
+        data: {
+          orderStatus: OrderStatusEnum.PLACED,
+          paymentStatus: PaymentStatusEnum.COMPLETED,
+        },
+      });
+
+      claimedFromPending = pendingClaim.count > 0;
+
+      if (!claimedFromPending) {
+        // Already-visible order (COD, or an order placed by the legacy flow):
+        // stock and cart were handled at placement, only mark it paid.
+        const visibleClaim = await tx.order.updateMany({
+          where: {
+            id: orderId,
+            orderStatus: {
+              in: [
+                OrderStatusEnum.PLACED,
+                OrderStatusEnum.PROCESSING,
+                OrderStatusEnum.PACKED,
+              ],
+            },
+            paymentStatus: { not: PaymentStatusEnum.COMPLETED },
+          },
+          data: { paymentStatus: PaymentStatusEnum.COMPLETED },
+        });
+        claimedVisible = visibleClaim.count > 0;
+        return;
+      }
+
+      // 2. Stock was deliberately not taken at placement time: take it now.
+      for (const item of order.items) {
+        if (item.variantId) {
+          const updated = await tx.productVariant.updateMany({
+            where: { id: item.variantId, stock: { gte: item.quantity } },
+            data: { stock: { decrement: item.quantity } },
+          });
+
+          if (updated.count === 0) {
+            // The customer has already paid, so the order must stand. Take the
+            // stock anyway and surface it loudly for manual reconciliation.
+            await tx.productVariant.updateMany({
+              where: { id: item.variantId },
+              data: { stock: { decrement: item.quantity } },
+            });
+            this.logger.error(
+              `Oversell on paid order ${order.orderNumber}: variant ${item.variantId} had insufficient stock for ${item.quantity} x ${item.productName}. Stock forced down; manual reconciliation required.`,
+            );
+          }
+        } else {
+          const updated = await tx.product.updateMany({
+            where: { id: item.productId, stock: { gte: item.quantity } },
+            data: { stock: { decrement: item.quantity } },
+          });
+
+          if (updated.count === 0) {
+            await tx.product.updateMany({
+              where: { id: item.productId },
+              data: { stock: { decrement: item.quantity } },
+            });
+            this.logger.error(
+              `Oversell on paid order ${order.orderNumber}: product ${item.productId} had insufficient stock for ${item.quantity} x ${item.productName}. Stock forced down; manual reconciliation required.`,
+            );
+          }
+        }
+      }
+
+      // 3. The cart is kept until payment succeeds so a cancelled attempt
+      // leaves the customer's cart intact. Clear it now.
+      await tx.cartItem.deleteMany({ where: { userId: order.userId } });
+
+      await tx.stockReservation.updateMany({
+        where: { userId: order.userId, isFulfilled: false },
+        data: { isFulfilled: true },
+      });
+    });
+
+    if (!claimedFromPending && !claimedVisible) {
+      if (order.orderStatus === OrderStatusEnum.CANCELLED) {
+        this.logger.warn(
+          `Payment confirmed for already-cancelled order ${order.orderNumber}. Order stays CANCELLED; refund required.`,
+        );
+      }
+      return { promoted: false, shipped: false };
+    }
+
+    if (claimedFromPending) {
+      this.notificationsService.notifyOrderPlaced({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        grandTotal: order.grandTotal,
+        paymentMethod: order.paymentMethod,
+      });
+    }
+
+    const shipped = await this.createShipmentOnce(orderId);
+
+    return { promoted: claimedFromPending, shipped };
+  }
+
+  /**
+   * Idempotent shipment creation. Re-reads the order so a concurrent
+   * success-callback + webhook pair cannot both pass the guard, and defers to
+   * ShippingService's own AWB idempotency as a second line of defence.
+   */
+  private async createShipmentOnce(orderId: string): Promise<boolean> {
+    if (!this.shippingService) {
+      return false;
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        orderNumber: true,
+        orderStatus: true,
+        shiprocketShipmentId: true,
+        trackingNumber: true,
+      },
+    });
+
+    if (!order || order.orderStatus === OrderStatusEnum.CANCELLED) {
+      return false;
+    }
+
+    if (order.shiprocketShipmentId || order.trackingNumber) {
+      this.logger.log(
+        `Shipment already exists for order ${order.orderNumber}. Skipping creation.`,
+      );
+      return false;
+    }
+
+    try {
+      await this.shippingService.createShipmentForOrder(orderId);
+      return true;
+    } catch (shippingErr: any) {
+      this.logger.error(
+        `Automatic shipping workflow error for order ${order.orderNumber}: ${shippingErr?.message || shippingErr}`,
+      );
+      return false;
+    }
+  }
 
   private validateIdempotencyKey(key?: string): string {
     if (!key || typeof key !== 'string' || !UUID_V4_REGEX.test(key)) {
@@ -283,38 +481,19 @@ export class PaymentsService {
       throw new ConflictException('Signature verification failed');
     }
 
-    // Mark Payment and Order as COMPLETED
-    const updatedPayment = await this.prisma.$transaction(async (tx) => {
-      const p = await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: PaymentStatusEnum.COMPLETED,
-          razorpayPaymentId: dto.razorpayPaymentId,
-          razorpaySignature: dto.signature,
-        },
-      });
-
-      await tx.order.update({
-        where: { id: dto.orderId },
-        data: {
-          paymentStatus: PaymentStatusEnum.COMPLETED,
-          orderStatus: 'PLACED',
-        },
-      });
-
-      // Fulfill stock reservation
-      await tx.stockReservation.updateMany({
-        where: {
-          userId,
-          isFulfilled: false,
-        },
-        data: {
-          isFulfilled: true,
-        },
-      });
-
-      return p;
+    // Mark the payment COMPLETED, then promote the order. Stock, cart clearing
+    // and the Shiprocket shipment all happen inside promoteOrderAfterPayment()
+    // so they occur exactly once across this callback and the webhook.
+    const updatedPayment = await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: PaymentStatusEnum.COMPLETED,
+        razorpayPaymentId: dto.razorpayPaymentId,
+        razorpaySignature: dto.signature,
+      },
     });
+
+    await this.promoteOrderAfterPayment(dto.orderId);
 
     return {
       success: true,
@@ -994,36 +1173,19 @@ export class PaymentsService {
           eventType === 'order.paid'
         ) {
           if (payment.status !== PaymentStatusEnum.COMPLETED) {
-            await this.prisma.$transaction(async (tx) => {
-              await tx.payment.update({
-                where: { id: payment.id },
-                data: {
-                  status: PaymentStatusEnum.COMPLETED,
-                  razorpayPaymentId:
-                    paymentEntity?.id || payment.razorpayPaymentId,
-                  razorpaySignature: signature || payment.razorpaySignature,
-                },
-              });
-
-              await tx.order.update({
-                where: { id: payment.orderId },
-                data: {
-                  paymentStatus: PaymentStatusEnum.COMPLETED,
-                  orderStatus: 'PLACED',
-                },
-              });
-
-              // Fulfill stock reservation
-              await tx.stockReservation.updateMany({
-                where: {
-                  userId: payment.userId,
-                  isFulfilled: false,
-                },
-                data: {
-                  isFulfilled: true,
-                },
-              });
+            await this.prisma.payment.update({
+              where: { id: payment.id },
+              data: {
+                status: PaymentStatusEnum.COMPLETED,
+                razorpayPaymentId:
+                  paymentEntity?.id || payment.razorpayPaymentId,
+                razorpaySignature: signature || payment.razorpaySignature,
+              },
             });
+
+            // Single, idempotent promotion path shared with verifyPayment:
+            // PLACED + stock + cart clear + Shiprocket shipment, exactly once.
+            await this.promoteOrderAfterPayment(payment.orderId);
 
             this.notificationsService.notifyPaymentSuccess({
               orderId: payment.orderId,
@@ -1047,8 +1209,14 @@ export class PaymentsService {
                 },
               });
 
-              await tx.order.update({
-                where: { id: payment.orderId },
+              // Only the payment state changes. A hidden (PENDING) order must
+              // stay hidden with no stock taken and no shipment — the
+              // pending-order cleanup cron cancels it after the retry window.
+              await tx.order.updateMany({
+                where: {
+                  id: payment.orderId,
+                  paymentStatus: { not: PaymentStatusEnum.COMPLETED },
+                },
                 data: {
                   paymentStatus: PaymentStatusEnum.FAILED,
                 },

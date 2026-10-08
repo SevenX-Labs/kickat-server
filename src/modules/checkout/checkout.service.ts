@@ -9,8 +9,11 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../admin/settings/settings.service';
+import { PaymentsService } from '../payments/payments.service';
+import { PaymentMethodType } from '../payments/dto/create-payment-order.dto';
 import { ShippingService } from '../admin/shipping/shipping.service'; import { Optional } from '@nestjs/common';
 import { ValidateAddressDto } from './dto/validate-address.dto';
 import {
@@ -28,7 +31,83 @@ export class CheckoutService {
     private readonly notificationsService: NotificationsService,
     private readonly stockAlertService: StockAlertService,
     @Optional() private readonly shippingService?: ShippingService,
+    @Optional() private readonly paymentsService?: PaymentsService,
   ) {}
+
+  /**
+   * Issue 2: an online payment order is created hidden (PENDING) and the
+   * Razorpay order is prepared here, so the client can open the gateway
+   * straight from the place-order response.
+   *
+   * Returns null when no gateway order could be prepared; the client then
+   * falls back to POST /payments/create-order, which keeps the previous
+   * two-call flow working.
+   */
+  private async prepareOnlinePayment(
+    userId: string,
+    order: { id: string; grandTotal: number },
+    dto: PlaceOrderDto,
+  ) {
+    if (!this.paymentsService) {
+      return null;
+    }
+
+    try {
+      // Reuse a still-open gateway attempt: idempotent replays of
+      // place-order and the "try again" button must not create a second
+      // Razorpay order for the same pending order.
+      const existing = await this.prisma.payment.findFirst({
+        where: {
+          orderId: order.id,
+          userId,
+          status: 'PENDING',
+          razorpayOrderId: { not: null },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (existing) {
+        return {
+          paymentId: existing.id,
+          razorpayOrderId: existing.razorpayOrderId,
+          amount: existing.amount,
+          currency: existing.currency,
+          status: existing.status,
+          paymentMethod: existing.paymentMethod.toLowerCase(),
+          key: this.paymentsService.getGatewayKeyId(),
+        };
+      }
+
+      const created = await this.paymentsService.createPaymentOrder(
+        userId,
+        randomUUID(),
+        {
+          orderId: order.id,
+          paymentMethod:
+            dto.paymentMethod.toLowerCase() as PaymentMethodType,
+          upiId: dto.upiId,
+          savedCardId: dto.savedCardId,
+          walletProvider: dto.walletProvider?.toLowerCase(),
+          bankCode: dto.bankCode,
+        },
+      );
+
+      return {
+        paymentId: created.paymentId,
+        razorpayOrderId: created.razorpayOrderId,
+        amount: created.amount,
+        currency: created.currency,
+        status: created.status,
+        paymentMethod: created.paymentMethod,
+        key: created.key,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `Could not prepare gateway payment for order ${order.id}: ${err?.message || err}`,
+      );
+      return null;
+    }
+  }
 
   private async computeFees(
     subtotal: number,
@@ -222,6 +301,9 @@ export class CheckoutService {
       where: { idempotencyKey },
     });
 
+    const isOnlinePayment =
+      dto.paymentMethod !== CheckoutPaymentMethodEnum.COD;
+
     if (existingOrder) {
       if (existingOrder.userId !== userId) {
         throw new ConflictException('Idempotency key already used');
@@ -233,6 +315,19 @@ export class CheckoutService {
         orderNumber: existingOrder.orderNumber,
         status: existingOrder.orderStatus,
         grandTotal: existingOrder.grandTotal,
+        // Additive: an unpaid online order replayed with the same
+        // idempotency key hands back the same gateway attempt so the client
+        // can re-open Razorpay instead of creating another order.
+        ...(isOnlinePayment && existingOrder.orderStatus === 'PENDING'
+          ? {
+              requiresPayment: true,
+              payment: await this.prepareOnlinePayment(
+                userId,
+                existingOrder,
+                dto,
+              ),
+            }
+          : {}),
       };
     }
 
@@ -334,8 +429,44 @@ export class CheckoutService {
       // Execute atomic stock deduction, order creation, cart clearing, and reservation fulfillment in one transaction
       const stockChangeEvents: Array<{ productId: string; variantId?: string | null; previousStock: number; newStock: number; productName?: string; variantName?: string | null }> = [];
       const order = await this.prisma.$transaction(async (tx) => {
-        // 1. Atomic conditional stock deduction for each item in the order
-        for (const item of cartItems) {
+        // 1. Stock.
+        //
+        // Online payments (UPI/card/wallet/netbanking): the order is created
+        // hidden and unpaid, so stock must NOT be taken here — an abandoned
+        // Razorpay screen would otherwise strand it. Availability is still
+        // checked so the customer is not sent to the gateway for an
+        // out-of-stock cart. The real deduction happens once the payment is
+        // confirmed (PaymentsService.promoteOrderAfterPayment), covered by the
+        // stock reservation in the meantime.
+        //
+        // COD: unchanged — deduct atomically at placement.
+        if (isOnlinePayment) {
+          for (const item of cartItems) {
+            const available = item.variantId
+              ? (
+                  await tx.productVariant.findUnique({
+                    where: { id: item.variantId },
+                    select: { stock: true },
+                  })
+                )?.stock ?? 0
+              : (
+                  await tx.product.findUnique({
+                    where: { id: item.productId },
+                    select: { stock: true },
+                  })
+                )?.stock ?? 0;
+
+            if (available < item.quantity) {
+              throw new ConflictException(
+                item.variantId
+                  ? `Insufficient stock for ${item.product.name} (${item.variant?.name || 'selected variant'})`
+                  : `Insufficient stock for ${item.product.name}`,
+              );
+            }
+          }
+        }
+
+        for (const item of isOnlinePayment ? [] : cartItems) {
           if (item.variantId) {
             const currentVariant = await tx.productVariant.findUnique({
               where: { id: item.variantId },
@@ -411,7 +542,8 @@ export class CheckoutService {
             addressId: dto.addressId,
             paymentMethod: dto.paymentMethod as any,
             paymentStatus: 'PENDING',
-            orderStatus: 'PLACED',
+            // Hidden until the gateway confirms payment; COD stays visible.
+            orderStatus: isOnlinePayment ? 'PENDING' : 'PLACED',
             subtotal,
             deliveryFee,
             codFee,
@@ -428,17 +560,38 @@ export class CheckoutService {
           },
         });
 
-        // 3. Clear user cart
-        await tx.cartItem.deleteMany({ where: { userId } });
+        // 3. Clear user cart — only for COD. For an online payment the cart is
+        // kept until the payment is confirmed, so a cancelled/abandoned
+        // Razorpay screen leaves the customer's cart intact to retry with.
+        if (!isOnlinePayment) {
+          await tx.cartItem.deleteMany({ where: { userId } });
 
-        // 4. Mark stock reservation fulfilled
-        await tx.stockReservation.update({
-          where: { id: reservation.id },
-          data: { isFulfilled: true },
-        });
+          // 4. Mark stock reservation fulfilled
+          await tx.stockReservation.update({
+            where: { id: reservation.id },
+            data: { isFulfilled: true },
+          });
+        }
 
         return createdOrder;
       });
+
+      // An online order is not "placed" yet: no notification, no shipment.
+      // Both happen on payment confirmation.
+      if (isOnlinePayment) {
+        const payment = await this.prepareOnlinePayment(userId, order, dto);
+
+        return {
+          success: true,
+          message: 'Order created. Complete payment to confirm.',
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          status: order.orderStatus,
+          grandTotal: order.grandTotal,
+          requiresPayment: true,
+          payment,
+        };
+      }
 
       this.notificationsService.notifyOrderPlaced({
         orderId: order.id,
@@ -483,6 +636,16 @@ export class CheckoutService {
             orderNumber: concurrentOrder.orderNumber,
             status: concurrentOrder.orderStatus,
             grandTotal: concurrentOrder.grandTotal,
+            ...(isOnlinePayment && concurrentOrder.orderStatus === 'PENDING'
+              ? {
+                  requiresPayment: true,
+                  payment: await this.prepareOnlinePayment(
+                    userId,
+                    concurrentOrder,
+                    dto,
+                  ),
+                }
+              : {}),
           };
         }
       }

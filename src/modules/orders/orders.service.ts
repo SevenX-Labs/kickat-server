@@ -244,7 +244,38 @@ export class OrdersService {
     });
   }
 
-  private async findOrderAndVerifyOwnership(userId: string, orderId: string) {
+  /**
+   * Issue 2: an online order created for a Razorpay attempt that was never
+   * completed sits at orderStatus PENDING and must be invisible to the
+   * customer. `allowActivePaymentAttempt` lets the order-detail endpoint
+   * surface it while the payment retry window (30 min) is still open, so the
+   * retry screen keeps working; every other customer-facing order endpoint
+   * (timeline, tracking, invoice, cancel, return, reorder) treats it as
+   * non-existent.
+   */
+  private static readonly PENDING_PAYMENT_WINDOW_MS = 30 * 60 * 1000;
+
+  private async isWithinActivePaymentAttempt(order: {
+    id: string;
+    createdAt: Date;
+  }): Promise<boolean> {
+    const age = Date.now() - new Date(order.createdAt).getTime();
+    if (age > OrdersService.PENDING_PAYMENT_WINDOW_MS) {
+      return false;
+    }
+
+    const attempts = await this.prisma.payment.count({
+      where: { orderId: order.id },
+    });
+
+    return attempts > 0;
+  }
+
+  private async findOrderAndVerifyOwnership(
+    userId: string,
+    orderId: string,
+    options?: { allowActivePaymentAttempt?: boolean },
+  ) {
     this.validateUuid(orderId, 'id');
 
     const order = await this.prisma.order.findUnique({
@@ -266,6 +297,18 @@ export class OrdersService {
 
     if (order.userId !== userId) {
       throw new ForbiddenException('Not your order');
+    }
+
+    // Unpaid, hidden order: 404 unless the caller explicitly allows an
+    // in-flight payment attempt (order detail / payment retry screen).
+    if (order.orderStatus === OrderStatusEnum.PENDING) {
+      const allowed =
+        options?.allowActivePaymentAttempt === true &&
+        (await this.isWithinActivePaymentAttempt(order));
+
+      if (!allowed) {
+        throw new NotFoundException('Order not found');
+      }
     }
 
     if (order.items && order.items.length > 0) {
@@ -314,9 +357,9 @@ export class OrdersService {
 
     if (query.type) {
       if (query.type === OrderTypeQueryEnum.ONGOING) {
+        // PENDING is deliberately absent: an unpaid online order is hidden.
         where.orderStatus = {
           in: [
-            OrderStatusEnum.PENDING,
             OrderStatusEnum.PLACED,
             OrderStatusEnum.PROCESSING,
             OrderStatusEnum.PACKED,
@@ -344,6 +387,12 @@ export class OrdersService {
         where.createdAt.lte = new Date(query.dateTo);
       }
     }
+
+    // Issue 2: orders awaiting an online payment (orderStatus PENDING) are not
+    // real orders yet and must never appear in order history - including when
+    // the client explicitly asks for status=PENDING. ANDed with any filter
+    // above, so it cannot be bypassed.
+    where.NOT = { orderStatus: OrderStatusEnum.PENDING };
 
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -399,7 +448,9 @@ export class OrdersService {
    * GET /orders/:id
    */
   async getOrderById(userId: string, id: string) {
-    const order = await this.findOrderAndVerifyOwnership(userId, id);
+    const order = await this.findOrderAndVerifyOwnership(userId, id, {
+      allowActivePaymentAttempt: true,
+    });
 
     // `cancellable` drives the Cancel Order button on the order detail page;
     // `cancellationReasons` drives the reason dropdown. Both are additive.
@@ -407,6 +458,9 @@ export class OrdersService {
       success: true,
       order: this.withCancellationMeta(order),
       cancellationReasons: CANCELLATION_REASON_OPTIONS,
+      // Additive: true only for an order still awaiting its online payment.
+      // The payment retry screen uses it; order history never sees one.
+      awaitingPayment: order.orderStatus === OrderStatusEnum.PENDING,
     };
   }
 

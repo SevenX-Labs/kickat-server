@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 import { OrdersController } from './orders.controller';
 import { ReturnsController } from './returns.controller';
 import { OrdersService } from './orders.service';
+import { PendingOrderCleanupService } from './pending-order-cleanup.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { SettingsModule } from '../admin/settings/settings.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -21,7 +22,7 @@ import { ShippingModule } from '../admin/shipping/shipping.module';
     ShippingModule,
   ],
   controllers: [OrdersController, ReturnsController],
-  providers: [OrdersService, InvoicePdfService],
-  exports: [OrdersService, InvoicePdfService],
+  providers: [OrdersService, InvoicePdfService, PendingOrderCleanupService],
+  exports: [OrdersService, InvoicePdfService, PendingOrderCleanupService],
 })
 export class OrdersModule {}

@@ -419,6 +419,17 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
     it('should fulfill stock reservation on payment.captured event', async () => {
       prisma.webhookLog.findUnique.mockResolvedValue(null);
       prisma.webhookLog.create.mockResolvedValue({ id: 'w1' });
+      // The hidden (PENDING) order the capture promotes to PLACED.
+      prisma.order.findUnique.mockResolvedValue({
+        id: mockOrderId,
+        orderNumber: 'ORD-RZP-1',
+        userId: mockUserA,
+        grandTotal: 500,
+        paymentMethod: PaymentMethodEnum.UPI,
+        paymentStatus: PaymentStatusEnum.PENDING,
+        orderStatus: OrderStatusEnum.PENDING,
+        items: [],
+      });
       prisma.payment.findFirst.mockResolvedValue({
         id: mockPaymentId,
         orderId: mockOrderId,

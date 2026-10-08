@@ -43,11 +43,23 @@ describe('PaymentsService', () => {
       },
       order: {
         findFirst: jest.fn(),
+        // promoteOrderAfterPayment() re-reads the order (with items) before
+        // claiming the hidden -> PLACED promotion.
+        findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [] }),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       stockReservation: {
         updateMany: jest.fn(),
+      },
+      cartItem: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      product: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      productVariant: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       webhookLog: {
         findUnique: jest.fn(),
@@ -392,9 +404,15 @@ describe('PaymentsService', () => {
           }),
         }),
       );
-      expect(prisma.order.update).toHaveBeenCalledWith(
+      // The promotion is an atomic conditional claim so the success callback
+      // and the webhook can never both apply it.
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: mockOrderId },
+          where: expect.objectContaining({
+            id: mockOrderId,
+            orderStatus: 'PENDING',
+            paymentStatus: { not: PaymentStatusEnum.COMPLETED },
+          }),
           data: expect.objectContaining({
             paymentStatus: PaymentStatusEnum.COMPLETED,
             orderStatus: 'PLACED',
@@ -448,9 +466,14 @@ describe('PaymentsService', () => {
           }),
         }),
       );
-      expect(prisma.order.update).toHaveBeenCalledWith(
+      // Guarded so a failure event can never downgrade an already-paid order,
+      // and so a hidden (PENDING) order keeps its hidden orderStatus.
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: mockOrderId },
+          where: {
+            id: mockOrderId,
+            paymentStatus: { not: PaymentStatusEnum.COMPLETED },
+          },
           data: { paymentStatus: PaymentStatusEnum.FAILED },
         }),
       );
