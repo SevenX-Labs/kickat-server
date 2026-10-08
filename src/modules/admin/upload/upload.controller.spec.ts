@@ -112,7 +112,7 @@ describe('UploadController', () => {
     const mockFile: any = { originalname: 'cat.png' };
     const mockReq: any = {
       headers: {
-        referer: 'https://admin.kickat.co.in/admin/dashboard/categories',
+        referer: 'https://admin.kickat.in/admin/dashboard/categories',
       },
     };
     await controller.uploadSingleFile(

@@ -876,7 +876,7 @@ export class OrdersService {
   async getOrderInvoicePdf(id: string) {
     const order = await this.findOrderByIdOrNumber(id);
 
-    let supportEmail = 'support@kickat.co.in';
+    let supportEmail = 'support@kickat.in';
     let supportPhone = '+91 98765 43210';
     let gstNumber: string | null = null;
 

@@ -149,7 +149,7 @@ export class InvoicePdfService {
         if (sysSetting) {
           storeSettings = {
             storeName: sysSetting.storeName || "KickAt Retail India",
-            storeEmail: sysSetting.supportEmail || "support@kickat.co.in",
+            storeEmail: sysSetting.supportEmail || "support@kickat.in",
             storePhone: sysSetting.supportPhone || "+91 1800-123-5425",
             gstin: sysSetting.gstin || sysSetting.gstNumber || undefined,
             pan: sysSetting.pan || undefined,
@@ -214,7 +214,7 @@ export class InvoicePdfService {
         let storeSubInfo: string[] = [];
         if (storeSettings.gstin || storeSettings.gstNumber) storeSubInfo.push(`GSTIN: ${storeSettings.gstin || storeSettings.gstNumber}`);
         if (storeSettings.pan) storeSubInfo.push(`PAN: ${storeSettings.pan}`);
-        storeSubInfo.push("www.kickat.co.in");
+        storeSubInfo.push("www.kickat.in");
         doc.fillColor(textMuted).fontSize(8).font("Helvetica").text(storeSubInfo.join("  •  "), leftMargin, y + 40);
 
         if (storeSettings.storeAddress || storeSettings.address) {
@@ -512,7 +512,7 @@ export class InvoicePdfService {
         let footerContacts = ["KickAt"];
         if (storeSettings.storeEmail) footerContacts.push(storeSettings.storeEmail);
         if (storeSettings.storePhone) footerContacts.push(storeSettings.storePhone);
-        footerContacts.push("www.kickat.co.in");
+        footerContacts.push("www.kickat.in");
 
         doc.fillColor(textMuted).fontSize(7.5).font("Helvetica").text(footerContacts.join("   •   "), leftMargin, footerY + 22, { width: contentWidth, align: "center" });
         doc.fillColor("#94A3B8").fontSize(6.5).font("Helvetica").text("This is an authentic, computer-generated tax invoice and does not require a physical signature.", leftMargin, footerY + 34, { width: contentWidth, align: "center" });

@@ -411,7 +411,7 @@ export class AuthService {
     const redirectUri =
       this.configService.get<string>('GOOGLE_CALLBACK_URL') ||
       (process.env.NODE_ENV === 'production'
-        ? 'https://api.kickat.co.in/api/v1/auth/callback/google'
+        ? 'https://api.kickat.in/api/v1/auth/callback/google'
         : 'http://localhost:3000/api/v1/auth/callback/google');
     const scope = encodeURIComponent('openid email profile');
     return `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&access_type=offline&prompt=consent`;
@@ -522,7 +522,7 @@ export class AuthService {
     const isProd = process.env.NODE_ENV === 'production';
     const cookieDomain =
       this.configService.get<string>('COOKIE_DOMAIN') ||
-      (isProd ? '.kickat.co.in' : undefined);
+      (isProd ? '.kickat.in' : undefined);
     return {
       httpOnly: true,
       secure: isProd,

@@ -154,7 +154,7 @@ async function bootstrap() {
       const cleanOrigin = origin.trim().replace(/\/+$/, '');
 
       // Always allow official KickAt first-party domains
-      const isKickatDomain = /^https?:\/\/([a-zA-Z0-9-]+\.)*kickat\.co\.in(:\d+)?$/i.test(cleanOrigin);
+      const isKickatDomain = /^https?:\/\/([a-zA-Z0-9-]+\.)*kickat\.(in|co\.in)(:\d+)?$/i.test(cleanOrigin);
       if (isKickatDomain) {
         return callback(null, true);
       }

@@ -13,7 +13,7 @@ import {
 
 export const DEFAULT_GENERAL_SETTINGS = {
   storeName: "Kickat",
-  supportEmail: "support@kickat.co.in",
+  supportEmail: "support@kickat.in",
   supportPhone: "+91 98765 43210",
   maintenanceMode: false,
   socialLinks: {

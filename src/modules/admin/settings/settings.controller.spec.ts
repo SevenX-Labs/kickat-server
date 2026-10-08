@@ -64,7 +64,7 @@ describe('Admin SettingsController & PublicSettingsController', () => {
     const expected = { success: true, data: {} };
     mockSettingsService.updateAllSettings.mockResolvedValue(expected);
 
-    const dto: UpdateAllSettingsDto = { general: { supportEmail: 'support@kickat.co.in' } };
+    const dto: UpdateAllSettingsDto = { general: { supportEmail: 'support@kickat.in' } };
     const result = await controller.updateAllSettings(dto);
 
     expect(result).toBe(expected);
@@ -76,7 +76,7 @@ describe('Admin SettingsController & PublicSettingsController', () => {
     mockSettingsService.getGeneralSettings.mockResolvedValue(expected);
     mockSettingsService.updateGeneralSettings.mockResolvedValue(expected);
 
-    const dto: UpdateGeneralSettingsDto = { supportEmail: 'support@kickat.co.in' };
+    const dto: UpdateGeneralSettingsDto = { supportEmail: 'support@kickat.in' };
     expect(await controller.getGeneralSettings()).toBe(expected);
     expect(await controller.updateGeneralSettings(dto)).toBe(expected);
   });

@@ -41,7 +41,7 @@ describe('Admin SettingsService', () => {
           key: 'general',
           value: {
             socialLinks: { instagram: 'https://instagram.com/kickat' },
-            supportEmail: 'support@kickat.co.in',
+            supportEmail: 'support@kickat.in',
             supportPhone: '+91 98765 43210',
             maintenanceMode: false,
           },
@@ -74,7 +74,7 @@ describe('Admin SettingsService', () => {
       const result = await service.getAllSettings();
 
       expect(result.success).toBe(true);
-      expect(result.data.general.supportEmail).toBe('support@kickat.co.in');
+      expect(result.data.general.supportEmail).toBe('support@kickat.in');
       expect(result.data.payment.cod.extraFee).toBe(40);
       expect(result.data.tax.gstPercentage).toBe(18);
       expect(result.data.delivery.deliveryFee).toBe(50);
@@ -92,13 +92,13 @@ describe('Admin SettingsService', () => {
 
       const result = await service.updateGeneralSettings({
         socialLinks: { instagram: 'https://instagram.com/kickat' },
-        supportEmail: 'care@kickat.co.in',
+        supportEmail: 'care@kickat.in',
         supportPhone: '+91 99999 88888',
         maintenanceMode: true,
       });
 
       expect(result.success).toBe(true);
-      expect(result.data.supportEmail).toBe('care@kickat.co.in');
+      expect(result.data.supportEmail).toBe('care@kickat.in');
       expect(result.data.maintenanceMode).toBe(true);
       expect(result.data.socialLinks.instagram).toBe('https://instagram.com/kickat');
     });
@@ -169,7 +169,7 @@ describe('Admin SettingsService', () => {
         key: 'general',
         value: {
           socialLinks: { instagram: 'https://instagram.com/kickat' },
-          supportEmail: 'support@kickat.co.in',
+          supportEmail: 'support@kickat.in',
           supportPhone: '+91 98765 43210',
           maintenanceMode: false,
         },
@@ -178,7 +178,7 @@ describe('Admin SettingsService', () => {
       const result = await service.getPublicGeneralSettings();
 
       expect(result.success).toBe(true);
-      expect(result.data.general.supportEmail).toBe('support@kickat.co.in');
+      expect(result.data.general.supportEmail).toBe('support@kickat.in');
       expect(result.data.general.maintenanceMode).toBe(false);
       expect(result.data.delivery.deliveryFeeEnabled).toBeDefined();
       expect(result.data.tax.gstEnabled).toBeDefined();

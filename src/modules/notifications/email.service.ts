@@ -29,13 +29,13 @@ export class EmailService {
     const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
     const fromAddress =
       this.configService.get<string>('RESEND_FROM') ||
-      'Kickat <support@kickat.co.in>';
+      'Kickat <support@kickat.in>';
 
     const htmlContent = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; background-color: #ffffff;">
         <div style="text-align: center; padding-bottom: 20px; border-bottom: 1px solid #f3f4f6; margin-bottom: 24px;">
-          <a href="https://kickat.co.in" target="_blank" style="text-decoration: none;">
-            <img src="https://kickat.co.in/logo-clean.png" alt="KickAt" width="140" style="max-width: 140px; height: auto; display: inline-block; vertical-align: middle;" />
+          <a href="https://kickat.in" target="_blank" style="text-decoration: none;">
+            <img src="https://kickat.in/logo-clean.png" alt="KickAt" width="140" style="max-width: 140px; height: auto; display: inline-block; vertical-align: middle;" />
           </a>
         </div>
         <h2 style="color: #111827; margin-top: 0; font-size: 20px; font-weight: 700;">${params.subject}</h2>
