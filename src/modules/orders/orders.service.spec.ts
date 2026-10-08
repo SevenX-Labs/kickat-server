@@ -322,6 +322,154 @@ describe('OrdersService', () => {
     });
   });
 
+  describe('cancellation contract (backend is the source of truth)', () => {
+    it('reports cancellable=true with no blocked reason for a pre-shipment order', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.PROCESSING,
+        trackingNumber: null,
+        shiprocketShipmentId: null,
+      });
+
+      const res = await service.getOrderById(mockUserId, mockOrderId);
+
+      expect(res.order.cancellable).toBe(true);
+      expect(res.order.cancellationBlockedReason).toBeNull();
+    });
+
+    it('reports cancellable=false once an AWB exists, even in a pre-shipment status', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.PROCESSING,
+        trackingNumber: 'AWB123',
+        shiprocketShipmentId: null,
+      });
+
+      const res = await service.getOrderById(mockUserId, mockOrderId);
+
+      expect(res.order.cancellable).toBe(false);
+      expect(res.order.cancellationBlockedReason).toContain(
+        'handed to the courier',
+      );
+    });
+
+    it('reports cancellable=false once a provider shipment exists', async () => {
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.PROCESSING,
+        trackingNumber: null,
+        shiprocketShipmentId: 'ship-1',
+      });
+
+      const res = await service.getOrderById(mockUserId, mockOrderId);
+
+      expect(res.order.cancellable).toBe(false);
+      expect(res.order.cancellationBlockedReason).toContain(
+        'handed to the courier',
+      );
+    });
+
+    it('exposes the backend-owned reason catalog, with requiresNote only on other', async () => {
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+
+      const res = await service.getOrderById(mockUserId, mockOrderId);
+
+      expect(res.cancellationReasons.map((r: any) => r.code)).toEqual([
+        'changed_mind',
+        'ordered_by_mistake',
+        'found_cheaper',
+        'delivery_too_slow',
+        'change_items',
+        'other',
+      ]);
+      // Never the code the client used to invent.
+      expect(res.cancellationReasons.map((r: any) => r.code)).not.toContain(
+        'delivery_delayed',
+      );
+      for (const option of res.cancellationReasons) {
+        expect(typeof option.label).toBe('string');
+        expect(option.label.length).toBeGreaterThan(0);
+        expect(option.requiresNote).toBe(option.code === 'other');
+      }
+    });
+
+    it('serves the same catalog on the list and tracking responses', async () => {
+      prisma.order.findMany.mockResolvedValue([mockOrder]);
+      const list = await service.getOrders(mockUserId, { page: 1, limit: 10 });
+      expect(list.cancellationReasons.map((r: any) => r.code)).toContain(
+        'change_items',
+      );
+      expect(list.orders[0].cancellable).toBeDefined();
+
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+      prisma.orderTrackingEvent.findMany.mockResolvedValue([]);
+      const tracking = await service.getOrderTracking(mockUserId, mockOrderId);
+      expect(tracking.cancellationReasons.map((r: any) => r.code)).toContain(
+        'change_items',
+      );
+      expect(tracking.cancellable).toBe(true);
+    });
+
+    it('accepts change_items and delivery_too_slow at the endpoint', async () => {
+      for (const reason of [
+        CancelReasonEnum.CHANGE_ITEMS,
+        CancelReasonEnum.DELIVERY_TOO_SLOW,
+      ]) {
+        jest.clearAllMocks();
+        prisma.order.findUnique.mockResolvedValue(mockOrder);
+        prisma.order.updateMany.mockResolvedValue({ count: 1 });
+
+        const res = await service.cancelOrder(mockUserId, mockOrderId, {
+          reason,
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.cancelReasonCode).toBe(reason);
+        expect(res.cancelReason).not.toBe(reason); // a human label, not the code
+      }
+    });
+
+    it('rejects "other" without a note', async () => {
+      prisma.order.findUnique.mockResolvedValue(mockOrder);
+
+      await expect(
+        service.cancelOrder(mockUserId, mockOrderId, {
+          reason: CancelReasonEnum.OTHER,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('still refuses to cancel when an AWB appears concurrently (atomic re-check)', async () => {
+      // Guards pass on the order as first read...
+      prisma.order.findUnique.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.PROCESSING,
+        trackingNumber: null,
+        shiprocketShipmentId: null,
+      });
+      // ...but the conditional update matches nothing, because the shipment
+      // job assigned an AWB in the meantime.
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.cancelOrder(mockUserId, mockOrderId, {
+          reason: CancelReasonEnum.CHANGED_MIND,
+        }),
+      ).rejects.toThrow(ConflictException);
+
+      // The claim is guarded on both the AWB and the shipment id.
+      const where = prisma.order.updateMany.mock.calls[0][0].where;
+      expect(where.shiprocketShipmentId).toBeNull();
+      expect(where.OR).toEqual([
+        { trackingNumber: null },
+        { trackingNumber: '' },
+      ]);
+      // Nothing was restocked by the losing caller.
+      expect(prisma.product.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('returnOrder', () => {
     it('should throw ConflictException if order is not DELIVERED', async () => {
       prisma.order.findUnique.mockResolvedValue({

@@ -61,6 +61,7 @@ const CANCELLABLE_STATUSES: OrderStatusEnum[] = [
  * by the backend instead of being hardcoded in the frontend.
  */
 const CANCELLATION_REASON_OPTIONS = [
+  CancelReasonEnum.CHANGED_MIND,
   CancelReasonEnum.ORDERED_BY_MISTAKE,
   CancelReasonEnum.FOUND_CHEAPER,
   CancelReasonEnum.DELIVERY_TOO_SLOW,
@@ -441,6 +442,9 @@ export class OrdersService {
     return {
       success: true,
       orders: enrichedOrders,
+      // Additive: same backend-owned reason catalog the detail view exposes,
+      // so a list-level cancel action never has to hardcode its own.
+      cancellationReasons: CANCELLATION_REASON_OPTIONS,
       pagination: {
         page,
         limit,
@@ -711,6 +715,9 @@ export class OrdersService {
       // Additive: lets the tracking screen show/hide a Cancel Order action.
       cancellable: this.isCancellable(order),
       cancellationBlockedReason: this.getCancellationBlockedReason(order),
+      // Additive: the tracking screen also offers Cancel Order, so it gets the
+      // same backend-owned reason catalog as the detail view.
+      cancellationReasons: CANCELLATION_REASON_OPTIONS,
       origin: 'Kickat Central Warehouse, Mumbai, Maharashtra',
       destination: order.address
         ? `${order.address.city || ''}, ${order.address.state || ''} ${order.address.pincode || ''}`.trim()
