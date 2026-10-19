@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ShippingService } from './shipping.service';
 import { ShiprocketProvider } from './providers/shiprocket.provider';
+import { DelhiveryProvider } from './providers/delhivery.provider';
+import { ShippingProvider } from './providers/shipping-provider.interface';
 
 export interface DeliveryEstimateResult {
   available: boolean;
@@ -18,6 +21,24 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+interface ShiprocketServiceabilityResponse {
+  status?: number;
+  data?: {
+    recommended_courier_company_id?: number | string;
+    shiprocket_recommended_courier_id?: number | string;
+    promise_recommended_courier_company_id?: number | string;
+    available_courier_companies?: Array<{
+      courier_company_id: number | string;
+      courier_name: string;
+      rate?: number;
+      etd?: string;
+      estimated_delivery_days?: number | string;
+      etd_hours?: number;
+      rating?: number;
+    }>;
+  };
+}
+
 @Injectable()
 export class DeliveryEstimateService {
   private readonly logger = new Logger(DeliveryEstimateService.name);
@@ -27,8 +48,38 @@ export class DeliveryEstimateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly shiprocketProvider: ShiprocketProvider,
+    @Optional() private readonly shippingService?: ShippingService,
+    @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
+    @Optional() private readonly delhiveryProvider?: DelhiveryProvider,
   ) {}
+
+  /**
+   * Resolves the active shipping provider based on ShippingService or environment configuration.
+   * Backward-compatible with standalone testing modules injecting providers directly.
+   */
+  private getShippingProvider(): ShippingProvider | null {
+    if (this.shippingService) {
+      return this.shippingService.getShippingProvider();
+    }
+
+    const configured = (
+      this.configService.get<string>('SHIPPING_PROVIDER', '') || ''
+    ).toUpperCase();
+
+    if (configured === 'DELHIVERY' && this.delhiveryProvider) {
+      return this.delhiveryProvider;
+    }
+    if (configured === 'SHIPROCKET' && this.shiprocketProvider) {
+      return this.shiprocketProvider;
+    }
+    if (this.shiprocketProvider) {
+      return this.shiprocketProvider;
+    }
+    if (this.delhiveryProvider) {
+      return this.delhiveryProvider;
+    }
+    return null;
+  }
 
   /**
    * Public customer delivery estimate based on pincode and product/variant
@@ -58,61 +109,115 @@ export class DeliveryEstimateService {
 
     const isCod = params.cod !== false;
 
-    // 2. Resolve warehouse pickup pincode
-    const pickupLocationName = this.configService.get<string>(
-      'SHIPROCKET_PICKUP_LOCATION',
-      "Bhim's",
-    );
-    let pickupPostcode: string | null = null;
-    if (typeof this.shiprocketProvider.getPickupLocationPincode === 'function') {
-      try {
-        pickupPostcode = await this.shiprocketProvider.getPickupLocationPincode(
-          pickupLocationName,
-        );
-      } catch (err) {
-        this.logger.warn(`Could not resolve pickup location pincode: ${err}`);
-      }
-    }
-    if (!pickupPostcode || !/^\d{6}$/.test(pickupPostcode)) {
-      pickupPostcode =
-        (this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() ||
-        '721643';
+    // 2. Resolve active shipping provider
+    const provider = this.getShippingProvider();
+    if (
+      !provider ||
+      provider.providerName === 'UNCONFIGURED' ||
+      typeof provider.checkServiceability !== 'function'
+    ) {
+      return {
+        available: false,
+        pincode: rawPincode,
+        message: "Couldn't check delivery right now. Please try again.",
+      };
     }
 
-    // 3. Check in-memory cache
-    const cacheKey = `${pickupPostcode}_${rawPincode}_${weight.toFixed(2)}_${isCod ? 1 : 0}`;
+    // 3. Resolve warehouse pickup pincode
+    const isDelhivery = provider.providerName === 'DELHIVERY';
+    const pickupLocationName = isDelhivery
+      ? (this.configService.get<string>('DELHIVERY_PICKUP_LOCATION', '') || '').trim()
+      : (this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', "Bhim's") || '').trim();
+
+    let pickupPostcode: string | null = null;
+    if (pickupLocationName && typeof provider.getPickupLocationPincode === 'function') {
+      try {
+        pickupPostcode = await provider.getPickupLocationPincode(
+          pickupLocationName,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `Could not resolve pickup location pincode: ${err?.message || err}`,
+        );
+      }
+    }
+
+    if (!pickupPostcode || !/^\d{6}$/.test(pickupPostcode)) {
+      pickupPostcode = isDelhivery
+        ? (this.configService.get<string>('DELHIVERY_PICKUP_PINCODE', '') || '').trim()
+        : (this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() || '721643';
+    }
+
+    // 4. Check in-memory cache
+    const cacheKey = `${provider.providerName}_${pickupPostcode}_${rawPincode}_${weight.toFixed(2)}_${isCod ? 1 : 0}`;
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() < cached.expiresAt) {
       return cached.data;
     }
 
-    // 4. Query Shiprocket serviceability
+    // 5. Query active provider serviceability
     try {
-      if (typeof this.shiprocketProvider.checkServiceability !== 'function') {
-        return {
-          available: false,
+      if (provider.providerName === 'DELHIVERY') {
+        const check = await provider.checkServiceability({
+          pickupPostcode,
+          deliveryPostcode: rawPincode,
+          weight,
+          cod: isCod,
+          length,
+          breadth,
+          height,
+        });
+
+        if (!check || !check.isServiceable) {
+          let message = 'Delivery is currently unavailable for this pincode.';
+          if (isCod && !check?.codAvailable && check?.prepaidAvailable) {
+            message = 'Cash on Delivery is unavailable for this pincode.';
+          } else if (!isCod && !check?.prepaidAvailable) {
+            message = 'Prepaid delivery is unavailable for this pincode.';
+          }
+
+          const result: DeliveryEstimateResult = {
+            available: false,
+            pincode: rawPincode,
+            message,
+          };
+          this.cache.set(cacheKey, {
+            data: result,
+            expiresAt: Date.now() + this.CACHE_TTL_MS,
+          });
+          return result;
+        }
+
+        // Serviceable for requested payment method
+        const courier =
+          typeof provider.getRecommendedCourier === 'function'
+            ? await provider.getRecommendedCourier({
+                pickupPostcode,
+                deliveryPostcode: rawPincode,
+                weight,
+                cod: isCod,
+                length,
+                breadth,
+                height,
+              })
+            : null;
+
+        const result: DeliveryEstimateResult = {
+          available: true,
           pincode: rawPincode,
-          message: "Couldn't check delivery right now. Please try again.",
+          courierName: courier?.courierName || 'Delhivery Surface',
+          message: 'Delivery is available for this pincode.',
         };
+
+        this.cache.set(cacheKey, {
+          data: result,
+          expiresAt: Date.now() + this.CACHE_TTL_MS,
+        });
+        return result;
       }
 
-      const response = await this.shiprocketProvider.checkServiceability<{
-        status?: number;
-        data?: {
-          recommended_courier_company_id?: number | string;
-          shiprocket_recommended_courier_id?: number | string;
-          promise_recommended_courier_company_id?: number | string;
-          available_courier_companies?: Array<{
-            courier_company_id: number | string;
-            courier_name: string;
-            rate?: number;
-            etd?: string;
-            estimated_delivery_days?: number | string;
-            etd_hours?: number;
-            rating?: number;
-          }>;
-        };
-      }>({
+      // Default / Shiprocket serviceability handling
+      const response = (await provider.checkServiceability({
         pickupPostcode,
         deliveryPostcode: rawPincode,
         weight,
@@ -120,7 +225,7 @@ export class DeliveryEstimateService {
         length,
         breadth,
         height,
-      });
+      })) as ShiprocketServiceabilityResponse;
 
       const availableCouriers = response?.data?.available_courier_companies;
       if (!Array.isArray(availableCouriers) || availableCouriers.length === 0) {
@@ -171,7 +276,10 @@ export class DeliveryEstimateService {
 
           if (!deliveryDays || isNaN(deliveryDays)) {
             const diffMs = parsed.getTime() - Date.now();
-            deliveryDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+            deliveryDays = Math.max(
+              1,
+              Math.ceil(diffMs / (1000 * 60 * 60 * 24)),
+            );
           }
         }
       }
@@ -214,7 +322,7 @@ export class DeliveryEstimateService {
       return result;
     } catch (err: any) {
       this.logger.error(
-        `Failed to check Shiprocket serviceability for pincode ${rawPincode}: ${err?.message || err}`,
+        `Failed to check ${provider.providerName} serviceability for pincode ${rawPincode}: ${err?.message || err}`,
       );
       return {
         available: false,
@@ -276,7 +384,9 @@ export class DeliveryEstimateService {
           return { weight: 0.5 };
         }
       } catch (err) {
-        this.logger.warn(`Could not resolve variant specs for ${variantId}: ${err}`);
+        this.logger.warn(
+          `Could not resolve variant specs for ${variantId}: ${err}`,
+        );
       }
     }
 
@@ -320,7 +430,9 @@ export class DeliveryEstimateService {
         };
       }
     } catch (err) {
-      this.logger.warn(`Could not resolve product specs for ${productId}: ${err}`);
+      this.logger.warn(
+        `Could not resolve product specs for ${productId}: ${err}`,
+      );
     }
 
     return { weight: 0.5 };

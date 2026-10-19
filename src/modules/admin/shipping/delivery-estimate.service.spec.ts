@@ -1,27 +1,43 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { ShiprocketProvider } from './providers/shiprocket.provider';
 import { DeliveryEstimateService } from './delivery-estimate.service';
+import { ShiprocketProvider } from './providers/shiprocket.provider';
+import { DelhiveryProvider } from './providers/delhivery.provider';
+import { ShippingService } from './shipping.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 
 describe('DeliveryEstimateService', () => {
   let service: DeliveryEstimateService;
-  let shiprocketProvider: jest.Mocked<Partial<ShiprocketProvider>>;
+  let shiprocketProvider: Partial<ShiprocketProvider>;
+  let delhiveryProvider: Partial<DelhiveryProvider>;
   let prismaService: any;
-  let configService: jest.Mocked<Partial<ConfigService>>;
+  let configService: any;
 
-  const mockPickupLocationPincode = jest.fn();
   const mockCheckServiceability = jest.fn();
+  const mockGetPickupLocationPincode = jest.fn();
+
+  const mockDelhiveryCheckServiceability = jest.fn();
+  const mockDelhiveryGetRecommendedCourier = jest.fn();
+  const mockDelhiveryGetPickupLocationPincode = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    mockPickupLocationPincode.mockResolvedValue('721643');
-
     shiprocketProvider = {
-      getPickupLocationPincode: mockPickupLocationPincode,
+      providerName: 'SHIPROCKET',
       checkServiceability: mockCheckServiceability,
+      getPickupLocationPincode: mockGetPickupLocationPincode,
     };
+
+    delhiveryProvider = {
+      providerName: 'DELHIVERY',
+      checkServiceability: mockDelhiveryCheckServiceability,
+      getRecommendedCourier: mockDelhiveryGetRecommendedCourier,
+      getPickupLocationPincode: mockDelhiveryGetPickupLocationPincode,
+    };
+
+    mockGetPickupLocationPincode.mockResolvedValue('721643');
+    mockDelhiveryGetPickupLocationPincode.mockResolvedValue('400001');
 
     prismaService = {
       productVariant: {
@@ -34,8 +50,11 @@ describe('DeliveryEstimateService', () => {
 
     configService = {
       get: jest.fn((key: string, defaultValue?: any) => {
+        if (key === 'SHIPPING_PROVIDER') return 'SHIPROCKET';
         if (key === 'SHIPROCKET_PICKUP_LOCATION') return "Bhim's";
         if (key === 'SHIPROCKET_PICKUP_PINCODE') return '721643';
+        if (key === 'DELHIVERY_PICKUP_LOCATION') return 'KickAt Warehouse';
+        if (key === 'DELHIVERY_PICKUP_PINCODE') return '400001';
         return defaultValue;
       }),
     };
@@ -44,6 +63,7 @@ describe('DeliveryEstimateService', () => {
       providers: [
         DeliveryEstimateService,
         { provide: ShiprocketProvider, useValue: shiprocketProvider },
+        { provide: DelhiveryProvider, useValue: delhiveryProvider },
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
       ],
@@ -75,7 +95,7 @@ describe('DeliveryEstimateService', () => {
     });
   });
 
-  describe('Serviceability & ETA Parsing', () => {
+  describe('Shiprocket Provider Serviceability & ETA Parsing', () => {
     it('should return valid ETA for 1.2 Kg variant (audited real scenario)', async () => {
       prismaService.productVariant.findUnique.mockResolvedValue({
         id: 'var-1.2kg',
@@ -194,7 +214,9 @@ describe('DeliveryEstimateService', () => {
       });
 
       expect(result.available).toBe(false);
-      expect(result.message).toBe('Delivery is currently unavailable for this pincode.');
+      expect(result.message).toBe(
+        'Delivery is currently unavailable for this pincode.',
+      );
     });
 
     it('should handle Shiprocket serviceability API failure gracefully', async () => {
@@ -203,7 +225,9 @@ describe('DeliveryEstimateService', () => {
         shippingWeightKg: 1.2,
       });
 
-      mockCheckServiceability.mockRejectedValue(new Error('Shiprocket API Network Error'));
+      mockCheckServiceability.mockRejectedValue(
+        new Error('Shiprocket API Network Error'),
+      );
 
       const result = await service.getEstimate({
         pincode: '400612',
@@ -211,7 +235,9 @@ describe('DeliveryEstimateService', () => {
       });
 
       expect(result.available).toBe(false);
-      expect(result.message).toBe("Couldn't check delivery right now. Please try again.");
+      expect(result.message).toBe(
+        "Couldn't check delivery right now. Please try again.",
+      );
     });
 
     it('should calculate ETA from estimated_delivery_days when etd string is missing', async () => {
@@ -278,8 +304,224 @@ describe('DeliveryEstimateService', () => {
         variantId: 'var-cached',
       });
 
-      expect(mockCheckServiceability).toHaveBeenCalledTimes(1); // Not called again!
+      expect(mockCheckServiceability).toHaveBeenCalledTimes(1);
       expect(secondCall).toEqual(firstCall);
+    });
+  });
+
+  describe('Delhivery Provider Serviceability & Delivery Estimation', () => {
+    let delhiveryService: DeliveryEstimateService;
+
+    beforeEach(async () => {
+      const delhiveryConfigService = {
+        get: jest.fn((key: string, defaultValue?: any) => {
+          if (key === 'SHIPPING_PROVIDER') return 'DELHIVERY';
+          if (key === 'DELHIVERY_PICKUP_LOCATION') return 'Central Warehouse';
+          if (key === 'DELHIVERY_PICKUP_PINCODE') return '400001';
+          return defaultValue;
+        }),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          DeliveryEstimateService,
+          { provide: DelhiveryProvider, useValue: delhiveryProvider },
+          { provide: PrismaService, useValue: prismaService },
+          { provide: ConfigService, useValue: delhiveryConfigService },
+        ],
+      }).compile();
+
+      delhiveryService = module.get<DeliveryEstimateService>(
+        DeliveryEstimateService,
+      );
+    });
+
+    it('returns available: true and courierName for serviceable COD pincode without inventing an ETA date', async () => {
+      mockDelhiveryCheckServiceability.mockResolvedValue({
+        isServiceable: true,
+        pincode: '400612',
+        codAvailable: true,
+        prepaidAvailable: true,
+        city: 'Greater Thane',
+        district: 'Thane',
+        state: 'MH',
+      });
+
+      mockDelhiveryGetRecommendedCourier.mockResolvedValue({
+        courierCompanyId: 'delhivery',
+        courierName: 'Delhivery Surface',
+        isRecommended: true,
+      });
+
+      const res = await delhiveryService.getEstimate({
+        pincode: '400612',
+        weight: 1.0,
+        cod: true,
+      });
+
+      expect(mockDelhiveryCheckServiceability).toHaveBeenCalledWith({
+        pickupPostcode: '400001',
+        deliveryPostcode: '400612',
+        weight: 1.0,
+        cod: true,
+        length: undefined,
+        breadth: undefined,
+        height: undefined,
+      });
+
+      expect(res.available).toBe(true);
+      expect(res.pincode).toBe('400612');
+      expect(res.courierName).toBe('Delhivery Surface');
+      expect(res.message).toBe('Delivery is available for this pincode.');
+
+      // CRITICAL REQUIREMENT 4: Must NOT invent an ETA date when not provided by Delhivery
+      expect(res.estimatedDeliveryDate).toBeUndefined();
+      expect(res.estimatedDeliveryDays).toBeUndefined();
+      expect(res.formattedDate).toBeUndefined();
+    });
+
+    it('returns available: true for prepaid delivery query (cod: false)', async () => {
+      mockDelhiveryCheckServiceability.mockResolvedValue({
+        isServiceable: true,
+        pincode: '400612',
+        codAvailable: false,
+        prepaidAvailable: true,
+      });
+
+      mockDelhiveryGetRecommendedCourier.mockResolvedValue({
+        courierCompanyId: 'delhivery',
+        courierName: 'Delhivery Surface',
+        isRecommended: true,
+      });
+
+      const res = await delhiveryService.getEstimate({
+        pincode: '400612',
+        weight: 1.0,
+        cod: false,
+      });
+
+      expect(res.available).toBe(true);
+      expect(res.courierName).toBe('Delhivery Surface');
+    });
+
+    it('returns available: false with COD-specific message when COD is requested but only prepaid is available', async () => {
+      mockDelhiveryCheckServiceability.mockResolvedValue({
+        isServiceable: false,
+        pincode: '400612',
+        codAvailable: false,
+        prepaidAvailable: true,
+      });
+
+      const res = await delhiveryService.getEstimate({
+        pincode: '400612',
+        weight: 1.0,
+        cod: true,
+      });
+
+      expect(res.available).toBe(false);
+      expect(res.pincode).toBe('400612');
+      expect(res.message).toBe(
+        'Cash on Delivery is unavailable for this pincode.',
+      );
+    });
+
+    it('returns available: false when pincode is not serviceable for prepaid either', async () => {
+      mockDelhiveryCheckServiceability.mockResolvedValue({
+        isServiceable: false,
+        pincode: '999999',
+        codAvailable: false,
+        prepaidAvailable: false,
+      });
+
+      const res = await delhiveryService.getEstimate({
+        pincode: '999999',
+        weight: 1.0,
+        cod: false,
+      });
+
+      expect(res.available).toBe(false);
+      expect(res.pincode).toBe('999999');
+      expect(res.message).toBe(
+        'Prepaid delivery is unavailable for this pincode.',
+      );
+    });
+
+    it('handles Delhivery API errors and timeouts gracefully', async () => {
+      mockDelhiveryCheckServiceability.mockRejectedValue(
+        new Error('Delhivery connection timeout'),
+      );
+
+      const res = await delhiveryService.getEstimate({
+        pincode: '400612',
+        weight: 1.0,
+      });
+
+      expect(res.available).toBe(false);
+      expect(res.message).toBe(
+        "Couldn't check delivery right now. Please try again.",
+      );
+    });
+
+    it('caches Delhivery results avoiding duplicate provider calls', async () => {
+      mockDelhiveryCheckServiceability.mockResolvedValue({
+        isServiceable: true,
+        pincode: '400612',
+        codAvailable: true,
+        prepaidAvailable: true,
+      });
+      mockDelhiveryGetRecommendedCourier.mockResolvedValue({
+        courierCompanyId: 'delhivery',
+        courierName: 'Delhivery Surface',
+      });
+
+      const firstCall = await delhiveryService.getEstimate({
+        pincode: '400612',
+        weight: 1.0,
+        cod: true,
+      });
+      expect(mockDelhiveryCheckServiceability).toHaveBeenCalledTimes(1);
+      expect(firstCall.available).toBe(true);
+
+      const secondCall = await delhiveryService.getEstimate({
+        pincode: '400612',
+        weight: 1.0,
+        cod: true,
+      });
+      expect(mockDelhiveryCheckServiceability).toHaveBeenCalledTimes(1);
+      expect(secondCall).toEqual(firstCall);
+    });
+  });
+
+  describe('Integration with ShippingService', () => {
+    it('uses ShippingService.getShippingProvider() when injected', async () => {
+      const mockShippingService = {
+        getShippingProvider: jest.fn().mockReturnValue(delhiveryProvider),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          DeliveryEstimateService,
+          { provide: ShippingService, useValue: mockShippingService },
+          { provide: PrismaService, useValue: prismaService },
+          { provide: ConfigService, useValue: configService },
+        ],
+      }).compile();
+
+      const dynamicService = module.get<DeliveryEstimateService>(
+        DeliveryEstimateService,
+      );
+
+      mockDelhiveryCheckServiceability.mockResolvedValue({
+        isServiceable: true,
+        pincode: '400612',
+        codAvailable: true,
+        prepaidAvailable: true,
+      });
+
+      const res = await dynamicService.getEstimate({ pincode: '400612' });
+
+      expect(mockShippingService.getShippingProvider).toHaveBeenCalled();
+      expect(res.available).toBe(true);
     });
   });
 });

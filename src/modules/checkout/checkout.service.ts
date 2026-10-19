@@ -12,6 +12,7 @@ import {
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../admin/settings/settings.service';
+import { ConfigService } from '@nestjs/config';
 import { PaymentsService } from '../payments/payments.service';
 import { PaymentMethodType } from '../payments/dto/create-payment-order.dto';
 import { ShippingService } from '../admin/shipping/shipping.service'; import { Optional } from '@nestjs/common';
@@ -32,6 +33,7 @@ export class CheckoutService {
     private readonly stockAlertService: StockAlertService,
     @Optional() private readonly shippingService?: ShippingService,
     @Optional() private readonly paymentsService?: PaymentsService,
+    @Optional() private readonly configService?: ConfigService,
   ) {}
 
   /**
@@ -191,6 +193,126 @@ export class CheckoutService {
   }
 
   /**
+   * Helper to check destination PIN serviceability and payment eligibility with the active shipping provider
+   */
+  private async checkShippingServiceability(
+    pincode: string,
+    isCod: boolean,
+    weightKg: number = 0.5,
+  ): Promise<{
+    serviceable: boolean;
+    codAvailable: boolean;
+    prepaidAvailable: boolean;
+    message?: string;
+  }> {
+    if (!this.shippingService) {
+      return {
+        serviceable: true,
+        codAvailable: true,
+        prepaidAvailable: true,
+      };
+    }
+
+    const provider = this.shippingService.getShippingProvider();
+    if (
+      !provider ||
+      provider.providerName === 'UNCONFIGURED' ||
+      typeof provider.checkServiceability !== 'function'
+    ) {
+      return {
+        serviceable: true,
+        codAvailable: true,
+        prepaidAvailable: true,
+      };
+    }
+
+    try {
+      if (provider.providerName === 'DELHIVERY') {
+        const check = await provider.checkServiceability({
+          pickupPostcode: '',
+          deliveryPostcode: pincode,
+          weight: weightKg,
+          cod: isCod,
+        });
+
+        if (!check) {
+          return {
+            serviceable: false,
+            codAvailable: false,
+            prepaidAvailable: false,
+            message: 'Delivery is currently unavailable for this pincode.',
+          };
+        }
+
+        const isServiceable = isCod ? Boolean(check.codAvailable) : Boolean(check.prepaidAvailable);
+        let message: string | undefined;
+        if (!isServiceable) {
+          if (isCod && !check.codAvailable && check.prepaidAvailable) {
+            message = 'Cash on Delivery is unavailable for this delivery pincode';
+          } else {
+            message = 'Pincode is currently not serviceable';
+          }
+        }
+
+        return {
+          serviceable: isServiceable,
+          codAvailable: Boolean(check.codAvailable),
+          prepaidAvailable: Boolean(check.prepaidAvailable),
+          message,
+        };
+      }
+
+      // Shiprocket serviceability query
+      const isDelhivery = provider.providerName === 'DELHIVERY';
+      const pickupLocation = isDelhivery
+        ? (this.configService?.get<string>('DELHIVERY_PICKUP_LOCATION', '') || '').trim()
+        : (this.configService?.get<string>('SHIPROCKET_PICKUP_LOCATION', "Bhim's") || '').trim();
+
+      let pickupPostcode: string | null = null;
+      if (pickupLocation && typeof provider.getPickupLocationPincode === 'function') {
+        try {
+          pickupPostcode = await provider.getPickupLocationPincode(pickupLocation);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!pickupPostcode || !/^\d{6}$/.test(pickupPostcode)) {
+        pickupPostcode = isDelhivery
+          ? (this.configService?.get<string>('DELHIVERY_PICKUP_PINCODE', '') || '').trim()
+          : (this.configService?.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() || '721643';
+      }
+
+      const res: any = await provider.checkServiceability({
+        pickupPostcode,
+        deliveryPostcode: pincode,
+        weight: weightKg,
+        cod: isCod,
+      });
+
+      const availableCouriers = res?.data?.available_courier_companies;
+      const isServiceable = Array.isArray(availableCouriers) && availableCouriers.length > 0;
+
+      return {
+        serviceable: isServiceable,
+        codAvailable: isServiceable,
+        prepaidAvailable: isServiceable,
+        message: isServiceable ? undefined : 'Pincode is currently not serviceable',
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `Failed to verify shipping serviceability for pincode ${pincode}: ${err?.message || err}`,
+      );
+      return {
+        serviceable: false,
+        codAvailable: false,
+        prepaidAvailable: false,
+        message: 'Could not verify delivery serviceability right now. Please try again.',
+      };
+    }
+  }
+
+  /**
    * POST /checkout/validate-address
    */
   async validateAddress(userId: string, dto: ValidateAddressDto) {
@@ -212,20 +334,53 @@ export class CheckoutService {
     }
 
     const pincode = targetAddress.pincode;
-    if (!pincode || pincode.startsWith('0') || pincode.length !== 6) {
-      throw new BadRequestException('Unserviceable pincode');
+    if (!pincode || !/^\d{6}$/.test(pincode) || pincode.startsWith('0')) {
+      return {
+        success: true,
+        serviceable: false,
+        deliveryCharge: 0,
+        estimatedDays: '2-4 business days',
+        address: targetAddress,
+        message: 'Unserviceable pincode',
+      };
     }
 
-    const delivery = await this.settingsService.getDeliverySettingsRaw();
-    const threshold = delivery.freeDeliveryThreshold ?? 0;
-    const deliveryCharge = delivery.deliveryFeeEnabled ? (threshold === 0 ? 0 : (delivery.deliveryFee ?? 0)) : 0;
+    // Fetch user cart to calculate authoritative subtotal for free delivery threshold
+    const cartItems = await this.prisma.cartItem.findMany({
+      where: { userId },
+      include: { product: true, variant: true },
+    });
+
+    let cartSubtotal = 0;
+    for (const item of cartItems) {
+      const price = item.variant
+        ? item.variant.discountPrice ?? item.variant.price
+        : item.product.discountPrice ?? item.product.price;
+      cartSubtotal += price * item.quantity;
+    }
+
+    const deliveryFee = await this.computeDeliveryFee(cartSubtotal);
+
+    // Live provider serviceability check
+    const check = await this.checkShippingServiceability(pincode, false);
+    if (!check.serviceable && !check.prepaidAvailable && !check.codAvailable) {
+      return {
+        success: true,
+        serviceable: false,
+        deliveryCharge: deliveryFee,
+        estimatedDays: '2-4 business days',
+        address: targetAddress,
+        message: check.message || 'Pincode is currently not serviceable',
+      };
+    }
 
     return {
       success: true,
       serviceable: true,
-      deliveryCharge,
-      estimatedDays: '2-3 business days',
+      deliveryCharge: deliveryFee,
+      estimatedDays: '2-4 business days',
       address: targetAddress,
+      message: check.message,
     };
   }
 
@@ -243,11 +398,22 @@ export class CheckoutService {
 
     const paymentSettings = await this.settingsService.getPaymentSettingsRaw();
 
-    const codEnabled = Boolean(paymentSettings.cod?.enabled ?? true);
+    let codEnabled = Boolean(paymentSettings.cod?.enabled ?? true);
     const upiEnabled = Boolean(paymentSettings.upi?.enabled ?? true);
     const cardEnabled = Boolean(paymentSettings.card?.enabled ?? true);
     const codExtraFeeEnabled = paymentSettings.cod?.extraFeeEnabled !== false;
     const codExtraFee = (codExtraFeeEnabled && codEnabled) ? Number(paymentSettings.cod?.extraFee ?? 0) : 0;
+
+    let codReason = codEnabled ? undefined : 'COD payment method is currently disabled';
+
+    // Live PIN-aware shipping serviceability check for COD
+    if (codEnabled) {
+      const shippingCheck = await this.checkShippingServiceability(pincode, true);
+      if (!shippingCheck.codAvailable) {
+        codEnabled = false;
+        codReason = 'Cash on Delivery is unavailable for this delivery pincode';
+      }
+    }
 
     return {
       success: true,
@@ -263,7 +429,7 @@ export class CheckoutService {
           name: 'Cash on Delivery',
           available: codEnabled,
           extraFee: codExtraFee,
-          reason: codEnabled ? undefined : 'COD payment method is currently disabled',
+          reason: codReason,
         },
       ],
     };
@@ -410,6 +576,48 @@ export class CheckoutService {
         productName: item.product.name,
         variantName: item.variant ? item.variant.name : null,
       });
+    }
+
+    // Pre-order shipping weight validation
+    if (this.shippingService && typeof this.shippingService.calculateOrderWeight === 'function') {
+      const orderWeight = await this.shippingService.calculateOrderWeight(
+        cartItems.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+          productName: item.product.name,
+          variantName: item.variant?.name,
+        })),
+      );
+
+      if (typeof orderWeight !== 'number' || isNaN(orderWeight) || orderWeight <= 0) {
+        throw new BadRequestException(
+          'Unable to determine valid shipping weight for order items. Please contact support.',
+        );
+      }
+    }
+
+    // Pre-order destination serviceability & payment method validation
+    const destinationPincode = address.pincode ? String(address.pincode).trim() : null;
+    if (destinationPincode) {
+      if (!/^\d{6}$/.test(destinationPincode) || destinationPincode.startsWith('0')) {
+        throw new BadRequestException('Destination pincode is invalid or unserviceable');
+      }
+
+      const shippingCheck = await this.checkShippingServiceability(
+        destinationPincode,
+        !isOnlinePayment,
+      );
+
+      if (!shippingCheck.serviceable) {
+        throw new BadRequestException(
+          shippingCheck.message || 'Delivery is currently unavailable for this destination address',
+        );
+      }
+
+      if (!isOnlinePayment && !shippingCheck.codAvailable) {
+        throw new BadRequestException('Cash on Delivery is unavailable for this delivery pincode');
+      }
     }
 
     // Explicitly re-fetch live system settings at exact moment of order placement

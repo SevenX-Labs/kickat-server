@@ -2,6 +2,7 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
 import { ShiprocketProvider } from './providers/shiprocket.provider';
+import { DelhiveryProvider } from './providers/delhivery.provider';
 import {
   AssignAwbResult,
   AvailableCourier,
@@ -46,6 +47,7 @@ export class ShippingService {
     private readonly nullShippingProvider: NullShippingProvider,
     private readonly notificationsService: NotificationsService,
     @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
+    @Optional() private readonly delhiveryProvider?: DelhiveryProvider,
   ) {
     const configuredProvider = (
       this.configService.get<string>('SHIPPING_PROVIDER', '') || ''
@@ -54,6 +56,9 @@ export class ShippingService {
     if (configuredProvider === 'SHIPROCKET' && this.shiprocketProvider) {
       this.shippingProvider = this.shiprocketProvider;
       this.logger.log('Active shipping provider initialized: SHIPROCKET');
+    } else if (configuredProvider === 'DELHIVERY' && this.delhiveryProvider) {
+      this.shippingProvider = this.delhiveryProvider;
+      this.logger.log('Active shipping provider initialized: DELHIVERY');
     } else {
       this.shippingProvider = this.nullShippingProvider;
       this.logger.log(
@@ -791,7 +796,7 @@ export class ShippingService {
     };
   }
 
-  private async calculateOrderWeight(
+  async calculateOrderWeight(
     items: Array<{
       productId: string;
       variantId?: string | null;
