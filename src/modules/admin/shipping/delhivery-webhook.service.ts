@@ -133,7 +133,6 @@ export class DelhiveryWebhookService {
     const rawConfiguredSecret = (
       this.configService.get<string>("DELHIVERY_WEBHOOK_SECRET") ||
       this.configService.get<string>("DELHIVERY_WEBHOOK_TOKEN") ||
-      this.configService.get<string>("DELHIVERY_API_KEY") ||
       ""
     ).trim();
 

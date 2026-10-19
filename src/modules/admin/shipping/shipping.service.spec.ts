@@ -17,6 +17,7 @@ describe('Admin ShippingService', () => {
   let service: ShippingService;
   let prisma: any;
   let configService: any;
+  let notificationsService: any;
 
   const mockPrismaService = {
     order: {
@@ -51,6 +52,7 @@ describe('Admin ShippingService', () => {
     }).compile();
 
     service = module.get<ShippingService>(ShippingService);
+    notificationsService = module.get<NotificationsService>(NotificationsService);
     prisma = module.get<PrismaService>(PrismaService);
     configService = module.get<ConfigService>(ConfigService);
     configService.get.mockImplementation((key: string, defaultValue?: string) => {
@@ -972,6 +974,128 @@ describe('Admin ShippingService', () => {
           taxAmount: 50,
           grandTotal: 1100,
           paymentMethod: "PREPAID",
+        }),
+      );
+    });
+    it("21. Resolves DELHIVERY_PICKUP_LOCATION when provider is DELHIVERY", async () => {
+      const mockDelhiveryProvider = {
+        providerName: "DELHIVERY",
+        createShipment: jest.fn().mockResolvedValue({
+          isConfigured: true,
+          providerName: "DELHIVERY",
+          orderId: "DEL-ORD-1",
+          shipmentId: "DEL-WAYBILL-123",
+          awbCode: "DEL-WAYBILL-123",
+          courierName: "Delhivery",
+          status: "Success",
+          message: "Created",
+        }),
+        assignAwb: jest.fn(),
+        getShipmentTrackingByAwb: jest.fn(),
+        cancelShipment: jest.fn(),
+      };
+
+      configService.get.mockImplementation((key: string) => {
+        if (key === "SHIPPING_PROVIDER") return "DELHIVERY";
+        if (key === "DELHIVERY_PICKUP_LOCATION") return "DELHIVERY_WAREHOUSE_NORTH";
+        if (key === "SHIPROCKET_PICKUP_LOCATION") return "SHIPROCKET_WAREHOUSE_SOUTH";
+        return null;
+      });
+
+      const delhiveryShippingService = new (service.constructor as any)(
+        prisma,
+        configService,
+        new NullShippingProvider(),
+        notificationsService,
+        undefined,
+        mockDelhiveryProvider,
+      );
+
+      prisma.order.findFirst.mockResolvedValue(baseMockOrder);
+      prisma.order.update.mockResolvedValue({
+        ...baseMockOrder,
+        shippingProvider: "DELHIVERY",
+        shiprocketOrderId: "DEL-ORD-1",
+        shiprocketShipmentId: "DEL-WAYBILL-123",
+        trackingNumber: "DEL-WAYBILL-123",
+        courierPartner: "Delhivery",
+        orderStatus: OrderStatusEnum.PACKED,
+      });
+
+      const res = await delhiveryShippingService.createShipmentForOrder("ORD-2000");
+
+      expect(mockDelhiveryProvider.createShipment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pickupLocation: "DELHIVERY_WAREHOUSE_NORTH",
+        }),
+      );
+      expect(res.data.status).toBe(OrderStatusEnum.PACKED);
+    });
+
+    it("22. Advances orderStatus to PACKED on atomic AWB assignment in createShipment", async () => {
+      const mockDelhiveryProvider = {
+        providerName: "DELHIVERY",
+        createShipment: jest.fn().mockResolvedValue({
+          isConfigured: true,
+          providerName: "DELHIVERY",
+          orderId: "DEL-ORD-99",
+          shipmentId: "DEL-WAYBILL-999",
+          awbCode: "DEL-WAYBILL-999",
+          courierName: "Delhivery",
+          status: "Success",
+          message: "Created",
+        }),
+        assignAwb: jest.fn(),
+        getShipmentTrackingByAwb: jest.fn(),
+        cancelShipment: jest.fn(),
+      };
+
+      configService.get.mockImplementation((key: string) => {
+        if (key === "SHIPPING_PROVIDER") return "DELHIVERY";
+        if (key === "DELHIVERY_PICKUP_LOCATION") return "DELHIVERY_WAREHOUSE_NORTH";
+        return null;
+      });
+
+      const delhiveryShippingService = new (service.constructor as any)(
+        prisma,
+        configService,
+        new NullShippingProvider(),
+        notificationsService,
+        undefined,
+        mockDelhiveryProvider,
+      );
+
+      const placedOrder = {
+        ...baseMockOrder,
+        orderStatus: OrderStatusEnum.PLACED,
+      };
+      prisma.order.findFirst.mockResolvedValue(placedOrder);
+      prisma.order.update.mockImplementation(({ data }: any) => {
+        return Promise.resolve({
+          ...placedOrder,
+          ...data,
+        });
+      });
+
+      const res = await delhiveryShippingService.createShipmentForOrder("ORD-2000");
+
+      expect(res.isAwbAssigned).toBe(true);
+      expect(res.data.status).toBe(OrderStatusEnum.PACKED);
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderStatus: OrderStatusEnum.PACKED,
+            trackingNumber: "DEL-WAYBILL-999",
+            shippingProvider: "DELHIVERY",
+          }),
+        }),
+      );
+      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          oldStatus: OrderStatusEnum.PLACED,
+          newStatus: OrderStatusEnum.PACKED,
+          trackingNumber: "DEL-WAYBILL-999",
+          courierPartner: "Delhivery",
         }),
       );
     });

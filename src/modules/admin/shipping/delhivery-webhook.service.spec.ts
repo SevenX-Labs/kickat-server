@@ -115,6 +115,44 @@ describe("DelhiveryWebhookService", () => {
         process.env.NODE_ENV = originalEnv;
       }
     });
+
+    it("does not authenticate against DELHIVERY_API_KEY when DELHIVERY_WEBHOOK_SECRET is unset", () => {
+      configService.get.mockImplementation((key: string) => {
+        if (key === "DELHIVERY_API_KEY") return "delhivery_api_token_abc";
+        return null;
+      });
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        const headers = { "x-delhivery-secret": "delhivery_api_token_abc" };
+        expect(() => service.verifyAuthentication(headers)).toThrow(
+          UnauthorizedException,
+        );
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
+
+    it("verifies webhook with independent DELHIVERY_WEBHOOK_SECRET in production", () => {
+      configService.get.mockImplementation((key: string) => {
+        if (key === "DELHIVERY_WEBHOOK_SECRET") return "delhivery_dedicated_secret_777";
+        if (key === "DELHIVERY_API_KEY") return "delhivery_api_token_abc";
+        return null;
+      });
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        const validHeaders = { "x-delhivery-secret": "delhivery_dedicated_secret_777" };
+        expect(service.verifyAuthentication(validHeaders)).toBe(true);
+
+        const invalidHeaders = { "x-delhivery-secret": "delhivery_api_token_abc" };
+        expect(() => service.verifyAuthentication(invalidHeaders)).toThrow(
+          UnauthorizedException,
+        );
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
   });
 
   describe("2. Payload & Order Resolution", () => {

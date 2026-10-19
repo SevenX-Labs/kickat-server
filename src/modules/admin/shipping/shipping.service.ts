@@ -72,6 +72,30 @@ export class ShippingService {
   }
 
   /**
+   * Resolves the configured warehouse pickup location name for the active shipping provider.
+   */
+  resolveConfiguredPickupLocation(explicitLocation?: string): string {
+    if (explicitLocation && explicitLocation.trim()) {
+      return explicitLocation.trim();
+    }
+    const isDelhivery = this.shippingProvider?.providerName === "DELHIVERY";
+    const envKey = isDelhivery ? "DELHIVERY_PICKUP_LOCATION" : "SHIPROCKET_PICKUP_LOCATION";
+    return (this.configService.get<string>(envKey, "") || "").trim();
+  }
+
+  /**
+   * Resolves the configured warehouse pickup pincode for the active shipping provider.
+   */
+  resolveConfiguredPickupPincode(explicitPincode?: string): string {
+    if (explicitPincode && explicitPincode.trim()) {
+      return explicitPincode.trim();
+    }
+    const isDelhivery = this.shippingProvider?.providerName === "DELHIVERY";
+    const envKey = isDelhivery ? "DELHIVERY_PICKUP_PINCODE" : "SHIPROCKET_PICKUP_PINCODE";
+    return (this.configService.get<string>(envKey, "") || "").trim();
+  }
+
+  /**
    * Helper to find order by UUID, orderNumber, or trackingNumber
    */
   private async findOrderByAnyIdentifier(identifier: string) {
@@ -938,15 +962,17 @@ export class ShippingService {
         }
 
         // Pickup location validation (no hardcoded fallback)
-        const pickupLocation = (
-          options?.pickupLocation ||
-          this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', '') ||
-          ''
-        ).trim();
+        const isDelhiveryProvider =
+          this.shippingProvider?.providerName === 'DELHIVERY';
+        const pickupLocation = this.resolveConfiguredPickupLocation(
+          options?.pickupLocation,
+        );
 
         if (!pickupLocation) {
           throw new BadRequestException(
-            'Shiprocket pickup location is not configured.',
+            isDelhiveryProvider
+              ? 'Delhivery pickup location is not configured.'
+              : 'Shiprocket pickup location is not configured.',
           );
         }
 
@@ -1064,6 +1090,15 @@ export class ShippingService {
         remoteOrderId = result.orderId ? String(result.orderId) : null;
         shipmentId = result.shipmentId ? String(result.shipmentId) : null;
 
+        // Advance order status to PACKED when AWB is returned atomically with shipment
+        const shouldAdvanceToPacked =
+          Boolean(result.awbCode) &&
+          (order.orderStatus === OrderStatusEnum.PLACED ||
+            order.orderStatus === OrderStatusEnum.PROCESSING);
+        const targetStatus = shouldAdvanceToPacked
+          ? OrderStatusEnum.PACKED
+          : order.orderStatus;
+
         // Persist remote shipment details to Order record immediately
         const saved = await this.prisma.order.update({
           where: { id: order.id },
@@ -1074,6 +1109,7 @@ export class ShippingService {
             courierPartner:
               result.courierName || order.courierPartner || 'Shiprocket',
             trackingNumber: result.awbCode || order.trackingNumber || null,
+            orderStatus: targetStatus,
           },
           include: {
             user: {
@@ -1090,10 +1126,36 @@ export class ShippingService {
         if (saved.courierPartner) {
           courierPartner = saved.courierPartner;
         }
+
+        // Dispatch customer notification if status transitioned to PACKED
+        if (shouldAdvanceToPacked && saved.orderStatus !== order.orderStatus) {
+          try {
+            this.notificationsService.notifyOrderStatusChange({
+              orderId: saved.id,
+              orderNumber: saved.orderNumber,
+              userId: saved.userId,
+              oldStatus: order.orderStatus,
+              newStatus: saved.orderStatus,
+              trackingNumber: saved.trackingNumber,
+              courierPartner: saved.courierPartner,
+              estimatedDelivery: saved.estimatedDelivery,
+            });
+          } catch (notifyErr: any) {
+            this.logger.warn(
+              `Failed to dispatch status notification for order ${order.orderNumber}: ${notifyErr?.message || notifyErr}`,
+            );
+          }
+        }
       }
 
       // If AWB was already assigned by createShipment or order already has trackingNumber:
       if (trackingNumber) {
+        const currentStatus =
+          order.orderStatus === OrderStatusEnum.PLACED ||
+          order.orderStatus === OrderStatusEnum.PROCESSING
+            ? OrderStatusEnum.PACKED
+            : order.orderStatus;
+
         return {
           success: true,
           message: 'Forward shipment created successfully',
@@ -1105,9 +1167,9 @@ export class ShippingService {
             shippingProvider: order.shippingProvider,
             shiprocketOrderId: remoteOrderId,
             shiprocketShipmentId: shipmentId,
-            courierPartner: order.courierPartner,
-            trackingNumber: order.trackingNumber,
-            status: order.orderStatus,
+            courierPartner: courierPartner || order.courierPartner,
+            trackingNumber: trackingNumber,
+            status: currentStatus,
           },
         };
       }
@@ -1136,15 +1198,13 @@ export class ShippingService {
       }
 
       // 3. Resolve pickup location & pincode
-      const pickupLocation = (
-        options?.pickupLocation ||
-        this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', '') ||
-        ''
-      ).trim();
+      const pickupLocation = this.resolveConfiguredPickupLocation(
+        options?.pickupLocation,
+      );
 
       let pickupPostcode =
         options?.pickupPostcode ||
-        this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '');
+        this.resolveConfiguredPickupPincode();
       if (!pickupPostcode && this.shippingProvider.getPickupLocationPincode) {
         try {
           pickupPostcode =
