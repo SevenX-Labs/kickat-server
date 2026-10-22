@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { OrderStatusEnum, Prisma } from "@prisma/client";
+import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import * as crypto from "crypto";
@@ -625,6 +625,12 @@ export class DelhiveryWebhookService {
       if (normalizedStatus === OrderStatusEnum.DELIVERED) {
         const delDate = statusDateTime ? new Date(statusDateTime) : new Date();
         updateData.deliveryDate = isNaN(delDate.getTime()) ? new Date() : delDate;
+        if (
+          order.paymentMethod === PaymentMethodEnum.COD &&
+          order.paymentStatus === PaymentStatusEnum.PENDING
+        ) {
+          updateData.paymentStatus = PaymentStatusEnum.COMPLETED;
+        }
       }
     }
 
@@ -643,7 +649,7 @@ export class DelhiveryWebhookService {
         });
 
         if (Object.keys(updateData).length > 0) {
-          return tx.order.update({
+          const res = await tx.order.update({
             where: { id: order.id },
             data: updateData,
             include: {
@@ -651,6 +657,15 @@ export class DelhiveryWebhookService {
               address: true,
             },
           });
+
+          if (updateData.paymentStatus === PaymentStatusEnum.COMPLETED) {
+            await tx.payment.updateMany({
+              where: { orderId: order.id, status: PaymentStatusEnum.PENDING },
+              data: { status: PaymentStatusEnum.COMPLETED },
+            });
+          }
+
+          return res;
         }
 
         return order;

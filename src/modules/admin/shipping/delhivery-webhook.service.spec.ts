@@ -1,6 +1,6 @@
 import { UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { OrderStatusEnum } from "@prisma/client";
+import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from "@prisma/client";
 import {
   DelhiveryWebhookService,
   DELHIVERY_STATUS_MAP,
@@ -31,6 +31,9 @@ describe("DelhiveryWebhookService", () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
+      },
+      payment: {
+        updateMany: jest.fn(),
       },
       webhookLog: {
         findUnique: jest.fn(),
@@ -294,6 +297,50 @@ describe("DelhiveryWebhookService", () => {
         }),
       );
       expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalled();
+    });
+
+    it("advances order status to DELIVERED and marks COD payment as COMPLETED", async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        ...mockOrder,
+        paymentMethod: PaymentMethodEnum.COD,
+        paymentStatus: PaymentStatusEnum.PENDING,
+        orderStatus: OrderStatusEnum.OUT_FOR_DELIVERY,
+      });
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      prisma.order.update.mockResolvedValue({
+        ...mockOrder,
+        paymentMethod: PaymentMethodEnum.COD,
+        paymentStatus: PaymentStatusEnum.COMPLETED,
+        orderStatus: OrderStatusEnum.DELIVERED,
+      });
+
+      const result = await service.processWebhook({
+        headers: { "x-delhivery-secret": "delhivery_test_secret_123" },
+        body: {
+          Shipment: {
+            AWB: "DEL1234567890",
+            Status: {
+              Status: "Delivered",
+              StatusType: "DL",
+              StatusDateTime: "2026-10-16T14:30:00Z",
+            },
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderStatus: OrderStatusEnum.DELIVERED,
+            paymentStatus: PaymentStatusEnum.COMPLETED,
+          }),
+        }),
+      );
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { orderId: mockOrder.id, status: PaymentStatusEnum.PENDING },
+        data: { status: PaymentStatusEnum.COMPLETED },
+      });
     });
 
     it("advances order status to DELIVERED when StatusType is DL", async () => {

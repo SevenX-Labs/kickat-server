@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { OrderStatusEnum } from '@prisma/client';
+import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ShippingService } from './shipping.service';
@@ -68,6 +68,8 @@ export class ShipmentTrackingSyncService {
         orderNumber: true,
         userId: true,
         orderStatus: true,
+        paymentMethod: true,
+        paymentStatus: true,
         trackingNumber: true,
         courierPartner: true,
         estimatedDelivery: true,
@@ -127,6 +129,8 @@ export class ShipmentTrackingSyncService {
       orderNumber: string;
       userId: string;
       orderStatus: OrderStatusEnum;
+      paymentMethod?: PaymentMethodEnum | null;
+      paymentStatus?: PaymentStatusEnum | null;
       trackingNumber: string | null;
       courierPartner: string | null;
       estimatedDelivery: Date | null;
@@ -161,12 +165,28 @@ export class ShipmentTrackingSyncService {
       return undefined;
     }
 
+    const updateData: any = { orderStatus: target };
+    if (
+      target === OrderStatusEnum.DELIVERED &&
+      order.paymentMethod === PaymentMethodEnum.COD &&
+      order.paymentStatus === PaymentStatusEnum.PENDING
+    ) {
+      updateData.paymentStatus = PaymentStatusEnum.COMPLETED;
+    }
+
     // Optimistic: only advance if no webhook moved the order meanwhile.
     const res = await this.prisma.order.updateMany({
       where: { id: order.id, orderStatus: order.orderStatus },
-      data: { orderStatus: target },
+      data: updateData,
     });
     if (res.count === 0) return undefined;
+
+    if (updateData.paymentStatus === PaymentStatusEnum.COMPLETED) {
+      await this.prisma.payment.updateMany({
+        where: { orderId: order.id, status: PaymentStatusEnum.PENDING },
+        data: { status: PaymentStatusEnum.COMPLETED },
+      });
+    }
 
     this.logger.log(
       `Tracking sync advanced order ${order.orderNumber}: ${order.orderStatus} -> ${target}.`,

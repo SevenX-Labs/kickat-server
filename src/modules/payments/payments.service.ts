@@ -842,7 +842,8 @@ export class PaymentsService {
 
     try {
       const payment = await this.prisma.$transaction(async (tx) => {
-        // Atomically ensure order is still pending and eligible
+        // Atomically ensure order is still pending/placed and eligible.
+        // For COD, paymentStatus remains PENDING until successful delivery.
         const updateResult = await tx.order.updateMany({
           where: {
             id: order.id,
@@ -852,7 +853,7 @@ export class PaymentsService {
             orderStatus: { not: 'CANCELLED' },
           },
           data: {
-            paymentStatus: PaymentStatusEnum.COMPLETED,
+            paymentStatus: PaymentStatusEnum.PENDING,
             orderStatus: 'PLACED',
           },
         });
@@ -870,7 +871,7 @@ export class PaymentsService {
             amount: order.grandTotal,
             currency: 'INR',
             paymentMethod: PaymentMethodEnum.COD,
-            status: PaymentStatusEnum.COMPLETED,
+            status: PaymentStatusEnum.PENDING,
             idempotencyKey: validKey,
           },
         });

@@ -286,7 +286,7 @@ describe('PaymentsService', () => {
   });
 
   describe('confirmCod', () => {
-    it('should confirm COD payment successfully', async () => {
+    it('should confirm COD payment successfully with PENDING status until delivery', async () => {
       prisma.payment.findUnique.mockResolvedValue(null);
       prisma.order.findFirst.mockResolvedValue({
         ...mockOrder,
@@ -294,7 +294,7 @@ describe('PaymentsService', () => {
       });
       prisma.payment.create.mockResolvedValue({
         id: mockPaymentId,
-        status: PaymentStatusEnum.COMPLETED,
+        status: PaymentStatusEnum.PENDING,
       });
 
       const res = await service.confirmCod(mockUserId, mockIdempotencyKey, {
@@ -302,6 +302,7 @@ describe('PaymentsService', () => {
       });
 
       expect(res.success).toBe(true);
+      expect(res.status).toBe(PaymentStatusEnum.PENDING);
       expect(res.message).toContain('COD payment confirmed');
     });
 

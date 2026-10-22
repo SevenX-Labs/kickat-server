@@ -62,6 +62,7 @@ describe("ShiprocketWebhookService", () => {
       payment: {
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
       },
       orderReturn: {
         create: jest.fn(),
@@ -381,6 +382,44 @@ describe("ShiprocketWebhookService", () => {
 
     expect(result2.statusUpdated).toBe(true);
     expect(result2.newStatus).toBe(OrderStatusEnum.DELIVERED);
+  });
+
+  it("advances COD order to DELIVERED and marks paymentStatus as COMPLETED", async () => {
+    prisma.order.findFirst.mockResolvedValue({
+      ...sampleOrder,
+      paymentMethod: PaymentMethodEnum.COD,
+      paymentStatus: PaymentStatusEnum.PENDING,
+      orderStatus: OrderStatusEnum.OUT_FOR_DELIVERY,
+    });
+    prisma.webhookLog.findUnique.mockResolvedValue(null);
+    prisma.order.update.mockResolvedValue({
+      ...sampleOrder,
+      paymentMethod: PaymentMethodEnum.COD,
+      paymentStatus: PaymentStatusEnum.COMPLETED,
+      orderStatus: OrderStatusEnum.DELIVERED,
+    });
+
+    const result = await service.processWebhook({
+      headers: { "x-api-key": "sr_webhook_secret_key_123" },
+      body: {
+        shipment_id: "1617036672",
+        current_status: "DELIVERED",
+      },
+    });
+
+    expect(result.statusUpdated).toBe(true);
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          orderStatus: OrderStatusEnum.DELIVERED,
+          paymentStatus: PaymentStatusEnum.COMPLETED,
+        }),
+      }),
+    );
+    expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+      where: { orderId: sampleOrder.id, status: PaymentStatusEnum.PENDING },
+      data: { status: PaymentStatusEnum.COMPLETED },
+    });
   });
 
   // 11. Backward status ignored

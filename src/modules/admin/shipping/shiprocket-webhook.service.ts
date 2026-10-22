@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { OrderStatusEnum, Prisma } from "@prisma/client";
+import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum, Prisma } from "@prisma/client";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import * as crypto from "crypto";
@@ -762,6 +762,13 @@ export class ShiprocketWebhookService {
     }
     if (shouldAdvanceStatus && normalizedStatus) {
       updateData.orderStatus = normalizedStatus;
+      if (
+        normalizedStatus === OrderStatusEnum.DELIVERED &&
+        order.paymentMethod === PaymentMethodEnum.COD &&
+        order.paymentStatus === PaymentStatusEnum.PENDING
+      ) {
+        updateData.paymentStatus = PaymentStatusEnum.COMPLETED;
+      }
     }
 
     // 9. Execute database update and WebhookLog creation within transaction
@@ -781,7 +788,7 @@ export class ShiprocketWebhookService {
 
         // Update Order if there are changes
         if (Object.keys(updateData).length > 0) {
-          return tx.order.update({
+          const res = await tx.order.update({
             where: { id: order.id },
             data: updateData,
             include: {
@@ -789,6 +796,15 @@ export class ShiprocketWebhookService {
               address: true,
             },
           });
+
+          if (updateData.paymentStatus === PaymentStatusEnum.COMPLETED) {
+            await tx.payment.updateMany({
+              where: { orderId: order.id, status: PaymentStatusEnum.PENDING },
+              data: { status: PaymentStatusEnum.COMPLETED },
+            });
+          }
+
+          return res;
         }
 
         return order;
