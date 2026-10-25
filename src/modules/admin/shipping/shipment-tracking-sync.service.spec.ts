@@ -28,6 +28,10 @@ describe('ShipmentTrackingSyncService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      orderReturn: {
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
     };
     provider = {
       providerName: 'SHIPROCKET',
@@ -49,6 +53,15 @@ describe('ShipmentTrackingSyncService', () => {
         ],
       }),
     };
+    provider.getReturnTracking = jest.fn().mockResolvedValue({
+      isConfigured: true,
+      providerName: 'Delhivery',
+      shipmentId: 'RET-AWB1',
+      currentStatus: 'In Transit',
+      checkpoints: [
+        { status: 'Picked Up', location: 'Hub A', timestamp: '2026-08-11T10:00:00Z' },
+      ],
+    });
     shippingService = { getShippingProvider: jest.fn(() => provider) };
     trackingEvents = { recordEvents: jest.fn().mockResolvedValue(2) };
     // Real progression rules are exercised in the webhook spec; mirror the
@@ -59,7 +72,10 @@ describe('ShipmentTrackingSyncService', () => {
           from !== OrderStatusEnum.CANCELLED && from !== to,
       ),
     };
-    notifications = { notifyOrderStatusChange: jest.fn() };
+    notifications = {
+      notifyOrderStatusChange: jest.fn(),
+      notifyReturnStatus: jest.fn(),
+    };
     service = new ShipmentTrackingSyncService(
       prisma,
       shippingService,
@@ -161,5 +177,118 @@ describe('ShipmentTrackingSyncService', () => {
         }),
       }),
     );
+  });
+
+  // ── Return Shipment Sync ──────────────────────────────────────────────
+
+  it('polls return AWBs and advances status based on tracking data', async () => {
+    prisma.orderReturn.findMany.mockResolvedValue([
+      {
+        id: 'ret-1',
+        returnAwb: 'RET-AWB1',
+        status: 'PICKUP_SCHEDULED',
+        orderId: 'ord-1',
+        order: { id: 'ord-1', orderNumber: 'ORD-1', userId: 'user-1' },
+      },
+    ]);
+    provider.getReturnTracking.mockResolvedValue({
+      isConfigured: true,
+      providerName: 'Delhivery',
+      shipmentId: 'RET-AWB1',
+      currentStatus: 'In Transit',
+      checkpoints: [
+        { status: 'Picked Up', location: 'Hub A', timestamp: '2026-08-11T10:00:00Z' },
+        { status: 'In Transit', location: 'Hub B', timestamp: '2026-08-12T10:00:00Z' },
+      ],
+    });
+
+    const res = await service.syncInTransitOrders();
+
+    expect(provider.getReturnTracking).toHaveBeenCalledWith('RET-AWB1');
+    expect(prisma.orderReturn.update).toHaveBeenCalledWith({
+      where: { id: 'ret-1' },
+      data: { status: 'IN_TRANSIT' },
+    });
+    expect(res.processed).toBeGreaterThanOrEqual(1);
+  });
+
+  it('advances return to RETURN_RECEIVED and sends notification', async () => {
+    prisma.orderReturn.findMany.mockResolvedValue([
+      {
+        id: 'ret-2',
+        returnAwb: 'RET-AWB2',
+        status: 'IN_TRANSIT',
+        orderId: 'ord-1',
+        order: { id: 'ord-1', orderNumber: 'ORD-1', userId: 'user-1' },
+      },
+    ]);
+    provider.getReturnTracking.mockResolvedValue({
+      isConfigured: true,
+      providerName: 'Delhivery',
+      shipmentId: 'RET-AWB2',
+      currentStatus: 'Delivered',
+      checkpoints: [
+        { status: 'Delivered', location: 'Warehouse', timestamp: '2026-08-15T10:00:00Z' },
+      ],
+    });
+
+    await service.syncInTransitOrders();
+
+    expect(prisma.orderReturn.update).toHaveBeenCalledWith({
+      where: { id: 'ret-2' },
+      data: expect.objectContaining({
+        status: 'RETURN_RECEIVED',
+        refundedAt: expect.any(Date),
+      }),
+    });
+    expect(notifications.notifyReturnStatus).toHaveBeenCalledWith({
+      orderId: 'ord-1',
+      orderNumber: 'ORD-1',
+      userId: 'user-1',
+      status: 'RETURN_RECEIVED',
+    });
+  });
+
+  it('never moves a return backward in status', async () => {
+    prisma.orderReturn.findMany.mockResolvedValue([
+      {
+        id: 'ret-3',
+        returnAwb: 'RET-AWB3',
+        status: 'IN_TRANSIT',
+        orderId: 'ord-1',
+        order: { id: 'ord-1', orderNumber: 'ORD-1', userId: 'user-1' },
+      },
+    ]);
+    provider.getReturnTracking.mockResolvedValue({
+      isConfigured: true,
+      providerName: 'Delhivery',
+      shipmentId: 'RET-AWB3',
+      currentStatus: 'Picked Up',
+      checkpoints: [
+        { status: 'Picked Up', location: 'Hub A', timestamp: '2026-08-11T10:00:00Z' },
+      ],
+    });
+
+    await service.syncInTransitOrders();
+
+    expect(prisma.orderReturn.update).not.toHaveBeenCalled();
+  });
+
+  it('skips returns when provider lacks getReturnTracking', async () => {
+    delete provider.getReturnTracking;
+    prisma.orderReturn.findMany.mockResolvedValue([
+      {
+        id: 'ret-4',
+        returnAwb: 'RET-AWB4',
+        status: 'PICKUP_SCHEDULED',
+        orderId: 'ord-1',
+        order: { id: 'ord-1', orderNumber: 'ORD-1', userId: 'user-1' },
+      },
+    ]);
+
+    const res = await service.syncInTransitOrders();
+
+    expect(prisma.orderReturn.update).not.toHaveBeenCalled();
+    expect(res.processed).toBe(0);
   });
 });

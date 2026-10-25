@@ -120,6 +120,18 @@ export class OrdersController {
   }
 
   /**
+   * GET /orders/:orderId/returns/:returnId/tracking
+   */
+  @Get(':orderId/returns/:returnId/tracking')
+  async getReturnTracking(
+    @CurrentUser('id') userId: string,
+    @Param('orderId') orderId: string,
+    @Param('returnId') returnId: string,
+  ) {
+    return this.ordersService.getReturnTracking(userId, orderId, returnId);
+  }
+
+  /**
    * GET /orders/:id/invoice/pdf
    */
   @Get(':id/invoice/pdf')

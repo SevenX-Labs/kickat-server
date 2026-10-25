@@ -759,6 +759,56 @@ export class OrdersService {
   }
 
   /**
+   * GET /orders/:orderId/returns/:returnId/tracking
+   */
+  async getReturnTracking(userId: string, orderId: string, returnId: string) {
+    const order = await this.findOrderAndVerifyOwnership(userId, orderId);
+
+    const returnRecord = order.returns?.find((r: any) => r.id === returnId);
+    if (!returnRecord) {
+      throw new NotFoundException('Return not found');
+    }
+
+    if (!returnRecord.returnAwb) {
+      return {
+        success: true,
+        returnId: returnRecord.id,
+        orderId: order.id,
+        status: returnRecord.status,
+        message: 'No return AWB assigned yet — pickup may not have been scheduled.',
+        checkpoints: [],
+      };
+    }
+
+    if (!this.shippingService) {
+      return {
+        success: true,
+        returnId: returnRecord.id,
+        orderId: order.id,
+        returnAwb: returnRecord.returnAwb,
+        courierPartner: returnRecord.courierPartner,
+        status: returnRecord.status,
+        message: 'Shipping service is not configured.',
+        checkpoints: [],
+      };
+    }
+
+    const provider = this.shippingService.getShippingProvider();
+    const tracking = await provider.getReturnTracking(returnRecord.returnAwb);
+
+    return {
+      success: true,
+      returnId: returnRecord.id,
+      orderId: order.id,
+      returnAwb: returnRecord.returnAwb,
+      courierPartner: returnRecord.courierPartner || tracking.providerName,
+      status: returnRecord.status,
+      currentStatus: tracking.currentStatus,
+      checkpoints: tracking.checkpoints,
+    };
+  }
+
+  /**
    * GET /orders/:id/invoice
    */
 

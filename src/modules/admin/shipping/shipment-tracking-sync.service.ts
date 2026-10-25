@@ -20,6 +20,21 @@ const IN_TRANSIT_STATUSES: OrderStatusEnum[] = [
   OrderStatusEnum.RETURN_INITIATED,
 ];
 
+const ACTIVE_RETURN_STATUSES = [
+  'INITIATED',
+  'PICKUP_SCHEDULED',
+  'PICKED_UP',
+  'IN_TRANSIT',
+];
+
+const RETURN_STATUS_RANK: Record<string, number> = {
+  INITIATED: 0,
+  PICKUP_SCHEDULED: 1,
+  PICKED_UP: 2,
+  IN_TRANSIT: 3,
+  RETURN_RECEIVED: 4,
+};
+
 const FORWARD_RANK: Partial<Record<OrderStatusEnum, number>> = {
   [OrderStatusEnum.SHIPPED]: 1,
   [OrderStatusEnum.OUT_FOR_DELIVERY]: 2,
@@ -270,6 +285,126 @@ export class ShipmentTrackingSyncService {
       }
     }
 
-    return { processed: orders.length, newEvents };
+    // Also poll return shipments with active AWBs
+    const returnsSynced = await this.syncReturnShipments(provider);
+
+    return {
+      processed: orders.length + returnsSynced.processed,
+      newEvents: newEvents + returnsSynced.newEvents,
+    };
+  }
+
+  /**
+   * Polls return shipments with active AWBs and updates their status based
+   * on live tracking data from the shipping provider.
+   */
+  private cursorReturnId: string | null = null;
+
+  private async syncReturnShipments(provider: any): Promise<{
+    processed: number;
+    newEvents: number;
+  }> {
+    if (typeof provider.getReturnTracking !== 'function') {
+      return { processed: 0, newEvents: 0 };
+    }
+
+    const returns = await this.prisma.orderReturn.findMany({
+      where: {
+        returnAwb: { not: null },
+        status: { in: ACTIVE_RETURN_STATUSES },
+        ...(this.cursorReturnId
+          ? { id: { gt: this.cursorReturnId } }
+          : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: ShipmentTrackingSyncService.BATCH_LIMIT,
+      select: {
+        id: true,
+        returnAwb: true,
+        status: true,
+        orderId: true,
+        order: {
+          select: { id: true, orderNumber: true, userId: true },
+        },
+      },
+    });
+
+    this.cursorReturnId =
+      returns.length === ShipmentTrackingSyncService.BATCH_LIMIT
+        ? returns[returns.length - 1].id
+        : null;
+
+    let processed = 0;
+    let newEvents = 0;
+
+    for (const ret of returns) {
+      try {
+        const tracking = await provider.getReturnTracking(ret.returnAwb);
+        if (!tracking?.checkpoints?.length) continue;
+
+        const newStatus = this.deriveReturnStatus(tracking.currentStatus);
+        if (
+          newStatus &&
+          newStatus !== ret.status &&
+          RETURN_STATUS_RANK[newStatus] > (RETURN_STATUS_RANK[ret.status] ?? 0)
+        ) {
+          const updateData: any = { status: newStatus };
+          if (newStatus === 'RETURN_RECEIVED') {
+            updateData.refundedAt = new Date();
+          }
+
+          await this.prisma.orderReturn.update({
+            where: { id: ret.id },
+            data: updateData,
+          });
+
+          this.logger.log(
+            `Return sync advanced return ${ret.id} (order ${ret.order?.orderNumber}): ${ret.status} -> ${newStatus}`,
+          );
+
+          if (newStatus === 'RETURN_RECEIVED') {
+            try {
+              this.notificationsService.notifyReturnStatus({
+                orderId: ret.orderId,
+                orderNumber: ret.order?.orderNumber || '',
+                userId: ret.order?.userId || '',
+                status: 'RETURN_RECEIVED',
+              });
+            } catch {}
+          }
+        }
+
+        processed++;
+        newEvents += tracking.checkpoints.length;
+      } catch (err: any) {
+        this.logger.warn(
+          `Return tracking sync failed for return ${ret.id}: ${err?.message || err}`,
+        );
+      }
+    }
+
+    return { processed, newEvents };
+  }
+
+  private deriveReturnStatus(
+    providerStatus: string | undefined | null,
+  ): string | null {
+    if (!providerStatus) return null;
+    const normalized = providerStatus.toUpperCase().trim();
+
+    if (normalized.includes('DELIVERED') || normalized === 'DL') {
+      return 'RETURN_RECEIVED';
+    }
+    if (normalized.includes('IN TRANSIT') || normalized.includes('IN_TRANSIT')) {
+      return 'IN_TRANSIT';
+    }
+    if (
+      normalized.includes('PICKED UP') ||
+      normalized.includes('PICKUP DONE') ||
+      normalized.includes('PICKED_UP')
+    ) {
+      return 'PICKED_UP';
+    }
+    return null;
   }
 }
