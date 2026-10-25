@@ -627,6 +627,9 @@ model OrderReturn {
   refundAmount         Float?
   transactionReference String?
   refundedAt           DateTime?
+  returnAwb            String?
+  courierPartner       String?
+  pickupScheduledDate  DateTime?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -635,6 +638,7 @@ model OrderReturn {
 
   @@index([orderId])
   @@index([userId])
+  @@index([returnAwb])
   @@map("order_returns")
 }
 

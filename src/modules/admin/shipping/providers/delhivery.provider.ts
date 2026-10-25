@@ -122,6 +122,8 @@ export interface DelhiveryCmuShipmentItem {
   seller_name?: string;
   seller_inv?: string;
   waybill?: string;
+  package_type?: string;
+  return_name?: string;
   [key: string]: unknown;
 }
 
@@ -750,48 +752,261 @@ export class DelhiveryProvider implements ShippingProvider {
     };
   }
 
-  // --- Return Logistics Stubs (Pending Dedicated Phase) ---
+  // --- Return Logistics ---
 
-  createReturnPickup(
+  async createReturnPickup(
     params: CreateReturnPickupParams,
   ): Promise<ReturnPickupResult> {
-    this.logger.warn(
-      `Delhivery return pickup not yet enabled for returnId=${params.returnId}, orderId=${params.orderId}.`,
-    );
-    return Promise.resolve({
-      isConfigured: this.isConfigured(),
-      providerName: this.providerName,
-      pickupId: null,
-      awbNumber: null,
-      courierPartner: 'Delhivery',
-      status: 'PENDING_INTEGRATION',
-      message:
-        'Delhivery reverse return pickup integration is planned for a subsequent phase.',
-    });
-  }
+    if (!this.isConfigured()) {
+      this.logger.warn(
+        `Delhivery not configured for return pickup: returnId=${params.returnId}, orderId=${params.orderId}.`,
+      );
+      return {
+        isConfigured: false,
+        providerName: this.providerName,
+        pickupId: null,
+        awbNumber: null,
+        courierPartner: 'Delhivery',
+        status: 'UNCONFIGURED',
+        message: 'Delhivery API key is not configured.',
+      };
+    }
 
-  getReturnTracking(shipmentId: string): Promise<ReturnTrackingResult> {
-    return Promise.resolve({
-      isConfigured: this.isConfigured(),
-      providerName: this.providerName,
-      shipmentId,
-      currentStatus: 'PENDING_INTEGRATION',
-      checkpoints: [
-        {
-          status: 'PENDING_INTEGRATION',
-          timestamp: new Date().toISOString(),
-          description:
-            'Delhivery return tracking is scheduled for subsequent phase.',
+    const pickupLocation = this.getPickupLocation();
+    if (!pickupLocation) {
+      throw new Error(
+        'Delhivery pickup location is not configured. Set DELHIVERY_PICKUP_LOCATION in environment variables.',
+      );
+    }
+
+    const rawName = (params.pickupAddress.name || '').trim();
+    if (!rawName) {
+      throw new Error('Customer name is required for Delhivery return pickup.');
+    }
+
+    const rawPhone = (params.pickupAddress.phone || '').trim();
+    const cleanPhone = rawPhone.replace(/\D/g, '').slice(-10);
+    if (!cleanPhone || !PHONE_REGEX.test(cleanPhone)) {
+      throw new Error(
+        `Valid 10-digit Indian phone number is required for Delhivery return pickup (received "${rawPhone}").`,
+      );
+    }
+
+    const addr = params.pickupAddress;
+    if (!addr.city || !addr.state || !addr.pincode) {
+      throw new Error(
+        'Incomplete pickup address: city, state, and pincode are required for Delhivery return pickup.',
+      );
+    }
+
+    const addressLine = [addr.houseFlat, addr.buildingStreet]
+      .filter(Boolean)
+      .join(', ')
+      .trim();
+    if (!addressLine) {
+      throw new Error(
+        'Street address is required for Delhivery return pickup.',
+      );
+    }
+
+    const productsDesc = (params.items || [])
+      .map((i) => `${i.productName} (x${i.quantity})`)
+      .join(', ')
+      .slice(0, 250);
+
+    const totalQuantity = (params.items || []).reduce(
+      (sum, i) => sum + (i.quantity || 1),
+      0,
+    );
+
+    const weightInGrams = Math.max(50, 500);
+
+    const returnPincode = (
+      this.configService.get<string>('DELHIVERY_PICKUP_PINCODE', '') || ''
+    ).trim();
+    const returnCity = (
+      this.configService.get<string>('DELHIVERY_PICKUP_CITY', '') || ''
+    ).trim();
+    const returnState = (
+      this.configService.get<string>('DELHIVERY_PICKUP_STATE', '') || ''
+    ).trim();
+
+    const returnOrderNumber = `RET-${params.orderNumber}-${params.returnId.slice(0, 8)}`;
+
+    const shipmentPayload: DelhiveryCmuShipmentItem = {
+      name: rawName,
+      add: addressLine,
+      pin: addr.pincode,
+      city: addr.city,
+      state: addr.state,
+      country: addr.country || 'India',
+      phone: cleanPhone,
+      order: returnOrderNumber,
+      payment_mode: 'Prepaid',
+      cod_amount: 0,
+      total_amount: 0,
+      products_desc: productsDesc || 'KickAt Return Pickup',
+      quantity: totalQuantity,
+      weight: weightInGrams,
+      shipping_mode: this.getShippingMode(),
+      return_pin: returnPincode || undefined,
+      return_city: returnCity || undefined,
+      return_state: returnState || undefined,
+      return_country: 'India',
+      package_type: 'Pickup',
+      return_name: pickupLocation,
+    };
+
+    const cmuData: DelhiveryCmuPayload = {
+      shipments: [shipmentPayload],
+      pickup_location: {
+        name: pickupLocation,
+      },
+    };
+
+    const bodyParams = new URLSearchParams();
+    bodyParams.set('format', 'json');
+    bodyParams.set('data', JSON.stringify(cmuData));
+
+    this.logger.log(
+      `Creating Delhivery return pickup for order ${params.orderNumber}, returnId=${params.returnId}.`,
+    );
+
+    const res = await this.requestWithAuth<DelhiveryCreateResponse>(
+      '/api/cmu/create.json',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-      ],
-    });
+        body: bodyParams.toString(),
+      },
+    );
+
+    const pkg = res?.packages?.[0];
+    if (res.success === false || pkg?.status?.toLowerCase() === 'fail') {
+      const remark =
+        pkg?.remarks?.join('; ') || res.rmk || res.error || 'Unknown error';
+      this.logger.error(
+        `Delhivery return pickup failed for order ${params.orderNumber}: ${remark}`,
+      );
+      throw new Error(`Delhivery return pickup failed: ${remark}`);
+    }
+
+    const waybill = pkg?.waybill || res.upload_wbn || null;
+    if (!waybill) {
+      throw new Error(
+        'Delhivery return pickup succeeded but no waybill was returned.',
+      );
+    }
+
+    this.logger.log(
+      `Delhivery return pickup scheduled for order ${params.orderNumber}: waybill=${waybill}.`,
+    );
+
+    return {
+      isConfigured: true,
+      providerName: this.providerName,
+      pickupId: String(waybill),
+      awbNumber: String(waybill),
+      courierPartner: 'Delhivery',
+      trackingUrl: `https://www.delhivery.com/track/package/${waybill}`,
+      status: 'PICKUP_SCHEDULED',
+      message: 'Delhivery reverse return pickup scheduled successfully',
+    };
   }
 
-  cancelReturnPickup(_shipmentId?: string): Promise<boolean> {
-    this.logger.warn(
-      `Delhivery cancelReturnPickup not yet implemented for shipment ${_shipmentId}.`,
+  async getReturnTracking(shipmentId: string): Promise<ReturnTrackingResult> {
+    const cleanAwb = String(shipmentId || '').trim();
+    if (!cleanAwb) {
+      throw new Error('AWB is required to fetch Delhivery return tracking');
+    }
+
+    const res = await this.requestWithAuth<DelhiveryTrackingResponse>(
+      `/api/v1/packages/json/?waybill=${encodeURIComponent(cleanAwb)}`,
+      { method: 'GET' },
     );
-    return Promise.resolve(false);
+
+    const shipmentItem = res?.ShipmentData?.[0]?.Shipment;
+    if (!shipmentItem) {
+      return {
+        isConfigured: true,
+        providerName: this.providerName,
+        shipmentId: cleanAwb,
+        currentStatus: 'UNKNOWN',
+        checkpoints: [],
+      };
+    }
+
+    const scans = Array.isArray(shipmentItem.Scans) ? shipmentItem.Scans : [];
+    const checkpoints = scans
+      .map((item) => {
+        const detail = item.ScanDetail;
+        if (!detail) return null;
+        return {
+          status: detail.Scan || detail.Instructions || '',
+          location: detail.ScannedLocation || undefined,
+          timestamp: detail.ScanDateTime || detail.StatusDateTime || '',
+          description: detail.Instructions || undefined,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => !!c);
+
+    return {
+      isConfigured: true,
+      providerName: this.providerName,
+      shipmentId: cleanAwb,
+      currentStatus: shipmentItem.Status?.Status ?? 'UNKNOWN',
+      checkpoints,
+    };
+  }
+
+  async cancelReturnPickup(shipmentId?: string): Promise<boolean> {
+    const targetWaybill = (shipmentId || '').trim();
+    if (!targetWaybill) {
+      this.logger.warn('No waybill provided for Delhivery return cancellation.');
+      return false;
+    }
+
+    this.logger.log(
+      `Cancelling Delhivery return pickup with waybill: ${targetWaybill}`,
+    );
+
+    const res = await this.requestWithAuth<DelhiveryCancelResponse>(
+      '/api/p/edit',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          waybill: targetWaybill,
+          cancellation: 'true',
+        }),
+      },
+    );
+
+    const isSuccess =
+      res?.status === true ||
+      String(res?.status).toLowerCase() === 'true' ||
+      String(res?.message || '').toLowerCase().includes('success');
+
+    if (!isSuccess) {
+      const errMsg =
+        res?.remarks?.join('; ') ||
+        res?.message ||
+        res?.error ||
+        'Delhivery return cancellation rejected';
+      this.logger.warn(
+        `Delhivery return cancellation failed for waybill ${targetWaybill}: ${errMsg}`,
+      );
+      return false;
+    }
+
+    this.logger.log(
+      `Delhivery return waybill ${targetWaybill} cancelled successfully.`,
+    );
+    return true;
   }
 
   handleTrackingUpdate(): Promise<ReturnStatusUpdate> {

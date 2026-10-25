@@ -296,6 +296,7 @@ export class DelhiveryWebhookService {
 
   /**
    * Resolves the matching KickAt Order by Delhivery AWB / Waybill or ReferenceNo.
+   * Also checks OrderReturn.returnAwb for reverse-logistics shipments.
    */
   async findMatchingOrder(criteria: {
     awb?: string | null;
@@ -304,11 +305,28 @@ export class DelhiveryWebhookService {
     const { awb, orderNumber } = criteria;
 
     if (awb) {
+      // Check return AWB first (reverse logistics shipments)
+      const returnRecord = await this.prisma.orderReturn.findFirst({
+        where: { returnAwb: awb },
+        include: {
+          order: {
+            include: {
+              user: { select: { id: true, name: true, email: true, phone: true } },
+              address: true,
+            },
+          },
+        },
+      });
+      if (returnRecord) {
+        return { order: returnRecord.order, matchedBy: "returnAwb", orderReturn: returnRecord };
+      }
+
+      // Check forward shipment AWB
       const order = await this.prisma.order.findFirst({
         where: {
           OR: [
             { trackingNumber: awb },
-            { shiprocketShipmentId: awb }, // Delhivery provider sets shipmentId = awb
+            { shiprocketShipmentId: awb },
           ],
         },
         include: {
@@ -316,7 +334,7 @@ export class DelhiveryWebhookService {
           address: true,
         },
       });
-      if (order) return { order, matchedBy: "awb" };
+      if (order) return { order, matchedBy: "awb", orderReturn: null };
     }
 
     if (orderNumber) {
@@ -327,10 +345,10 @@ export class DelhiveryWebhookService {
           address: true,
         },
       });
-      if (order) return { order, matchedBy: "orderNumber" };
+      if (order) return { order, matchedBy: "orderNumber", orderReturn: null };
     }
 
-    return { order: null, matchedBy: null };
+    return { order: null, matchedBy: null, orderReturn: null };
   }
 
   /**
@@ -507,8 +525,8 @@ export class DelhiveryWebhookService {
       };
     }
 
-    // 4. Match KickAt Order
-    const { order, matchedBy } = await this.findMatchingOrder({ awb, orderNumber });
+    // 4. Match KickAt Order (or Return)
+    const { order, matchedBy, orderReturn } = await this.findMatchingOrder({ awb, orderNumber });
 
     if (!order) {
       this.logger.warn(
@@ -544,7 +562,12 @@ export class DelhiveryWebhookService {
       `Delhivery webhook matched order ${order.orderNumber} (id=${order.id}) via ${matchedBy}.`,
     );
 
-    // 4b. Record courier scan events for tracking timeline
+    // 4b. Handle reverse-logistics return shipment updates
+    if (orderReturn && matchedBy === "returnAwb") {
+      return this.processReturnWebhook(order, orderReturn, fields, headers, payloadObject);
+    }
+
+    // 4c. Record courier scan events for tracking timeline
     if (this.trackingEventsService) {
       try {
         const events = this.extractTrackingEvents(fields);
@@ -718,6 +741,138 @@ export class DelhiveryWebhookService {
       message: "Delhivery webhook processed successfully",
       orderId: updatedOrder.id,
       orderNumber: updatedOrder.orderNumber,
+      matched: true,
+    };
+  }
+
+  /**
+   * Processes webhook updates for reverse-logistics (return) shipments.
+   * Maps Delhivery scan statuses to OrderReturn lifecycle statuses.
+   */
+  private async processReturnWebhook(
+    order: any,
+    orderReturn: any,
+    fields: ReturnType<typeof this.extractPayloadFields>,
+    headers: Record<string, any>,
+    payloadObject: any,
+  ): Promise<ProcessDelhiveryWebhookResult> {
+    const { awb, rawStatus, statusType, statusDateTime } = fields;
+
+    // Idempotency for return webhooks
+    const eventId =
+      this.extractHeaderValue(headers, ["x-delhivery-event-id", "x-event-id", "x-webhook-id"]) ||
+      `delhivery_return_${orderReturn.id}_${awb || "noawb"}_${rawStatus || statusType || "status"}_${statusDateTime || ""}`;
+
+    const existingLog = await this.prisma.webhookLog.findUnique({
+      where: { eventId },
+    });
+    if (existingLog) {
+      return {
+        success: true,
+        message: "Return webhook event already processed",
+        duplicate: true,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      };
+    }
+
+    // Map Delhivery return scan to OrderReturn status
+    const normalizedClean = (rawStatus || "").trim().toUpperCase();
+    let newReturnStatus: string | null = null;
+    let newOrderStatus: OrderStatusEnum | null = null;
+
+    if (
+      normalizedClean.includes("PICKED UP") ||
+      normalizedClean === "PICKUP DONE" ||
+      normalizedClean === "PICKED_UP"
+    ) {
+      newReturnStatus = "PICKED_UP";
+      newOrderStatus = OrderStatusEnum.RETURN_INITIATED;
+    } else if (
+      normalizedClean.includes("IN TRANSIT") ||
+      normalizedClean === "IN_TRANSIT" ||
+      normalizedClean === "TRANSIT" ||
+      normalizedClean === "DISPATCHED" ||
+      normalizedClean.includes("REACHED")
+    ) {
+      newReturnStatus = "IN_TRANSIT";
+    } else if (
+      normalizedClean === "DELIVERED" ||
+      normalizedClean === "DL" ||
+      statusType?.toUpperCase() === "DL"
+    ) {
+      newReturnStatus = "RETURN_RECEIVED";
+    }
+
+    // Persist within a transaction
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.webhookLog.create({
+          data: {
+            eventId,
+            event: `DELHIVERY_RETURN_${rawStatus || statusType || "UPDATE"}`,
+            payload: JSON.parse(JSON.stringify(payloadObject || {})),
+            status: "SUCCESS",
+            processedAt: new Date(),
+          },
+        });
+
+        if (newReturnStatus) {
+          const returnUpdateData: any = { status: newReturnStatus };
+          if (newReturnStatus === "RETURN_RECEIVED") {
+            returnUpdateData.refundedAt = new Date();
+          }
+          await tx.orderReturn.update({
+            where: { id: orderReturn.id },
+            data: returnUpdateData,
+          });
+        }
+
+        if (newOrderStatus && order.orderStatus !== newOrderStatus) {
+          await tx.order.update({
+            where: { id: order.id },
+            data: { orderStatus: newOrderStatus },
+          });
+        }
+      });
+    } catch (err: any) {
+      if (err?.code === "P2002") {
+        return {
+          success: true,
+          message: "Return webhook event already processed",
+          duplicate: true,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        };
+      }
+      throw err;
+    }
+
+    // Notify customer about return status change (only for supported notification statuses)
+    if (newReturnStatus === "RETURN_RECEIVED") {
+      try {
+        this.notificationsService.notifyReturnStatus({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: order.userId,
+          status: "RETURN_RECEIVED",
+        });
+      } catch (notifyErr: any) {
+        this.logger.warn(
+          `Failed to dispatch return status notification for order ${order.orderNumber}: ${notifyErr?.message || notifyErr}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Delhivery return webhook processed for order ${order.orderNumber}, return ${orderReturn.id}: status=${newReturnStatus || "no-change"}.`,
+    );
+
+    return {
+      success: true,
+      message: "Delhivery return webhook processed successfully",
+      orderId: order.id,
+      orderNumber: order.orderNumber,
       matched: true,
     };
   }

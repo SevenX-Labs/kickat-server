@@ -1136,6 +1136,52 @@ export class OrdersService {
       return ret;
     });
 
+    // Schedule reverse pickup with shipping provider (best-effort)
+    if (this.shippingService) {
+      try {
+        const provider = this.shippingService.getShippingProvider();
+        const pickupResult = await provider.createReturnPickup({
+          returnId: returnRecord.id,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          pickupAddress: {
+            name: order.user?.name || order.address?.houseFlat || '',
+            phone: order.user?.phone || '',
+            houseFlat: order.address?.houseFlat || '',
+            buildingStreet: order.address?.buildingStreet || '',
+            city: order.address?.city || '',
+            state: order.address?.state || '',
+            pincode: order.address?.pincode || '',
+            country: order.address?.country || 'India',
+          },
+          items: dto.items.map((item) => {
+            const orderItem = order.items.find((oi) => oi.id === item.orderItemId);
+            return {
+              productName: orderItem?.productName || 'Item',
+              quantity: orderItem?.quantity || 1,
+              reason: item.reason,
+            };
+          }),
+        });
+
+        if (pickupResult.awbNumber) {
+          await this.prisma.orderReturn.update({
+            where: { id: returnRecord.id },
+            data: {
+              returnAwb: pickupResult.awbNumber,
+              courierPartner: pickupResult.courierPartner || 'Delhivery',
+              pickupScheduledDate: new Date(),
+              status: 'PICKUP_SCHEDULED',
+            },
+          });
+        }
+      } catch (pickupErr: any) {
+        this.logger.warn(
+          `Return pickup scheduling failed for order ${order.orderNumber}: ${pickupErr?.message || pickupErr}. Return remains in INITIATED status.`,
+        );
+      }
+    }
+
     return {
       success: true,
       message: 'Return request submitted successfully',

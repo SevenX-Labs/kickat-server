@@ -651,7 +651,7 @@ describe('DelhiveryProvider', () => {
     });
   });
 
-  describe('7. Security, Timeout and Return Stubs', () => {
+  describe('7. Security and Timeout', () => {
     it('handles network timeout safely', async () => {
       const abortError = new Error('The operation was aborted due to timeout');
       abortError.name = 'TimeoutError';
@@ -689,33 +689,206 @@ describe('DelhiveryProvider', () => {
         expect(call[0]).not.toContain('mock-delhivery-secret-token-12345');
       }
     });
+  });
 
-    it('return pickup stubs return safe pending-integration states', async () => {
-      const returnRes = await provider.createReturnPickup({
-        returnId: 'ret-1',
-        orderId: 'ord-1',
-        orderNumber: 'ORD-1',
-        pickupAddress: {
-          houseFlat: '10',
-          buildingStreet: 'Street',
-          city: 'Mumbai',
-          state: 'MH',
-          pincode: '400001',
+  describe('9. Return Pickup (createReturnPickup)', () => {
+    const sampleReturnSuccessResponse = {
+      cash_pickups_count: 0,
+      package_count: 1,
+      upload_wbn: 'UP-RET-WBN-001',
+      replacement_count: 0,
+      packages: [
+        {
+          status: 'Success',
+          client: 'KICKAT',
+          remarks: [],
+          waybill: 'RET9876543210',
+          cod_amount: 0,
+          payment: 'Prepaid',
+          serviceable: true,
         },
-        items: [{ productName: 'Item', quantity: 1, reason: 'Damaged' }],
+      ],
+      success: true,
+    };
+
+    const sampleReturnPickupParams = {
+      returnId: 'ret-uuid-001',
+      orderId: 'ord-uuid-101',
+      orderNumber: 'ORD-2026-001',
+      pickupAddress: {
+        name: 'Sahil Hode',
+        phone: '+91 9876543210',
+        houseFlat: 'Flat 402, Sunshine Heights',
+        buildingStreet: 'MG Road',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        pincode: '400001',
+        country: 'India',
+      },
+      items: [{ productName: 'Cat Scratch Post', quantity: 1, reason: 'Damaged' }],
+    };
+
+    it('successfully creates a return pickup and extracts waybill', async () => {
+      let capturedBody = '';
+      global.fetch = jest.fn().mockImplementation((_url, init) => {
+        capturedBody = init?.body as string;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(sampleReturnSuccessResponse),
+        } as Response);
       });
 
-      expect(returnRes.status).toBe('PENDING_INTEGRATION');
-      expect(returnRes.providerName).toBe('DELHIVERY');
+      const res = await provider.createReturnPickup(sampleReturnPickupParams);
 
-      const trackingRes = await provider.getReturnTracking('shp-1');
-      expect(trackingRes.currentStatus).toBe('PENDING_INTEGRATION');
+      expect(res.isConfigured).toBe(true);
+      expect(res.providerName).toBe('DELHIVERY');
+      expect(res.awbNumber).toBe('RET9876543210');
+      expect(res.pickupId).toBe('RET9876543210');
+      expect(res.courierPartner).toBe('Delhivery');
+      expect(res.status).toBe('PICKUP_SCHEDULED');
+      expect(res.trackingUrl).toBe('https://www.delhivery.com/track/package/RET9876543210');
 
-      const cancelRes = await provider.cancelReturnPickup('shp-1');
-      expect(cancelRes).toBe(false);
+      const parsedBody = new URLSearchParams(capturedBody);
+      const cmuJson = JSON.parse(parsedBody.get('data') || '{}');
+      expect(cmuJson.shipments).toHaveLength(1);
+      const shipment = cmuJson.shipments[0];
+      expect(shipment.payment_mode).toBe('Prepaid');
+      expect(shipment.total_amount).toBe(0);
+      expect(shipment.cod_amount).toBe(0);
+      expect(shipment.package_type).toBe('Pickup');
+      expect(shipment.order).toMatch(/^RET-ORD-2026-001-/);
+    });
 
-      const updateRes = await provider.handleTrackingUpdate();
-      expect(updateRes.status).toBe('PENDING_INTEGRATION');
+    it('throws error when Delhivery API returns failure for return pickup', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          success: false,
+          packages: [{ status: 'Fail', remarks: ['Pincode not serviceable for pickup'] }],
+        }),
+      } as Response);
+
+      await expect(
+        provider.createReturnPickup(sampleReturnPickupParams),
+      ).rejects.toThrow('Delhivery return pickup failed: Pincode not serviceable for pickup');
+    });
+
+    it('returns UNCONFIGURED when API key is missing', async () => {
+      jest.spyOn(configService, 'get').mockReturnValue('');
+
+      const res = await provider.createReturnPickup(sampleReturnPickupParams);
+
+      expect(res.isConfigured).toBe(false);
+      expect(res.status).toBe('UNCONFIGURED');
+    });
+
+    it('throws error when customer phone is invalid for return pickup', async () => {
+      await expect(
+        provider.createReturnPickup({
+          ...sampleReturnPickupParams,
+          pickupAddress: {
+            ...sampleReturnPickupParams.pickupAddress,
+            phone: '12345',
+          },
+        }),
+      ).rejects.toThrow('Valid 10-digit Indian phone number is required');
+    });
+  });
+
+  describe('10. Return Tracking (getReturnTracking)', () => {
+    it('fetches return tracking data by AWB', async () => {
+      const sampleTrackingResponse = {
+        ShipmentData: [
+          {
+            Shipment: {
+              AWB: 'RET9876543210',
+              Status: {
+                Status: 'In Transit',
+              },
+              Scans: [
+                {
+                  ScanDetail: {
+                    ScanDateTime: '2026-10-16T10:00:00.000Z',
+                    Scan: 'Picked Up',
+                    ScannedLocation: 'Mumbai',
+                    Instructions: 'Package picked from customer',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(sampleTrackingResponse),
+      } as Response);
+
+      const res = await provider.getReturnTracking('RET9876543210');
+
+      expect(res.isConfigured).toBe(true);
+      expect(res.shipmentId).toBe('RET9876543210');
+      expect(res.currentStatus).toBe('In Transit');
+      expect(res.checkpoints).toHaveLength(1);
+      expect(res.checkpoints[0].status).toBe('Picked Up');
+      expect(res.checkpoints[0].location).toBe('Mumbai');
+    });
+
+    it('throws error if AWB is empty', async () => {
+      await expect(provider.getReturnTracking('')).rejects.toThrow(
+        'AWB is required to fetch Delhivery return tracking',
+      );
+    });
+
+    it('returns empty checkpoints when no tracking data exists', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ShipmentData: [] }),
+      } as Response);
+
+      const res = await provider.getReturnTracking('UNKNOWN_AWB');
+      expect(res.currentStatus).toBe('UNKNOWN');
+      expect(res.checkpoints).toEqual([]);
+    });
+  });
+
+  describe('11. Cancel Return Pickup (cancelReturnPickup)', () => {
+    it('cancels a return pickup successfully', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          status: true,
+          message: 'Package cancelled successfully',
+        }),
+      } as Response);
+
+      const res = await provider.cancelReturnPickup('RET9876543210');
+      expect(res).toBe(true);
+    });
+
+    it('returns false when cancellation is rejected', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          status: false,
+          message: 'Package already picked up',
+        }),
+      } as Response);
+
+      const res = await provider.cancelReturnPickup('RET9876543210');
+      expect(res).toBe(false);
+    });
+
+    it('returns false when no waybill is provided', async () => {
+      const res = await provider.cancelReturnPickup('');
+      expect(res).toBe(false);
     });
   });
 

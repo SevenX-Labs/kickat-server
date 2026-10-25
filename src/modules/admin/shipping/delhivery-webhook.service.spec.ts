@@ -32,6 +32,10 @@ describe("DelhiveryWebhookService", () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      orderReturn: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
+      },
       payment: {
         updateMany: jest.fn(),
       },
@@ -51,6 +55,7 @@ describe("DelhiveryWebhookService", () => {
 
     notificationsService = {
       notifyOrderStatusChange: jest.fn(),
+      notifyReturnStatus: jest.fn(),
     };
 
     trackingEventsService = {
@@ -502,6 +507,156 @@ describe("DelhiveryWebhookService", () => {
           awb: "DEL1234567890",
         }),
       );
+    });
+  });
+
+  describe("4. Return Shipment Webhook Handling", () => {
+    const mockReturnRecord = {
+      id: "ret-001",
+      orderId: "ord-delhivery-123",
+      userId: "user-del-1",
+      returnAwb: "RET9876543210",
+      status: "PICKUP_SCHEDULED",
+      order: {
+        ...mockOrder,
+        userId: "user-del-1",
+      },
+    };
+
+    it("matches return AWB and updates return status to PICKED_UP", async () => {
+      prisma.orderReturn.findFirst.mockResolvedValue(mockReturnRecord);
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+
+      const result = await service.processWebhook({
+        headers: { "x-delhivery-secret": "delhivery_test_secret_123" },
+        body: {
+          Shipment: {
+            AWB: "RET9876543210",
+            Status: {
+              Status: "Picked Up",
+              StatusDateTime: "2026-10-17T10:00:00Z",
+            },
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.matched).toBe(true);
+      expect(prisma.orderReturn.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "ret-001" },
+          data: expect.objectContaining({ status: "PICKED_UP" }),
+        }),
+      );
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderStatus: OrderStatusEnum.RETURN_INITIATED,
+          }),
+        }),
+      );
+    });
+
+    it("updates return status to IN_TRANSIT on transit scan", async () => {
+      prisma.orderReturn.findFirst.mockResolvedValue(mockReturnRecord);
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+
+      const result = await service.processWebhook({
+        headers: { "x-delhivery-secret": "delhivery_test_secret_123" },
+        body: {
+          Shipment: {
+            AWB: "RET9876543210",
+            Status: {
+              Status: "In Transit",
+              StatusDateTime: "2026-10-18T08:00:00Z",
+            },
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(prisma.orderReturn.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: "IN_TRANSIT" }),
+        }),
+      );
+    });
+
+    it("updates return status to RETURN_RECEIVED on delivery scan", async () => {
+      prisma.orderReturn.findFirst.mockResolvedValue(mockReturnRecord);
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+
+      const result = await service.processWebhook({
+        headers: { "x-delhivery-secret": "delhivery_test_secret_123" },
+        body: {
+          Shipment: {
+            AWB: "RET9876543210",
+            Status: {
+              Status: "Delivered",
+              StatusType: "DL",
+              StatusDateTime: "2026-10-19T14:00:00Z",
+            },
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(prisma.orderReturn.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: "RETURN_RECEIVED",
+            refundedAt: expect.any(Date),
+          }),
+        }),
+      );
+      expect(notificationsService.notifyReturnStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "RETURN_RECEIVED" }),
+      );
+    });
+
+    it("handles duplicate return webhook events idempotently", async () => {
+      prisma.orderReturn.findFirst.mockResolvedValue(mockReturnRecord);
+      prisma.webhookLog.findUnique.mockResolvedValue({ id: "existing-log-ret" });
+
+      const result = await service.processWebhook({
+        headers: { "x-delhivery-secret": "delhivery_test_secret_123" },
+        body: {
+          Shipment: {
+            AWB: "RET9876543210",
+            Status: { Status: "In Transit" },
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.duplicate).toBe(true);
+      expect(prisma.orderReturn.update).not.toHaveBeenCalled();
+    });
+
+    it("falls through to forward shipment handling when AWB does not match a return", async () => {
+      prisma.orderReturn.findFirst.mockResolvedValue(null);
+      prisma.order.findFirst.mockResolvedValue(mockOrder);
+      prisma.webhookLog.findUnique.mockResolvedValue(null);
+      prisma.order.update.mockResolvedValue({
+        ...mockOrder,
+        orderStatus: OrderStatusEnum.SHIPPED,
+      });
+
+      const result = await service.processWebhook({
+        headers: { "x-delhivery-secret": "delhivery_test_secret_123" },
+        body: {
+          Shipment: {
+            AWB: "DEL1234567890",
+            Status: {
+              Status: "In Transit",
+              StatusDateTime: "2026-10-16T10:00:00Z",
+            },
+          },
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.orderId).toBe(mockOrder.id);
     });
   });
 });
