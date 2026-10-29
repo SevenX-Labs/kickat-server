@@ -749,6 +749,8 @@ export class AuthService {
         isProfileComplete: user.isProfileComplete,
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
+        isVip: user.isVip,
+        vipSince: user.vipSince,
       },
     };
   }
