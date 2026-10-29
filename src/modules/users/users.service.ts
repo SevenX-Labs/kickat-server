@@ -6,9 +6,11 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmailService, OtpCacheService } from '../../common';
+import { EmailService, OtpCacheService, OtpSmsService } from '../../common';
+import { ConfigService } from '@nestjs/config';
 import {
   SendEmailVerificationDto,
   VerifyEmailVerificationDto,
@@ -28,7 +30,13 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly otpCacheService: OtpCacheService,
-  ) {}
+    @Optional() private readonly otpSmsService?: OtpSmsService,
+    @Optional() private readonly configService?: ConfigService,
+  ) {
+    if (!this.otpSmsService) {
+      this.otpSmsService = new OtpSmsService(this.configService || new ConfigService());
+    }
+  }
 
   async addRecentlyViewed(userId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
@@ -393,6 +401,7 @@ export class UsersService {
     this.otpCacheService.setCooldown(phone, 'user-phone', 60 * 1000);
 
     this.logger.log(`[MOBILE VERIFICATION OTP SENT] Dispatched to ${this.maskPhone(phone)}`);
+    await this.otpSmsService?.sendOtpSms(phone, otp);
 
     return {
       success: true,

@@ -5,7 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { EmailService, OtpCacheService } from '../../common';
+import { EmailService, OtpCacheService, OtpSmsService } from '../../common';
 
 @Module({
   imports: [
@@ -21,7 +21,7 @@ import { EmailService, OtpCacheService } from '../../common';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, EmailService, OtpCacheService],
-  exports: [AuthService, JwtStrategy, EmailService, OtpCacheService, PassportModule],
+  providers: [AuthService, JwtStrategy, EmailService, OtpCacheService, OtpSmsService],
+  exports: [AuthService, JwtStrategy, EmailService, OtpCacheService, OtpSmsService, PassportModule],
 })
 export class AuthModule {}

@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -21,7 +22,7 @@ import * as crypto from 'crypto';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OAuth2Client } from 'google-auth-library';
 import { Response } from 'express';
-import { EmailService, OtpCacheService } from '../../common';
+import { EmailService, OtpCacheService, OtpSmsService } from '../../common';
 
 @Injectable()
 export class AuthService {
@@ -33,7 +34,12 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
     private readonly otpCacheService: OtpCacheService,
-  ) {}
+    @Optional() private readonly otpSmsService?: OtpSmsService,
+  ) {
+    if (!this.otpSmsService) {
+      this.otpSmsService = new OtpSmsService(this.configService);
+    }
+  }
 
   /**
    * Helper to hash tokens
@@ -93,8 +99,9 @@ export class AuthService {
     // 4. Activate 60-second cooldown in LRU cache
     this.otpCacheService.setCooldown(phone, 'phone', 60 * 1000);
 
-    // Mock SMS Sending / Console Log for Development
+    // 5. Dispatch mobile SMS OTP via Nexus OTP / Fast2SMS Gateway
     this.logger.log(`[MOBILE OTP SENT] To: ${phone} | OTP: ${otp}`);
+    await this.otpSmsService?.sendOtpSms(phone, otp);
 
     return {
       success: true,

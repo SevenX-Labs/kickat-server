@@ -2,5 +2,6 @@ export * from './decorators';
 export * from './guards';
 export * from './throttler';
 export * from './services/email.service';
+export * from './services/otp-sms.service';
 export * from './services/otp-cache.service';
 export * from './validators/is-at-least-age.validator';
