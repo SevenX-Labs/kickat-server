@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
 import { ShiprocketProvider } from './providers/shiprocket.provider';
 import { DelhiveryProvider } from './providers/delhivery.provider';
+import { EkartProvider } from './providers/ekart.provider';
 import {
   AssignAwbResult,
   AvailableCourier,
@@ -48,6 +49,7 @@ export class ShippingService {
     private readonly notificationsService: NotificationsService,
     @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
     @Optional() private readonly delhiveryProvider?: DelhiveryProvider,
+    @Optional() private readonly ekartProvider?: EkartProvider,
   ) {
     const configuredProvider = (
       this.configService.get<string>('SHIPPING_PROVIDER', '') || ''
@@ -59,6 +61,9 @@ export class ShippingService {
     } else if (configuredProvider === 'DELHIVERY' && this.delhiveryProvider) {
       this.shippingProvider = this.delhiveryProvider;
       this.logger.log('Active shipping provider initialized: DELHIVERY');
+    } else if (configuredProvider === 'EKART' && this.ekartProvider) {
+      this.shippingProvider = this.ekartProvider;
+      this.logger.log('Active shipping provider initialized: EKART');
     } else {
       this.shippingProvider = this.nullShippingProvider;
       this.logger.log(
@@ -78,8 +83,12 @@ export class ShippingService {
     if (explicitLocation && explicitLocation.trim()) {
       return explicitLocation.trim();
     }
-    const isDelhivery = this.shippingProvider?.providerName === "DELHIVERY";
-    const envKey = isDelhivery ? "DELHIVERY_PICKUP_LOCATION" : "SHIPROCKET_PICKUP_LOCATION";
+    const providerName = this.shippingProvider?.providerName;
+    const envKey = providerName === "DELHIVERY"
+      ? "DELHIVERY_PICKUP_LOCATION"
+      : providerName === "EKART"
+        ? "EKART_PICKUP_ALIAS"
+        : "SHIPROCKET_PICKUP_LOCATION";
     return (this.configService.get<string>(envKey, "") || "").trim();
   }
 
@@ -90,8 +99,12 @@ export class ShippingService {
     if (explicitPincode && explicitPincode.trim()) {
       return explicitPincode.trim();
     }
-    const isDelhivery = this.shippingProvider?.providerName === "DELHIVERY";
-    const envKey = isDelhivery ? "DELHIVERY_PICKUP_PINCODE" : "SHIPROCKET_PICKUP_PINCODE";
+    const providerName = this.shippingProvider?.providerName;
+    const envKey = providerName === "DELHIVERY"
+      ? "DELHIVERY_PICKUP_PINCODE"
+      : providerName === "EKART"
+        ? "EKART_PICKUP_PINCODE"
+        : "SHIPROCKET_PICKUP_PINCODE";
     return (this.configService.get<string>(envKey, "") || "").trim();
   }
 
@@ -137,6 +150,9 @@ export class ShippingService {
     }
     if (c.includes('shiprocket')) {
       return `https://shiprocket.co/tracking/${awb}`;
+    }
+    if (c.includes('ekart')) {
+      return `https://app.elite.ekartlogistics.in/track/${awb}`;
     }
     if (c.includes('bluedart') || c.includes('blue dart')) {
       return `https://www.bluedart.com/tracking`;
@@ -962,17 +978,14 @@ export class ShippingService {
         }
 
         // Pickup location validation (no hardcoded fallback)
-        const isDelhiveryProvider =
-          this.shippingProvider?.providerName === 'DELHIVERY';
+        const activeProviderName = this.shippingProvider?.providerName || 'SHIPROCKET';
         const pickupLocation = this.resolveConfiguredPickupLocation(
           options?.pickupLocation,
         );
 
         if (!pickupLocation) {
           throw new BadRequestException(
-            isDelhiveryProvider
-              ? 'Delhivery pickup location is not configured.'
-              : 'Shiprocket pickup location is not configured.',
+            `${activeProviderName} pickup location is not configured.`,
           );
         }
 

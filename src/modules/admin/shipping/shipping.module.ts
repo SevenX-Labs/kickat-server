@@ -6,9 +6,12 @@ import { ShiprocketWebhookController } from "./shiprocket-webhook.controller";
 import { ShiprocketWebhookService } from "./shiprocket-webhook.service";
 import { DelhiveryWebhookController } from "./delhivery-webhook.controller";
 import { DelhiveryWebhookService } from "./delhivery-webhook.service";
+import { EkartWebhookController } from "./ekart-webhook.controller";
+import { EkartWebhookService } from "./ekart-webhook.service";
 import { NullShippingProvider } from "./providers/null-shipping.provider";
 import { ShiprocketProvider } from "./providers/shiprocket.provider";
 import { DelhiveryProvider } from "./providers/delhivery.provider";
+import { EkartProvider } from "./providers/ekart.provider";
 import { DeliveryEstimateService } from "./delivery-estimate.service";
 import { DeliveryEstimateController } from "./delivery-estimate.controller";
 import { OrderTrackingEventsService } from "./order-tracking-events.service";
@@ -20,15 +23,18 @@ import { ShipmentTrackingSyncService } from "./shipment-tracking-sync.service";
     ShippingController,
     ShiprocketWebhookController,
     DelhiveryWebhookController,
+    EkartWebhookController,
     DeliveryEstimateController,
   ],
   providers: [
     ShippingService,
     ShiprocketWebhookService,
     DelhiveryWebhookService,
+    EkartWebhookService,
     NullShippingProvider,
     ShiprocketProvider,
     DelhiveryProvider,
+    EkartProvider,
     DeliveryEstimateService,
     OrderTrackingEventsService,
     ShipmentTrackingSyncService,
@@ -37,9 +43,11 @@ import { ShipmentTrackingSyncService } from "./shipment-tracking-sync.service";
     ShippingService,
     ShiprocketWebhookService,
     DelhiveryWebhookService,
+    EkartWebhookService,
     NullShippingProvider,
     ShiprocketProvider,
     DelhiveryProvider,
+    EkartProvider,
     DeliveryEstimateService,
     OrderTrackingEventsService,
     ShipmentTrackingSyncService,

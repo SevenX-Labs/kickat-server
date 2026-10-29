@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ShippingService } from './shipping.service';
 import { ShiprocketProvider } from './providers/shiprocket.provider';
 import { DelhiveryProvider } from './providers/delhivery.provider';
+import { EkartProvider } from './providers/ekart.provider';
 import { ShippingProvider } from './providers/shipping-provider.interface';
 
 export interface DeliveryEstimateResult {
@@ -51,6 +52,7 @@ export class DeliveryEstimateService {
     @Optional() private readonly shippingService?: ShippingService,
     @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
     @Optional() private readonly delhiveryProvider?: DelhiveryProvider,
+    @Optional() private readonly ekartProvider?: EkartProvider,
   ) {}
 
   /**
@@ -69,6 +71,9 @@ export class DeliveryEstimateService {
     if (configured === 'DELHIVERY' && this.delhiveryProvider) {
       return this.delhiveryProvider;
     }
+    if (configured === 'EKART' && this.ekartProvider) {
+      return this.ekartProvider;
+    }
     if (configured === 'SHIPROCKET' && this.shiprocketProvider) {
       return this.shiprocketProvider;
     }
@@ -77,6 +82,9 @@ export class DeliveryEstimateService {
     }
     if (this.delhiveryProvider) {
       return this.delhiveryProvider;
+    }
+    if (this.ekartProvider) {
+      return this.ekartProvider;
     }
     return null;
   }
@@ -124,10 +132,12 @@ export class DeliveryEstimateService {
     }
 
     // 3. Resolve warehouse pickup pincode
-    const isDelhivery = provider.providerName === 'DELHIVERY';
-    const pickupLocationName = isDelhivery
+    const provName = provider.providerName;
+    const pickupLocationName = provName === 'DELHIVERY'
       ? (this.configService.get<string>('DELHIVERY_PICKUP_LOCATION', '') || '').trim()
-      : (this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', "Bhim's") || '').trim();
+      : provName === 'EKART'
+        ? (this.configService.get<string>('EKART_PICKUP_ALIAS', '') || '').trim()
+        : (this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', "Bhim's") || '').trim();
 
     let pickupPostcode: string | null = null;
     if (pickupLocationName && typeof provider.getPickupLocationPincode === 'function') {
@@ -143,9 +153,11 @@ export class DeliveryEstimateService {
     }
 
     if (!pickupPostcode || !/^\d{6}$/.test(pickupPostcode)) {
-      pickupPostcode = isDelhivery
+      pickupPostcode = provName === 'DELHIVERY'
         ? (this.configService.get<string>('DELHIVERY_PICKUP_PINCODE', '') || '').trim()
-        : (this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() || '721643';
+        : provName === 'EKART'
+          ? (this.configService.get<string>('EKART_PICKUP_PINCODE', '') || '').trim() || '721643'
+          : (this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() || '721643';
     }
 
     // 4. Check in-memory cache
@@ -207,6 +219,72 @@ export class DeliveryEstimateService {
           pincode: rawPincode,
           courierName: courier?.courierName || 'Delhivery Surface',
           message: 'Delivery is available for this pincode.',
+        };
+
+        this.cache.set(cacheKey, {
+          data: result,
+          expiresAt: Date.now() + this.CACHE_TTL_MS,
+        });
+        return result;
+      }
+
+      // Ekart V3 serviceability handling
+      if (provider.providerName === 'EKART') {
+        const check = await provider.checkServiceability({
+          pickupPostcode,
+          deliveryPostcode: rawPincode,
+          weight,
+          cod: isCod,
+          length,
+          breadth,
+          height,
+        });
+
+        if (!check || !check.isServiceable) {
+          const result: DeliveryEstimateResult = {
+            available: false,
+            pincode: rawPincode,
+            message: 'Delivery is currently unavailable for this pincode.',
+          };
+          this.cache.set(cacheKey, {
+            data: result,
+            expiresAt: Date.now() + this.CACHE_TTL_MS,
+          });
+          return result;
+        }
+
+        let estimatedDateStr = check.estimatedDeliveryDate;
+        let deliveryDays = check.estimatedDeliveryDays;
+        let formattedDateStr: string | undefined;
+
+        if (estimatedDateStr) {
+          const parsed = new Date(estimatedDateStr);
+          if (!isNaN(parsed.getTime())) {
+            const day = parsed.getDate();
+            const month = parsed.toLocaleDateString('en-US', { month: 'short' });
+            formattedDateStr = `${day} ${month}`;
+          }
+        }
+
+        if (!estimatedDateStr && deliveryDays) {
+          const d = new Date(Date.now() + deliveryDays * 24 * 60 * 60 * 1000);
+          const year = d.getFullYear();
+          const monthNum = String(d.getMonth() + 1).padStart(2, '0');
+          const dayNum = String(d.getDate()).padStart(2, '0');
+          estimatedDateStr = `${year}-${monthNum}-${dayNum}`;
+
+          const day = d.getDate();
+          const month = d.toLocaleDateString('en-US', { month: 'short' });
+          formattedDateStr = `${day} ${month}`;
+        }
+
+        const result: DeliveryEstimateResult = {
+          available: true,
+          pincode: rawPincode,
+          courierName: check.courierGroup || `Ekart ${(this.configService.get<string>('EKART_DEFAULT_SERVICE', 'SURFACE') || 'SURFACE').trim()}`,
+          estimatedDeliveryDate: estimatedDateStr,
+          estimatedDeliveryDays: deliveryDays,
+          formattedDate: formattedDateStr,
         };
 
         this.cache.set(cacheKey, {
