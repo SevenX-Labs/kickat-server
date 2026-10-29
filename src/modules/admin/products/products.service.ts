@@ -136,6 +136,53 @@ function validateVariantAttributes(variants: { attributes?: Record<string, any> 
   }
 }
 
+function computeShippingDerived(item: {
+  shippingWeightKg?: number | null;
+  shippingLengthCm?: number | null;
+  shippingBreadthCm?: number | null;
+  shippingHeightCm?: number | null;
+}): {
+  shippingWidthCm: number | null;
+  volumetricWeightKg: number | null;
+  chargeableWeightKg: number | null;
+} {
+  const w = item.shippingWeightKg;
+  const l = item.shippingLengthCm;
+  const b = item.shippingBreadthCm;
+  const h = item.shippingHeightCm;
+
+  const shippingWidthCm = b ?? null;
+
+  if (l && b && h && l > 0 && b > 0 && h > 0) {
+    const volumetricWeightKg = Math.round(((l * b * h) / 5000) * 1000) / 1000;
+    const deadWeight = w && w > 0 ? w : 0;
+    const chargeableWeightKg = Math.max(deadWeight, volumetricWeightKg);
+    return {
+      shippingWidthCm,
+      volumetricWeightKg,
+      chargeableWeightKg: Math.round(chargeableWeightKg * 1000) / 1000,
+    };
+  }
+
+  return { shippingWidthCm, volumetricWeightKg: null, chargeableWeightKg: null };
+}
+
+function enrichProductWithShipping(product: any): any {
+  if (!product) return product;
+
+  const derived = computeShippingDerived(product);
+  const enriched = { ...product, ...derived };
+
+  if (Array.isArray(enriched.variants)) {
+    enriched.variants = enriched.variants.map((v: any) => ({
+      ...v,
+      ...computeShippingDerived(v),
+    }));
+  }
+
+  return enriched;
+}
+
 @Injectable()
 export class ProductsService {
   private async validateVariantImagesOwnership(
@@ -380,6 +427,10 @@ export class ProductsService {
               stock: true,
               attributes: true,
               imageUrl: true,
+              shippingWeightKg: true,
+              shippingLengthCm: true,
+              shippingBreadthCm: true,
+              shippingHeightCm: true,
             },
           },
           media: {
@@ -414,7 +465,7 @@ export class ProductsService {
     return {
       success: true,
       data: {
-        products,
+        products: products.map(enrichProductWithShipping),
         pagination: {
           total,
           page,
@@ -476,7 +527,7 @@ export class ProductsService {
 
     return {
       success: true,
-      data: product,
+      data: enrichProductWithShipping(product),
     };
   }
 
@@ -798,7 +849,7 @@ export class ProductsService {
     return {
       success: true,
       message: 'Product created successfully',
-      data: createdProduct,
+      data: enrichProductWithShipping(createdProduct),
     };
   }
 
@@ -1327,7 +1378,7 @@ export class ProductsService {
     return {
       success: true,
       message: 'Product updated successfully',
-      data: updatedProduct,
+      data: enrichProductWithShipping(updatedProduct),
     };
   }
 

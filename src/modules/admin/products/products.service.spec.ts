@@ -118,7 +118,7 @@ describe('Admin ProductsService', () => {
       const result = await service.getProducts(query);
 
       expect(result.success).toBe(true);
-      expect(result.data.products).toEqual(mockProducts);
+      expect(result.data.products).toMatchObject(mockProducts);
       expect(result.data.pagination.total).toBe(1);
       expect(result.data.pagination.page).toBe(1);
       expect(result.data.pagination.totalPages).toBe(1);
@@ -150,7 +150,7 @@ describe('Admin ProductsService', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockProduct);
+      expect(result.data).toMatchObject(mockProduct);
     });
 
     it('should throw NotFoundException if product not found', async () => {
@@ -200,7 +200,7 @@ describe('Admin ProductsService', () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toBe('Product created successfully');
-      expect(result.data).toEqual(createdMock);
+      expect(result.data).toMatchObject(createdMock);
     });
 
     it('should throw BadRequestException if categoryId does not exist', async () => {
@@ -457,7 +457,7 @@ describe('Admin ProductsService', () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toBe('Product updated successfully');
-      expect(result.data).toEqual(updatedMock);
+      expect(result.data).toMatchObject(updatedMock);
     });
 
     it('should throw NotFoundException if product to update does not exist', async () => {

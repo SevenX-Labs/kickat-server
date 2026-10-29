@@ -68,6 +68,12 @@ export class CreateVariantDto {
   @IsObject()
   attributes?: Record<string, any>;
 
+  @Transform(({ obj, value }) => {
+    const raw = value ?? obj.weight;
+    if (typeof raw !== 'number') return raw;
+    if (obj.weightUnit === 'g' || raw > 50) return Math.round((raw / 1000) * 1000) / 1000;
+    return raw;
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -75,17 +81,24 @@ export class CreateVariantDto {
   shippingWeightKg?: number;
 
   @IsOptional()
+  @IsString()
+  weightUnit?: string;
+
+  @Transform(({ obj, value }) => value ?? obj.length)
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @IsPositive({ message: "Variant package length must be greater than 0" })
   shippingLengthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.shippingWidthCm ?? obj.width ?? obj.breadth)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @IsPositive({ message: "Variant package breadth must be greater than 0" })
+  @IsPositive({ message: "Variant package breadth/width must be greater than 0" })
   shippingBreadthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.height)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -141,6 +154,12 @@ export class UpdateVariantDto {
   @IsObject()
   attributes?: Record<string, any>;
 
+  @Transform(({ obj, value }) => {
+    const raw = value ?? obj.weight;
+    if (typeof raw !== 'number') return raw;
+    if (obj.weightUnit === 'g' || raw > 50) return Math.round((raw / 1000) * 1000) / 1000;
+    return raw;
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -148,17 +167,24 @@ export class UpdateVariantDto {
   shippingWeightKg?: number;
 
   @IsOptional()
+  @IsString()
+  weightUnit?: string;
+
+  @Transform(({ obj, value }) => value ?? obj.length)
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @IsPositive({ message: "Variant package length must be greater than 0" })
   shippingLengthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.shippingWidthCm ?? obj.width ?? obj.breadth)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @IsPositive({ message: "Variant package breadth must be greater than 0" })
+  @IsPositive({ message: "Variant package breadth/width must be greater than 0" })
   shippingBreadthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.height)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -455,6 +481,12 @@ export class CreateProductDto {
   @IsString()
   seoDescription?: string;
 
+  @Transform(({ obj, value }) => {
+    const raw = value ?? obj.weight;
+    if (typeof raw !== 'number') return raw;
+    if (obj.weightUnit === 'g' || raw > 50) return Math.round((raw / 1000) * 1000) / 1000;
+    return raw;
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -462,17 +494,24 @@ export class CreateProductDto {
   shippingWeightKg?: number;
 
   @IsOptional()
+  @IsString()
+  weightUnit?: string;
+
+  @Transform(({ obj, value }) => value ?? obj.length)
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @IsPositive({ message: "Package length must be greater than 0" })
   shippingLengthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.shippingWidthCm ?? obj.width ?? obj.breadth)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @IsPositive({ message: "Package breadth must be greater than 0" })
+  @IsPositive({ message: "Package breadth/width must be greater than 0" })
   shippingBreadthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.height)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -625,6 +664,12 @@ export class UpdateProductDto {
   @IsString()
   seoDescription?: string;
 
+  @Transform(({ obj, value }) => {
+    const raw = value ?? obj.weight;
+    if (typeof raw !== 'number') return raw;
+    if (obj.weightUnit === 'g' || raw > 50) return Math.round((raw / 1000) * 1000) / 1000;
+    return raw;
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -632,17 +677,24 @@ export class UpdateProductDto {
   shippingWeightKg?: number;
 
   @IsOptional()
+  @IsString()
+  weightUnit?: string;
+
+  @Transform(({ obj, value }) => value ?? obj.length)
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @IsPositive({ message: "Package length must be greater than 0" })
   shippingLengthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.shippingWidthCm ?? obj.width ?? obj.breadth)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @IsPositive({ message: "Package breadth must be greater than 0" })
+  @IsPositive({ message: "Package breadth/width must be greater than 0" })
   shippingBreadthCm?: number;
 
+  @Transform(({ obj, value }) => value ?? obj.height)
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
