@@ -167,7 +167,7 @@ export class AppThrottlerGuard extends ThrottlerGuard {
 
   /**
    * Identifies routes that should NEVER be rate-limited by customer throttling:
-   * - Webhooks (Razorpay / Shiprocket)
+   * - Webhooks (Razorpay / Ekart)
    * - Admin management routes
    */
   private shouldSkipRoute(

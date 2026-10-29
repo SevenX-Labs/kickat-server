@@ -8,13 +8,13 @@ import { UploadService } from "../upload/upload.service";
 import { StockAlertService } from "../../notifications/stock-alert.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import { NullShippingProvider } from "../shipping/providers/null-shipping.provider";
-import { ShiprocketProvider } from "../shipping/providers/shiprocket.provider";
+import { EkartProvider } from "../shipping/providers/ekart.provider";
 import { CreateProductDto, UpdateProductDto } from "./dto/admin-product.dto";
 
 describe("Mandatory Shipping & Package Dimensions Specification", () => {
   let productsService: ProductsService;
   let shippingService: ShippingService;
-  let shiprocketProvider: ShiprocketProvider;
+  let ekartProvider: EkartProvider;
   let prisma: any;
   let uploadService: any;
   let configService: any;
@@ -73,8 +73,8 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
 
     configService = {
       get: jest.fn((key: string, defaultValue?: string) => {
-        if (key === "SHIPPING_PROVIDER") return "SHIPROCKET";
-        if (key === "SHIPROCKET_PICKUP_LOCATION") return "Main Warehouse";
+        if (key === "SHIPPING_PROVIDER") return "EKART";
+        if (key === "EKART_PICKUP_ALIAS") return "Main Warehouse";
         return defaultValue || "";
       }),
     };
@@ -98,10 +98,12 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
           },
         },
         {
-          provide: ShiprocketProvider,
+          provide: EkartProvider,
           useValue: {
+            providerName: 'EKART',
+            isConfigured: jest.fn().mockReturnValue(true),
             createShipment: jest.fn().mockResolvedValue({
-              providerName: "SHIPROCKET",
+              providerName: "EKART",
               orderId: 99991,
               shipmentId: 88881,
               status: "NEW",
@@ -126,7 +128,7 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
 
     productsService = module.get<ProductsService>(ProductsService);
     shippingService = module.get<ShippingService>(ShippingService);
-    shiprocketProvider = module.get<ShiprocketProvider>(ShiprocketProvider);
+    ekartProvider = module.get<EkartProvider>(EkartProvider);
   });
 
   describe("A. Simple Product Shipping Dimensions", () => {
@@ -436,7 +438,7 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
     });
   });
 
-  describe("C. Shiprocket Integration & Shipping Package Resolution", () => {
+  describe("C. Shipping Provider Integration & Package Resolution", () => {
     it("14. Correct variant shipping data is used -> PASS", async () => {
       const order = {
         id: "order-1",
@@ -495,15 +497,15 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
 
       const res = await shippingService.createShipmentForOrder("order-1");
       expect(res.success).toBe(true);
-      expect(shiprocketProvider.createShipment).toHaveBeenCalled();
-      const providerCallArg = (shiprocketProvider.createShipment as jest.Mock).mock.calls[0][0];
+      expect(ekartProvider.createShipment).toHaveBeenCalled();
+      const providerCallArg = (ekartProvider.createShipment as jest.Mock).mock.calls[0][0];
       expect(providerCallArg.packageDetails.weight).toBe(6.0); // 3.0kg * 2 qty
       expect(providerCallArg.packageDetails.length).toBe(35);
       expect(providerCallArg.packageDetails.breadth).toBe(25);
       expect(providerCallArg.packageDetails.height).toBe(30); // 15cm * 2 qty
     });
 
-    it("15. Missing dimensions prevents Shiprocket API call -> PASS", async () => {
+    it("15. Missing dimensions prevents provider API call -> PASS", async () => {
       const order = {
         id: "order-2",
         orderNumber: "ORD-TEST-15",
@@ -559,7 +561,7 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
       ]);
 
       await expect(shippingService.createShipmentForOrder("order-2")).rejects.toThrow(BadRequestException);
-      expect(shiprocketProvider.createShipment).not.toHaveBeenCalled();
+      expect(ekartProvider.createShipment).not.toHaveBeenCalled();
     });
 
     it("16. No fake fallback dimensions -> PASS", async () => {
@@ -607,7 +609,7 @@ describe("Mandatory Shipping & Package Dimensions Specification", () => {
       ]);
 
       await expect(shippingService.createShipmentForOrder("order-3")).rejects.toThrow(BadRequestException);
-      expect(shiprocketProvider.createShipment).not.toHaveBeenCalled();
+      expect(ekartProvider.createShipment).not.toHaveBeenCalled();
     });
   });
 

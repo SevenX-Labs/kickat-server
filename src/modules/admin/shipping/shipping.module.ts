@@ -1,16 +1,11 @@
 import { NotificationsModule } from "../../notifications/notifications.module";
-import { Module } from "@nestjs/common";
+import { PaymentsModule } from "../../payments/payments.module";
+import { Module, forwardRef } from "@nestjs/common";
 import { ShippingService } from "./shipping.service";
 import { ShippingController } from "./shipping.controller";
-import { ShiprocketWebhookController } from "./shiprocket-webhook.controller";
-import { ShiprocketWebhookService } from "./shiprocket-webhook.service";
-import { DelhiveryWebhookController } from "./delhivery-webhook.controller";
-import { DelhiveryWebhookService } from "./delhivery-webhook.service";
 import { EkartWebhookController } from "./ekart-webhook.controller";
 import { EkartWebhookService } from "./ekart-webhook.service";
 import { NullShippingProvider } from "./providers/null-shipping.provider";
-import { ShiprocketProvider } from "./providers/shiprocket.provider";
-import { DelhiveryProvider } from "./providers/delhivery.provider";
 import { EkartProvider } from "./providers/ekart.provider";
 import { DeliveryEstimateService } from "./delivery-estimate.service";
 import { DeliveryEstimateController } from "./delivery-estimate.controller";
@@ -18,22 +13,16 @@ import { OrderTrackingEventsService } from "./order-tracking-events.service";
 import { ShipmentTrackingSyncService } from "./shipment-tracking-sync.service";
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, forwardRef(() => PaymentsModule)],
   controllers: [
     ShippingController,
-    ShiprocketWebhookController,
-    DelhiveryWebhookController,
     EkartWebhookController,
     DeliveryEstimateController,
   ],
   providers: [
     ShippingService,
-    ShiprocketWebhookService,
-    DelhiveryWebhookService,
     EkartWebhookService,
     NullShippingProvider,
-    ShiprocketProvider,
-    DelhiveryProvider,
     EkartProvider,
     DeliveryEstimateService,
     OrderTrackingEventsService,
@@ -41,12 +30,8 @@ import { ShipmentTrackingSyncService } from "./shipment-tracking-sync.service";
   ],
   exports: [
     ShippingService,
-    ShiprocketWebhookService,
-    DelhiveryWebhookService,
     EkartWebhookService,
     NullShippingProvider,
-    ShiprocketProvider,
-    DelhiveryProvider,
     EkartProvider,
     DeliveryEstimateService,
     OrderTrackingEventsService,

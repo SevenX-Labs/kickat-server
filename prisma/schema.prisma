@@ -91,6 +91,21 @@ enum OrderStatusEnum {
   CANCELLED
   RETURNED
   RETURN_INITIATED
+  RTO_INITIATED
+  RTO_IN_TRANSIT
+  RTO_DELIVERED
+}
+
+enum PayoutMethodEnum {
+  UPI
+  BANK_TRANSFER
+  ORIGINAL_PAYMENT
+}
+
+enum QcStatusEnum {
+  PENDING
+  PASSED
+  FAILED
 }
 
 model User {
@@ -528,6 +543,10 @@ model Order {
   shippingProvider     String?
   shiprocketOrderId    String?
   shiprocketShipmentId String?
+  rtoInitiatedAt       DateTime?
+  rtoDeliveredAt       DateTime?
+  rtoAwb               String?
+  rtoReason            String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -630,6 +649,15 @@ model OrderReturn {
   returnAwb            String?
   courierPartner       String?
   pickupScheduledDate  DateTime?
+  payoutMethod         PayoutMethodEnum?
+  upiId                String?
+  bankAccountNumber    String?
+  bankIfscCode         String?
+  bankAccountName      String?
+  qcStatus             QcStatusEnum?
+  qcNotes              String?
+  qcCompletedAt        DateTime?
+  reversePickupId      String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)

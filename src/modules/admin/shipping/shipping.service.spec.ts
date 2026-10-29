@@ -56,7 +56,7 @@ describe('Admin ShippingService', () => {
     prisma = module.get<PrismaService>(PrismaService);
     configService = module.get<ConfigService>(ConfigService);
     configService.get.mockImplementation((key: string, defaultValue?: string) => {
-      if (key === "SHIPROCKET_PICKUP_LOCATION") return "Main Warehouse";
+      if (key === "EKART_PICKUP_ALIAS") return "Main Warehouse";
       return defaultValue || "";
     });
     jest.clearAllMocks();
@@ -74,7 +74,7 @@ describe('Admin ShippingService', () => {
           orderNumber: 'ORD-1001',
           userId: 'user-1',
           orderStatus: OrderStatusEnum.SHIPPED,
-          courierPartner: 'Delhivery',
+          courierPartner: 'Ekart',
           trackingNumber: 'DEL-12345',
           estimatedDelivery: new Date('2026-08-15'),
           createdAt: new Date('2026-08-11'),
@@ -96,7 +96,7 @@ describe('Admin ShippingService', () => {
       const query: AdminShipmentsQueryDto = {
         page: 1,
         limit: 10,
-        courier: 'Delhivery',
+        courier: 'Ekart',
         status: OrderStatusEnum.SHIPPED,
         sort: AdminShipmentSortEnum.CREATED_AT_DESC,
       };
@@ -106,9 +106,9 @@ describe('Admin ShippingService', () => {
       expect(result.success).toBe(true);
       expect(result.data.shipments.length).toBe(1);
       expect(result.data.shipments[0].shipmentNumber).toBe('SHIP-ORD-1001');
-      expect(result.data.shipments[0].courierPartner).toBe('Delhivery');
+      expect(result.data.shipments[0].courierPartner).toBe('Ekart');
       expect(result.data.shipments[0].awbNumber).toBe('DEL-12345');
-      expect(result.data.shipments[0].trackingUrl).toContain('delhivery.com');
+      expect(result.data.shipments[0].trackingUrl).toContain('ekartlogistics.in');
       expect(result.data.summary.totalShipments).toBe(1);
       expect(result.data.summary.inTransitCount).toBe(1);
     });
@@ -120,7 +120,7 @@ describe('Admin ShippingService', () => {
         id: 'ord-1',
         orderNumber: 'ORD-1001',
         orderStatus: OrderStatusEnum.SHIPPED,
-        courierPartner: 'Shiprocket',
+        courierPartner: 'Ekart',
         trackingNumber: 'SR-998877',
         user: { name: 'Alice' },
         address: { city: 'Pune' },
@@ -133,8 +133,8 @@ describe('Admin ShippingService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.orderNumber).toBe('ORD-1001');
-      expect(result.data.courierPartner).toBe('Shiprocket');
-      expect(result.data.trackingUrl).toContain('shiprocket.co');
+      expect(result.data.courierPartner).toBe('Ekart');
+      expect(result.data.trackingUrl).toContain('ekartlogistics.in');
     });
 
     it('should throw NotFoundException if shipment not found', async () => {
@@ -262,7 +262,7 @@ describe('Admin ShippingService', () => {
       id: 'ord-1',
       orderNumber: 'ORD-1001',
       orderStatus: OrderStatusEnum.SHIPPED,
-      courierPartner: 'Delhivery',
+      courierPartner: 'Ekart',
       trackingNumber: 'DEL-998877',
       createdAt: new Date('2026-08-10T10:00:00Z'),
       address: { city: 'Pune', state: 'MH', pincode: '411001' },
@@ -276,12 +276,12 @@ describe('Admin ShippingService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.shipmentNumber).toBe('SHIP-ORD-1001');
-      expect(result.data.courierPartner).toBe('Delhivery');
+      expect(result.data.courierPartner).toBe('Ekart');
       expect(result.data.awbNumber).toBe('DEL-998877');
       expect(result.data.timeline.length).toBe(6);
       expect(result.data.timeline[0].stage).toBe('ORDER_PLACED');
       expect(result.data.timeline[0].isCompleted).toBe(true);
-      expect(result.data.trackingUrl).toContain('delhivery.com/track');
+      expect(result.data.trackingUrl).toContain('ekartlogistics.in/track');
     });
 
     it('never fabricates hub locations or timestamps without provider events', async () => {
@@ -337,7 +337,7 @@ describe('Admin ShippingService', () => {
         orderNumber: "ORD-1001",
         shiprocketOrderId: "SR-ORD-1122",
         shiprocketShipmentId: "SR-SHP-3344",
-        courierPartner: "Shiprocket",
+        courierPartner: "Ekart",
         trackingNumber: "AWB-12345",
         orderStatus: OrderStatusEnum.PROCESSING,
       };
@@ -376,14 +376,14 @@ describe('Admin ShippingService', () => {
         shippingProvider: "UNCONFIGURED",
         shiprocketOrderId: "REMOTE-ORD-1",
         shiprocketShipmentId: "REMOTE-SHP-1",
-        courierPartner: "Shiprocket",
+        courierPartner: "Ekart",
         trackingNumber: "AWB-9988",
       });
 
       const provider = service.getShippingProvider();
       jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "REMOTE-ORD-1",
         shipmentId: "REMOTE-SHP-1",
         status: "NEW",
@@ -481,7 +481,7 @@ describe('Admin ShippingService', () => {
 
     beforeEach(() => {
       configService.get.mockImplementation((key: string, defaultValue?: string) => {
-        if (key === "SHIPROCKET_PICKUP_LOCATION") return "Main Warehouse";
+        if (key === "EKART_PICKUP_ALIAS") return "Main Warehouse";
         return defaultValue || "";
       });
       prisma.product.findMany.mockResolvedValue([]);
@@ -491,7 +491,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
       prisma.order.update.mockResolvedValue({
         ...baseMockOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-2000",
         shiprocketShipmentId: "SR-SHP-2000",
       });
@@ -499,7 +499,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-2000",
         shipmentId: "SR-SHP-2000",
         status: "NEW",
@@ -549,7 +549,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
       prisma.order.update.mockResolvedValue({
         ...baseMockOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-2000",
         shiprocketShipmentId: "SR-SHP-2000",
       });
@@ -557,7 +557,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-2000",
         shipmentId: "SR-SHP-2000",
         status: "NEW",
@@ -598,7 +598,7 @@ describe('Admin ShippingService', () => {
       ]);
 
       await expect(service.createShipmentForOrder("ORD-2000")).rejects.toThrow(
-        "Shipment weight is required before creating a Shiprocket shipment.",
+        /Shipment weight is required/,
       );
     });
 
@@ -610,7 +610,7 @@ describe('Admin ShippingService', () => {
           packageDetails: { weight: -1.0 },
         }),
       ).rejects.toThrow(
-        "Shipment weight is required before creating a Shiprocket shipment.",
+        /Shipment weight is required/,
       );
     });
 
@@ -618,7 +618,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
       prisma.order.update.mockResolvedValue({
         ...baseMockOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-2000",
         shiprocketShipmentId: "SR-SHP-2000",
       });
@@ -626,7 +626,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-2000",
         shipmentId: "SR-SHP-2000",
         status: "NEW",
@@ -666,7 +666,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
       prisma.order.update.mockResolvedValue({
         ...baseMockOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-2000",
         shiprocketShipmentId: "SR-SHP-2000",
       });
@@ -674,7 +674,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-2000",
         shipmentId: "SR-SHP-2000",
         status: "NEW",
@@ -698,7 +698,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
 
       await expect(service.createShipmentForOrder("ORD-2000")).rejects.toThrow(
-        "Shiprocket pickup location is not configured.",
+        /pickup location is not configured/,
       );
     });
 
@@ -714,7 +714,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(orderNoAddressLine);
 
       await expect(service.createShipmentForOrder("ORD-2000")).rejects.toThrow(
-        "Shipping address line is required for Shiprocket shipment creation.",
+        /Shipping address line is required/,
       );
     });
 
@@ -726,7 +726,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(orderNoPincode);
 
       await expect(service.createShipmentForOrder("ORD-2000")).rejects.toThrow(
-        "Shipping city, state, and pincode are required for Shiprocket shipment creation.",
+        /Shipping city, state, and pincode are required/,
       );
     });
 
@@ -780,7 +780,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(multiItemOrder);
       prisma.order.update.mockResolvedValue({
         ...multiItemOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-MULTI",
         shiprocketShipmentId: "SR-SHP-MULTI",
       });
@@ -788,7 +788,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-MULTI",
         shipmentId: "SR-SHP-MULTI",
         status: "NEW",
@@ -825,7 +825,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(singleItemOrder);
       prisma.order.update.mockResolvedValue({
         ...singleItemOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-QTY",
         shiprocketShipmentId: "SR-SHP-QTY",
       });
@@ -833,7 +833,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-QTY",
         shipmentId: "SR-SHP-QTY",
         status: "NEW",
@@ -884,7 +884,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(orderUnknownWeight);
 
       await expect(service.createShipmentForOrder("ORD-2000")).rejects.toThrow(
-        "Shipment weight is required before creating a Shiprocket shipment.",
+        /Shipment weight is required/,
       );
     });
 
@@ -892,7 +892,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
       prisma.order.update.mockResolvedValue({
         ...baseMockOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-2000",
         shiprocketShipmentId: "SR-SHP-2000",
       });
@@ -900,7 +900,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-2000",
         shipmentId: "SR-SHP-2000",
         status: "NEW",
@@ -929,7 +929,7 @@ describe('Admin ShippingService', () => {
         orderNumber: "ORD-1001",
         shiprocketOrderId: "SR-ORD-1122",
         shiprocketShipmentId: "SR-SHP-3344",
-        courierPartner: "Shiprocket",
+        courierPartner: "Ekart",
         trackingNumber: "AWB-12345",
         orderStatus: OrderStatusEnum.PROCESSING,
       };
@@ -947,7 +947,7 @@ describe('Admin ShippingService', () => {
       prisma.order.findFirst.mockResolvedValue(baseMockOrder);
       prisma.order.update.mockResolvedValue({
         ...baseMockOrder,
-        shippingProvider: "SHIPROCKET",
+        shippingProvider: "EKART",
         shiprocketOrderId: "SR-ORD-2000",
         shiprocketShipmentId: "SR-SHP-2000",
       });
@@ -955,7 +955,7 @@ describe('Admin ShippingService', () => {
       const provider = service.getShippingProvider();
       const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
         isConfigured: true,
-        providerName: "SHIPROCKET",
+        providerName: "EKART",
         orderId: "SR-ORD-2000",
         shipmentId: "SR-SHP-2000",
         status: "NEW",
@@ -974,128 +974,6 @@ describe('Admin ShippingService', () => {
           taxAmount: 50,
           grandTotal: 1100,
           paymentMethod: "PREPAID",
-        }),
-      );
-    });
-    it("21. Resolves DELHIVERY_PICKUP_LOCATION when provider is DELHIVERY", async () => {
-      const mockDelhiveryProvider = {
-        providerName: "DELHIVERY",
-        createShipment: jest.fn().mockResolvedValue({
-          isConfigured: true,
-          providerName: "DELHIVERY",
-          orderId: "DEL-ORD-1",
-          shipmentId: "DEL-WAYBILL-123",
-          awbCode: "DEL-WAYBILL-123",
-          courierName: "Delhivery",
-          status: "Success",
-          message: "Created",
-        }),
-        assignAwb: jest.fn(),
-        getShipmentTrackingByAwb: jest.fn(),
-        cancelShipment: jest.fn(),
-      };
-
-      configService.get.mockImplementation((key: string) => {
-        if (key === "SHIPPING_PROVIDER") return "DELHIVERY";
-        if (key === "DELHIVERY_PICKUP_LOCATION") return "DELHIVERY_WAREHOUSE_NORTH";
-        if (key === "SHIPROCKET_PICKUP_LOCATION") return "SHIPROCKET_WAREHOUSE_SOUTH";
-        return null;
-      });
-
-      const delhiveryShippingService = new (service.constructor as any)(
-        prisma,
-        configService,
-        new NullShippingProvider(),
-        notificationsService,
-        undefined,
-        mockDelhiveryProvider,
-      );
-
-      prisma.order.findFirst.mockResolvedValue(baseMockOrder);
-      prisma.order.update.mockResolvedValue({
-        ...baseMockOrder,
-        shippingProvider: "DELHIVERY",
-        shiprocketOrderId: "DEL-ORD-1",
-        shiprocketShipmentId: "DEL-WAYBILL-123",
-        trackingNumber: "DEL-WAYBILL-123",
-        courierPartner: "Delhivery",
-        orderStatus: OrderStatusEnum.PACKED,
-      });
-
-      const res = await delhiveryShippingService.createShipmentForOrder("ORD-2000");
-
-      expect(mockDelhiveryProvider.createShipment).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pickupLocation: "DELHIVERY_WAREHOUSE_NORTH",
-        }),
-      );
-      expect(res.data.status).toBe(OrderStatusEnum.PACKED);
-    });
-
-    it("22. Advances orderStatus to PACKED on atomic AWB assignment in createShipment", async () => {
-      const mockDelhiveryProvider = {
-        providerName: "DELHIVERY",
-        createShipment: jest.fn().mockResolvedValue({
-          isConfigured: true,
-          providerName: "DELHIVERY",
-          orderId: "DEL-ORD-99",
-          shipmentId: "DEL-WAYBILL-999",
-          awbCode: "DEL-WAYBILL-999",
-          courierName: "Delhivery",
-          status: "Success",
-          message: "Created",
-        }),
-        assignAwb: jest.fn(),
-        getShipmentTrackingByAwb: jest.fn(),
-        cancelShipment: jest.fn(),
-      };
-
-      configService.get.mockImplementation((key: string) => {
-        if (key === "SHIPPING_PROVIDER") return "DELHIVERY";
-        if (key === "DELHIVERY_PICKUP_LOCATION") return "DELHIVERY_WAREHOUSE_NORTH";
-        return null;
-      });
-
-      const delhiveryShippingService = new (service.constructor as any)(
-        prisma,
-        configService,
-        new NullShippingProvider(),
-        notificationsService,
-        undefined,
-        mockDelhiveryProvider,
-      );
-
-      const placedOrder = {
-        ...baseMockOrder,
-        orderStatus: OrderStatusEnum.PLACED,
-      };
-      prisma.order.findFirst.mockResolvedValue(placedOrder);
-      prisma.order.update.mockImplementation(({ data }: any) => {
-        return Promise.resolve({
-          ...placedOrder,
-          ...data,
-        });
-      });
-
-      const res = await delhiveryShippingService.createShipmentForOrder("ORD-2000");
-
-      expect(res.isAwbAssigned).toBe(true);
-      expect(res.data.status).toBe(OrderStatusEnum.PACKED);
-      expect(prisma.order.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            orderStatus: OrderStatusEnum.PACKED,
-            trackingNumber: "DEL-WAYBILL-999",
-            shippingProvider: "DELHIVERY",
-          }),
-        }),
-      );
-      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          oldStatus: OrderStatusEnum.PLACED,
-          newStatus: OrderStatusEnum.PACKED,
-          trackingNumber: "DEL-WAYBILL-999",
-          courierPartner: "Delhivery",
         }),
       );
     });

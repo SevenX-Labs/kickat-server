@@ -569,7 +569,7 @@ export class OrdersService {
     const warnings: string[] = [];
     if (shipmentCancellation.attempted && !shipmentCancellation.success) {
       warnings.push(
-        'the courier shipment could not be cancelled automatically (cancel it in Shiprocket manually)',
+        'the courier shipment could not be cancelled automatically (cancel it in the provider dashboard manually)',
       );
     }
     if (refund.attempted && !refund.success) {
@@ -743,13 +743,7 @@ export class OrdersService {
 
   /**
    * Cancels the order's forward shipment with the shipping provider after an
-   * admin cancellation, reusing ShippingService.cancelShipmentForOrder (the
-   * same call the customer cancel flow makes). Uses the same detection fields
-   * as the customer flow: shiprocketOrderId / shiprocketShipmentId.
-   *
-   * Like the customer flow this never throws — the order is already CANCELLED
-   * in KickAt — but the outcome is awaited and returned so the admin response
-   * never claims the shipment was cancelled when it was not.
+   * admin cancellation. Never throws — the order is already CANCELLED.
    */
   private async cancelProviderShipment(
     order: {
@@ -835,7 +829,10 @@ export class OrdersService {
   async confirmReturnReceived(returnId: string) {
     const returnRecord = await this.prisma.orderReturn.findUnique({
       where: { id: returnId },
-      include: { order: true },
+      include: {
+        order: { include: { items: true } },
+        items: { include: { orderItem: true } },
+      },
     });
 
     if (!returnRecord) {
@@ -850,9 +847,33 @@ export class OrdersService {
       };
     }
 
-    const updated = await this.prisma.orderReturn.update({
-      where: { id: returnId },
-      data: { status: "RETURN_RECEIVED" },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.orderReturn.update({
+        where: { id: returnId },
+        data: {
+          status: "RETURN_RECEIVED",
+          qcStatus: "PENDING",
+        },
+      });
+
+      for (const returnItem of returnRecord.items) {
+        const orderItem = returnItem.orderItem;
+        if (!orderItem) continue;
+
+        await tx.product.update({
+          where: { id: orderItem.productId },
+          data: { stock: { increment: orderItem.quantity } },
+        });
+
+        if (orderItem.variantId) {
+          await tx.productVariant.update({
+            where: { id: orderItem.variantId },
+            data: { stock: { increment: orderItem.quantity } },
+          });
+        }
+      }
+
+      return result;
     });
 
     this.notificationsService.notifyReturnStatus({
@@ -862,10 +883,15 @@ export class OrdersService {
       status: "RETURN_RECEIVED",
     });
 
+    this.logger.log(
+      `Return ${returnId} received at warehouse. Inventory restocked for ${returnRecord.items.length} item(s).`,
+    );
+
     return {
       success: true,
-      message: "Return physical receipt confirmed at warehouse",
+      message: "Return physical receipt confirmed at warehouse. Inventory restocked.",
       return: updated,
+      restockedItems: returnRecord.items.length,
     };
   }
 

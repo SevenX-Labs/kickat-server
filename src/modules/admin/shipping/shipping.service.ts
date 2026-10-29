@@ -1,8 +1,6 @@
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
-import { ShiprocketProvider } from './providers/shiprocket.provider';
-import { DelhiveryProvider } from './providers/delhivery.provider';
 import { EkartProvider } from './providers/ekart.provider';
 import {
   AssignAwbResult,
@@ -47,27 +45,15 @@ export class ShippingService {
     private readonly configService: ConfigService,
     private readonly nullShippingProvider: NullShippingProvider,
     private readonly notificationsService: NotificationsService,
-    @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
-    @Optional() private readonly delhiveryProvider?: DelhiveryProvider,
     @Optional() private readonly ekartProvider?: EkartProvider,
   ) {
-    const configuredProvider = (
-      this.configService.get<string>('SHIPPING_PROVIDER', '') || ''
-    ).toUpperCase();
-
-    if (configuredProvider === 'SHIPROCKET' && this.shiprocketProvider) {
-      this.shippingProvider = this.shiprocketProvider;
-      this.logger.log('Active shipping provider initialized: SHIPROCKET');
-    } else if (configuredProvider === 'DELHIVERY' && this.delhiveryProvider) {
-      this.shippingProvider = this.delhiveryProvider;
-      this.logger.log('Active shipping provider initialized: DELHIVERY');
-    } else if (configuredProvider === 'EKART' && this.ekartProvider) {
+    if (this.ekartProvider?.isConfigured()) {
       this.shippingProvider = this.ekartProvider;
       this.logger.log('Active shipping provider initialized: EKART');
     } else {
       this.shippingProvider = this.nullShippingProvider;
       this.logger.log(
-        'Active shipping provider initialized: NULL (UNCONFIGURED)',
+        'Active shipping provider initialized: NULL (UNCONFIGURED — set EKART_CLIENT_ID, EKART_USERNAME, EKART_PASSWORD)',
       );
     }
   }
@@ -83,13 +69,7 @@ export class ShippingService {
     if (explicitLocation && explicitLocation.trim()) {
       return explicitLocation.trim();
     }
-    const providerName = this.shippingProvider?.providerName;
-    const envKey = providerName === "DELHIVERY"
-      ? "DELHIVERY_PICKUP_LOCATION"
-      : providerName === "EKART"
-        ? "EKART_PICKUP_ALIAS"
-        : "SHIPROCKET_PICKUP_LOCATION";
-    return (this.configService.get<string>(envKey, "") || "").trim();
+    return (this.configService.get<string>("EKART_PICKUP_ALIAS", "") || "").trim();
   }
 
   /**
@@ -99,13 +79,7 @@ export class ShippingService {
     if (explicitPincode && explicitPincode.trim()) {
       return explicitPincode.trim();
     }
-    const providerName = this.shippingProvider?.providerName;
-    const envKey = providerName === "DELHIVERY"
-      ? "DELHIVERY_PICKUP_PINCODE"
-      : providerName === "EKART"
-        ? "EKART_PICKUP_PINCODE"
-        : "SHIPROCKET_PICKUP_PINCODE";
-    return (this.configService.get<string>(envKey, "") || "").trim();
+    return (this.configService.get<string>("EKART_PICKUP_PINCODE", "") || "").trim();
   }
 
   /**
@@ -144,23 +118,7 @@ export class ShippingService {
     awb: string | null,
   ): string {
     if (!awb) return '';
-    const c = (courier || '').toLowerCase();
-    if (c.includes('delhivery')) {
-      return `https://www.delhivery.com/track/package/${awb}`;
-    }
-    if (c.includes('shiprocket')) {
-      return `https://shiprocket.co/tracking/${awb}`;
-    }
-    if (c.includes('ekart')) {
-      return `https://app.elite.ekartlogistics.in/track/${awb}`;
-    }
-    if (c.includes('bluedart') || c.includes('blue dart')) {
-      return `https://www.bluedart.com/tracking`;
-    }
-    if (c.includes('dtdc')) {
-      return `https://www.dtdc.in/tracking.asp`;
-    }
-    return `https://track.kickat.in/shipment/${awb}`;
+    return `https://app.elite.ekartlogistics.in/track/${awb}`;
   }
 
   /**
@@ -561,7 +519,7 @@ export class ShippingService {
 
     const baseCreated = new Date(order.createdAt).getTime();
 
-    // Real courier scans persisted from Shiprocket (webhook + AWB sync). The
+    // Real courier scans persisted from the provider (webhook + AWB sync). The
     // timeline is built from them when present; otherwise it is a status-only
     // milestone summary with no invented locations or timestamps.
     const storedEvents = await this.prisma.orderTrackingEvent.findMany({
@@ -850,7 +808,7 @@ export class ShippingService {
   }
 
   /**
-   * Creates a forward shipment for an order via the active shipping provider (e.g. Shiprocket)
+   * Creates a forward shipment for an order via the active shipping provider.
    * Validates all required data before invoking provider and enforces idempotency.
    */
   async createShipmentForOrder(
@@ -918,7 +876,7 @@ export class ShippingService {
       let trackingNumber = order.trackingNumber;
       let courierPartner = order.courierPartner;
 
-      // 2. Check if Shiprocket shipment already exists. If not, create it.
+      // 2. Check if provider shipment already exists. If not, create it.
       if (shipmentId) {
         this.logger.log(
           `Shipment already exists for order ${order.orderNumber} (shiprocketShipmentId: ${shipmentId}). Reusing existing shipment for AWB assignment.`,
@@ -928,21 +886,21 @@ export class ShippingService {
         const customerEmail = (order.user?.email || '').trim();
         if (!customerEmail || !EMAIL_REGEX.test(customerEmail)) {
           throw new BadRequestException(
-            'Valid customer email is required for Shiprocket shipment creation.',
+            'Valid customer email is required for shipment creation.',
           );
         }
 
         const customerName = (order.user?.name || '').trim();
         if (!customerName) {
           throw new BadRequestException(
-            'Customer name is required before creating a Shiprocket shipment.',
+            'Customer name is required before creating a shipment.',
           );
         }
 
         const customerPhone = (order.user?.phone || '').trim();
         if (!customerPhone) {
           throw new BadRequestException(
-            'Customer phone number is required before creating a Shiprocket shipment.',
+            'Customer phone number is required before creating a shipment.',
           );
         }
 
@@ -957,7 +915,7 @@ export class ShippingService {
         const buildingStreet = order.address.buildingStreet?.trim();
         if (!houseFlat && !buildingStreet) {
           throw new BadRequestException(
-            'Shipping address line is required for Shiprocket shipment creation.',
+            'Shipping address line is required for shipment creation.',
           );
         }
 
@@ -966,7 +924,7 @@ export class ShippingService {
         const pincode = order.address.pincode?.trim();
         if (!city || !state || !pincode) {
           throw new BadRequestException(
-            'Shipping city, state, and pincode are required for Shiprocket shipment creation.',
+            'Shipping city, state, and pincode are required for shipment creation.',
           );
         }
 
@@ -978,7 +936,7 @@ export class ShippingService {
         }
 
         // Pickup location validation (no hardcoded fallback)
-        const activeProviderName = this.shippingProvider?.providerName || 'SHIPROCKET';
+        const activeProviderName = this.shippingProvider?.providerName || 'EKART';
         const pickupLocation = this.resolveConfiguredPickupLocation(
           options?.pickupLocation,
         );
@@ -1002,7 +960,7 @@ export class ShippingService {
             options.packageDetails.weight <= 0
           ) {
             throw new BadRequestException(
-              'Shipment weight is required before creating a Shiprocket shipment.',
+              'Shipment weight is required before creating a shipment.',
             );
           }
           totalWeight = options.packageDetails.weight;
@@ -1016,7 +974,7 @@ export class ShippingService {
           totalWeight <= 0
         ) {
           throw new BadRequestException(
-            'Shipment weight is required before creating a Shiprocket shipment.',
+            'Shipment weight is required before creating a shipment.',
           );
         }
 
@@ -1120,7 +1078,7 @@ export class ShippingService {
             shiprocketOrderId: remoteOrderId,
             shiprocketShipmentId: shipmentId,
             courierPartner:
-              result.courierName || order.courierPartner || 'Shiprocket',
+              result.courierName || order.courierPartner || 'Ekart',
             trackingNumber: result.awbCode || order.trackingNumber || null,
             orderStatus: targetStatus,
           },
@@ -1371,7 +1329,7 @@ export class ShippingService {
       // 8. Pickup Queue Status Check
       if (awbResult.pickupScheduledDate) {
         this.logger.log(
-          `Shiprocket pickup scheduled automatically for order ${order.orderNumber} (date: ${awbResult.pickupScheduledDate}). No duplicate pickup call required.`,
+          `Pickup scheduled automatically for order ${order.orderNumber} (date: ${awbResult.pickupScheduledDate}). No duplicate pickup call required.`,
         );
       }
 

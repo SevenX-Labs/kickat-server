@@ -16,7 +16,7 @@ describe('ShipmentTrackingSyncService', () => {
     userId: 'user-1',
     orderStatus: OrderStatusEnum.SHIPPED,
     trackingNumber: 'AWB1',
-    courierPartner: 'Delhivery',
+    courierPartner: 'Ekart',
     estimatedDelivery: null,
     shiprocketShipmentId: 'ship-1',
   };
@@ -34,7 +34,7 @@ describe('ShipmentTrackingSyncService', () => {
       },
     };
     provider = {
-      providerName: 'SHIPROCKET',
+      providerName: 'EKART',
       getShipmentTrackingByAwb: jest.fn().mockResolvedValue({
         awb: 'AWB1',
         activities: [
@@ -55,7 +55,7 @@ describe('ShipmentTrackingSyncService', () => {
     };
     provider.getReturnTracking = jest.fn().mockResolvedValue({
       isConfigured: true,
-      providerName: 'Delhivery',
+      providerName: 'Ekart',
       shipmentId: 'RET-AWB1',
       currentStatus: 'In Transit',
       checkpoints: [
@@ -154,7 +154,7 @@ describe('ShipmentTrackingSyncService', () => {
       { id: 'ord-2', orderNumber: 'ORD-2' },
     ]);
     provider.getShipmentTrackingByAwb
-      .mockRejectedValueOnce(new Error('Shiprocket 500'))
+      .mockRejectedValueOnce(new Error('Ekart 500'))
       .mockResolvedValueOnce({ awb: 'AWB1', activities: [] });
     trackingEvents.recordEvents.mockResolvedValue(0);
 
@@ -193,7 +193,7 @@ describe('ShipmentTrackingSyncService', () => {
     ]);
     provider.getReturnTracking.mockResolvedValue({
       isConfigured: true,
-      providerName: 'Delhivery',
+      providerName: 'Ekart',
       shipmentId: 'RET-AWB1',
       currentStatus: 'In Transit',
       checkpoints: [
@@ -224,7 +224,7 @@ describe('ShipmentTrackingSyncService', () => {
     ]);
     provider.getReturnTracking.mockResolvedValue({
       isConfigured: true,
-      providerName: 'Delhivery',
+      providerName: 'Ekart',
       shipmentId: 'RET-AWB2',
       currentStatus: 'Delivered',
       checkpoints: [
@@ -261,7 +261,7 @@ describe('ShipmentTrackingSyncService', () => {
     ]);
     provider.getReturnTracking.mockResolvedValue({
       isConfigured: true,
-      providerName: 'Delhivery',
+      providerName: 'Ekart',
       shipmentId: 'RET-AWB3',
       currentStatus: 'Picked Up',
       checkpoints: [

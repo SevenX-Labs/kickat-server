@@ -4,10 +4,10 @@ import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/c
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ShippingService } from './shipping.service';
-import { ShiprocketWebhookService } from './shiprocket-webhook.service';
+import { EkartWebhookService } from './ekart-webhook.service';
 import { OrderTrackingEventsService } from './order-tracking-events.service';
 import {
-  parseShiprocketScan,
+  parseProviderScan,
   ParsedTrackingEvent,
   stageToForwardOrderStatus,
 } from './tracking-events.util';
@@ -42,14 +42,9 @@ const FORWARD_RANK: Partial<Record<OrderStatusEnum, number>> = {
 };
 
 /**
- * Fallback for missed Shiprocket webhooks: pulls AWB tracking from the
- * provider (GET /courier/track/awb/{awb}) for in-transit orders and stores the
- * scans through the same persistence path the webhook uses.
- *
- * When the pulled scans prove the parcel has moved forward (shipped / out for
- * delivery / delivered) and the order is behind, the order status is advanced
- * using the webhook's own progression rules. Cancellation and RTO transitions
- * are deliberately left to the webhook flow.
+ * Fallback for missed webhooks: pulls AWB tracking from the provider for
+ * in-transit orders and stores the scans through the same persistence path
+ * the webhook uses. Cancellation and RTO transitions are left to the webhook.
  */
 @Injectable()
 export class ShipmentTrackingSyncService {
@@ -62,7 +57,7 @@ export class ShipmentTrackingSyncService {
     private readonly prisma: PrismaService,
     private readonly shippingService: ShippingService,
     private readonly trackingEventsService: OrderTrackingEventsService,
-    private readonly webhookService: ShiprocketWebhookService,
+    private readonly webhookService: EkartWebhookService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -112,7 +107,7 @@ export class ShipmentTrackingSyncService {
       order.trackingNumber,
     );
     const events = (result.activities || [])
-      .map((a) => parseShiprocketScan(a))
+      .map((a) => parseProviderScan(a))
       .filter((e): e is ParsedTrackingEvent => !!e);
 
     const newEvents = await this.trackingEventsService.recordEvents(

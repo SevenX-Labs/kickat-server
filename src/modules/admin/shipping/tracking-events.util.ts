@@ -5,7 +5,7 @@ import { OrderStatusEnum, PaymentMethodEnum } from '@prisma/client';
  *
  * Everything here works only with what the provider actually reported: no
  * hub names, locations or timestamps are ever invented. Shared by the
- * Shiprocket webhook, the on-demand/cron AWB sync, and the customer + admin
+ * Ekart webhook, the on-demand/cron AWB sync, and the customer + admin
  * tracking APIs.
  */
 
@@ -91,8 +91,8 @@ const EXACT_STAGE_MAP: Record<string, TrackingStage> = {
 };
 
 /**
- * Only the Shiprocket numeric codes we are confident about. Anything else
- * falls back to the textual status, then to the neutral UPDATE stage.
+ * Numeric status codes (kept for backward compatibility with stored events).
+ * Falls back to textual status, then to the neutral UPDATE stage.
  */
 const STAGE_CODE_MAP: Record<number, TrackingStage> = {
   6: 'SHIPPED',
@@ -153,10 +153,9 @@ function istToDate(
 }
 
 /**
- * Parses Shiprocket timestamps. Zone-less values are IST (Shiprocket's
- * convention):
- *   - scans / track API: "2023-05-19 11:59:16"
- *   - webhook current_timestamp: "23 05 2023 11:43:52"
+ * Parses provider timestamps. Zone-less values are treated as IST:
+ *   - "2023-05-19 11:59:16"
+ *   - "23 05 2023 11:43:52"
  * Values carrying an explicit zone (ISO-8601) are parsed as-is.
  */
 export function parseProviderTimestamp(value: unknown): Date | null {
@@ -189,13 +188,7 @@ export function parseProviderTimestamp(value: unknown): Date | null {
   return null;
 }
 
-/**
- * Parses one Shiprocket scan / tracking activity:
- *   { date, status, activity, location, "sr-status", "sr-status-label" }
- * Returns null when the scan has no usable status or no timestamp (a scan we
- * cannot place in time is not shown rather than guessed).
- */
-export function parseShiprocketScan(scan: any): ParsedTrackingEvent | null {
+export function parseProviderScan(scan: any): ParsedTrackingEvent | null {
   if (!scan || typeof scan !== 'object') return null;
 
   const label = cleanText(scan['sr-status-label'] ?? scan.sr_status_label);
@@ -225,11 +218,7 @@ export function parseShiprocketScan(scan: any): ParsedTrackingEvent | null {
   };
 }
 
-/**
- * Extracts every tracking event carried by a Shiprocket webhook payload: each
- * scan, plus the current status itself when no scan already represents it.
- */
-export function extractShiprocketWebhookEvents(
+export function extractProviderWebhookEvents(
   body: any,
 ): ParsedTrackingEvent[] {
   if (!body || typeof body !== 'object') return [];
@@ -242,7 +231,7 @@ export function extractShiprocketWebhookEvents(
       : [];
 
   const events = rawScans
-    .map((scan: any) => parseShiprocketScan(scan))
+    .map((scan: any) => parseProviderScan(scan))
     .filter((e: ParsedTrackingEvent | null): e is ParsedTrackingEvent => !!e);
 
   const currentStatus = cleanText(
@@ -521,6 +510,11 @@ export function getTrackingPlaceholderMessage(
   }
   return 'Tracking will appear once the shipment is picked up.';
 }
+
+/** @deprecated Use parseProviderScan */
+export const parseShiprocketScan = parseProviderScan;
+/** @deprecated Use extractProviderWebhookEvents */
+export const extractShiprocketWebhookEvents = extractProviderWebhookEvents;
 
 /** Latest provider-reported location, if any. */
 export function getLatestEventLocation(

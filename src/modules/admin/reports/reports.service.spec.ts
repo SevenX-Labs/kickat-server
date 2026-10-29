@@ -146,7 +146,7 @@ describe('Admin ReportsService', () => {
           orderStatus: OrderStatusEnum.DELIVERED,
           paymentMethod: PaymentMethodEnum.UPI,
           paymentStatus: PaymentStatusEnum.COMPLETED,
-          courierPartner: 'Delhivery',
+          courierPartner: 'Ekart',
           trackingNumber: 'DEL-12345',
           grandTotal: 1050,
           user: { id: 'u1', name: 'John Doe', phone: '+919876543210' },

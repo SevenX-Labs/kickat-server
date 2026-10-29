@@ -818,7 +818,7 @@ describe('Admin OrdersService', () => {
         address: { houseFlat: '101', buildingStreet: 'Green Towers', city: 'Mumbai', pincode: '400001' },
         deliverySlot: 'Evening (5PM - 9PM)',
         deliveryInstructions: 'Leave with security',
-        courierPartner: 'Delhivery',
+        courierPartner: 'Ekart',
         trackingNumber: 'DEL-998877',
         items: [
           { productId: 'p1', variantId: 'v1', productName: 'Pet Toy', variantName: 'Red', quantity: 2 },

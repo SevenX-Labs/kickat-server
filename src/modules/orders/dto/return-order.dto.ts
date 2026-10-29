@@ -7,7 +7,9 @@ import {
   IsString,
   IsUrl,
   IsUUID,
+  Matches,
   MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -44,6 +46,11 @@ export class ReturnItemDto {
   photos?: string[];
 }
 
+export enum PayoutMethodEnum {
+  UPI = 'UPI',
+  BANK_TRANSFER = 'BANK_TRANSFER',
+}
+
 export class ReturnOrderDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -56,4 +63,30 @@ export class ReturnOrderDto {
     message: 'pickupInstructions must not exceed 500 characters',
   })
   pickupInstructions?: string;
+
+  @IsOptional()
+  @IsEnum(PayoutMethodEnum, {
+    message: 'payoutMethod must be UPI or BANK_TRANSFER',
+  })
+  payoutMethod?: PayoutMethodEnum;
+
+  @ValidateIf((o) => o.payoutMethod === PayoutMethodEnum.UPI)
+  @IsString()
+  @MaxLength(100, { message: 'upiId must not exceed 100 characters' })
+  upiId?: string;
+
+  @ValidateIf((o) => o.payoutMethod === PayoutMethodEnum.BANK_TRANSFER)
+  @IsString()
+  @MaxLength(30, { message: 'bankAccountNumber must not exceed 30 characters' })
+  bankAccountNumber?: string;
+
+  @ValidateIf((o) => o.payoutMethod === PayoutMethodEnum.BANK_TRANSFER)
+  @IsString()
+  @Matches(/^[A-Z]{4}0[A-Z0-9]{6}$/, { message: 'bankIfscCode must be a valid IFSC code' })
+  bankIfscCode?: string;
+
+  @ValidateIf((o) => o.payoutMethod === PayoutMethodEnum.BANK_TRANSFER)
+  @IsString()
+  @MaxLength(100, { message: 'bankAccountName must not exceed 100 characters' })
+  bankAccountName?: string;
 }

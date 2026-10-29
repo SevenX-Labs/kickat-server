@@ -1,12 +1,12 @@
 import { OrderStatusEnum, PaymentMethodEnum } from '@prisma/client';
 import {
   buildTrackingTimeline,
-  extractShiprocketWebhookEvents,
+  extractProviderWebhookEvents,
   getLatestEventLocation,
   getTrackingPlaceholderMessage,
   mapProviderStatusToStage,
   parseProviderTimestamp,
-  parseShiprocketScan,
+  parseProviderScan,
   serializeTrackingEvents,
   StoredTrackingEvent,
 } from './tracking-events.util';
@@ -46,9 +46,9 @@ describe('tracking-events.util', () => {
     });
   });
 
-  describe('parseShiprocketScan', () => {
+  describe('parseProviderScan', () => {
     it('keeps provider text and location verbatim', () => {
-      const event = parseShiprocketScan({
+      const event = parseProviderScan({
         date: '2023-05-19 11:59:16',
         status: 'X-PPOM',
         activity: 'Shipment picked up',
@@ -66,7 +66,7 @@ describe('tracking-events.util', () => {
     });
 
     it('uses the courier status when the label is NA and never invents a location', () => {
-      const event = parseShiprocketScan({
+      const event = parseProviderScan({
         date: '2023-05-20 08:00:00',
         status: 'X-ILL2F',
         activity: 'Bag added to trip',
@@ -80,13 +80,13 @@ describe('tracking-events.util', () => {
     });
 
     it('drops scans that cannot be placed in time', () => {
-      expect(parseShiprocketScan({ activity: 'Delivered' })).toBeNull();
+      expect(parseProviderScan({ activity: 'Delivered' })).toBeNull();
     });
   });
 
-  describe('extractShiprocketWebhookEvents', () => {
+  describe('extractProviderWebhookEvents', () => {
     it('returns every scan and skips the current status when already covered', () => {
-      const events = extractShiprocketWebhookEvents({
+      const events = extractProviderWebhookEvents({
         awb: '59629792084',
         current_status: 'Delivered',
         current_status_id: 7,
@@ -108,7 +108,7 @@ describe('tracking-events.util', () => {
     });
 
     it('records the current status when the payload has no scans', () => {
-      const events = extractShiprocketWebhookEvents({
+      const events = extractProviderWebhookEvents({
         current_status: 'OUT FOR DELIVERY',
         current_timestamp: '23 05 2023 09:00:00',
       });

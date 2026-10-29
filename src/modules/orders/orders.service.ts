@@ -739,23 +739,91 @@ export class OrdersService {
   async getOrderTrackingLive(userId: string, id: string) {
     const order = await this.findOrderAndVerifyOwnership(userId, id);
 
-    return {
-      success: true,
-      orderId: order.id,
-      trackingNumber: order.trackingNumber || `TRK-${order.orderNumber}`,
-      status: order.orderStatus,
-      agent: {
-        name: 'Ramesh Kumar',
-        phone: '+919876543210',
-        vehicleNumber: 'MH-02-AB-1234',
-      },
-      liveLocation: {
-        latitude: 19.076,
-        longitude: 72.8777,
-        lastUpdated: new Date(),
-      },
-      etaMinutes: 25,
-    };
+    const awb = order.trackingNumber;
+    if (!awb || !this.shippingService) {
+      return {
+        success: true,
+        orderId: order.id,
+        trackingNumber: awb || null,
+        status: order.orderStatus,
+        liveLocation: null,
+        etaMinutes: null,
+        checkpoints: [],
+        message: awb
+          ? 'Shipping provider not available for live tracking'
+          : 'No tracking number assigned yet',
+      };
+    }
+
+    try {
+      const provider = this.shippingService.getShippingProvider();
+      if (!provider.getShipmentTrackingByAwb) {
+        return {
+          success: true,
+          orderId: order.id,
+          trackingNumber: awb,
+          status: order.orderStatus,
+          liveLocation: null,
+          etaMinutes: null,
+          checkpoints: [],
+          message: 'Live tracking not supported by current shipping provider',
+        };
+      }
+
+      const tracking = await provider.getShipmentTrackingByAwb(awb);
+
+      const latestActivity = tracking.activities?.[0];
+
+      return {
+        success: true,
+        orderId: order.id,
+        trackingNumber: awb,
+        status: order.orderStatus,
+        currentStatus: tracking.currentStatus || order.orderStatus,
+        etd: tracking.etd || order.estimatedDelivery || null,
+        trackUrl: tracking.trackUrl || null,
+        lastCheckpoint: latestActivity
+          ? {
+              status: latestActivity['sr-status-label'] || latestActivity.activity || latestActivity.status || '',
+              location: latestActivity.location || '',
+              timestamp: latestActivity.date || '',
+              description: latestActivity.activity || '',
+            }
+          : null,
+        checkpoints: (tracking.activities || []).slice(0, 10).map((a: any) => ({
+          status: a['sr-status-label'] || a.activity || a.status || '',
+          location: a.location || '',
+          timestamp: a.date || '',
+          description: a.activity || '',
+        })),
+      };
+    } catch (err: any) {
+      this.logger.warn(
+        `Live tracking fetch failed for AWB ${awb}: ${err.message}`,
+      );
+
+      const lastEvent = await this.prisma.orderTrackingEvent.findFirst({
+        where: { orderId: order.id },
+        orderBy: { eventAt: 'desc' },
+      });
+
+      return {
+        success: true,
+        orderId: order.id,
+        trackingNumber: awb,
+        status: order.orderStatus,
+        lastCheckpoint: lastEvent
+          ? {
+              status: lastEvent.rawStatus,
+              location: lastEvent.location || '',
+              timestamp: lastEvent.eventAt.toISOString(),
+              description: lastEvent.description || '',
+            }
+          : null,
+        checkpoints: [],
+        message: 'Live tracking temporarily unavailable — showing last known status',
+      };
+    }
   }
 
   /**
@@ -1172,6 +1240,11 @@ export class OrdersService {
           userId,
           pickupInstructions: dto.pickupInstructions,
           status: 'INITIATED',
+          payoutMethod: dto.payoutMethod || null,
+          upiId: dto.upiId || null,
+          bankAccountNumber: dto.bankAccountNumber || null,
+          bankIfscCode: dto.bankIfscCode || null,
+          bankAccountName: dto.bankAccountName || null,
           items: {
             create: dto.items.map((item) => ({
               orderItemId: item.orderItemId,

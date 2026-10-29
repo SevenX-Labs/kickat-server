@@ -2,8 +2,6 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ShippingService } from './shipping.service';
-import { ShiprocketProvider } from './providers/shiprocket.provider';
-import { DelhiveryProvider } from './providers/delhivery.provider';
 import { EkartProvider } from './providers/ekart.provider';
 import { ShippingProvider } from './providers/shipping-provider.interface';
 
@@ -22,24 +20,6 @@ interface CacheEntry {
   expiresAt: number;
 }
 
-interface ShiprocketServiceabilityResponse {
-  status?: number;
-  data?: {
-    recommended_courier_company_id?: number | string;
-    shiprocket_recommended_courier_id?: number | string;
-    promise_recommended_courier_company_id?: number | string;
-    available_courier_companies?: Array<{
-      courier_company_id: number | string;
-      courier_name: string;
-      rate?: number;
-      etd?: string;
-      estimated_delivery_days?: number | string;
-      etd_hours?: number;
-      rating?: number;
-    }>;
-  };
-}
-
 @Injectable()
 export class DeliveryEstimateService {
   private readonly logger = new Logger(DeliveryEstimateService.name);
@@ -50,8 +30,6 @@ export class DeliveryEstimateService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     @Optional() private readonly shippingService?: ShippingService,
-    @Optional() private readonly shiprocketProvider?: ShiprocketProvider,
-    @Optional() private readonly delhiveryProvider?: DelhiveryProvider,
     @Optional() private readonly ekartProvider?: EkartProvider,
   ) {}
 
@@ -62,26 +40,6 @@ export class DeliveryEstimateService {
   private getShippingProvider(): ShippingProvider | null {
     if (this.shippingService) {
       return this.shippingService.getShippingProvider();
-    }
-
-    const configured = (
-      this.configService.get<string>('SHIPPING_PROVIDER', '') || ''
-    ).toUpperCase();
-
-    if (configured === 'DELHIVERY' && this.delhiveryProvider) {
-      return this.delhiveryProvider;
-    }
-    if (configured === 'EKART' && this.ekartProvider) {
-      return this.ekartProvider;
-    }
-    if (configured === 'SHIPROCKET' && this.shiprocketProvider) {
-      return this.shiprocketProvider;
-    }
-    if (this.shiprocketProvider) {
-      return this.shiprocketProvider;
-    }
-    if (this.delhiveryProvider) {
-      return this.delhiveryProvider;
     }
     if (this.ekartProvider) {
       return this.ekartProvider;
@@ -132,12 +90,7 @@ export class DeliveryEstimateService {
     }
 
     // 3. Resolve warehouse pickup pincode
-    const provName = provider.providerName;
-    const pickupLocationName = provName === 'DELHIVERY'
-      ? (this.configService.get<string>('DELHIVERY_PICKUP_LOCATION', '') || '').trim()
-      : provName === 'EKART'
-        ? (this.configService.get<string>('EKART_PICKUP_ALIAS', '') || '').trim()
-        : (this.configService.get<string>('SHIPROCKET_PICKUP_LOCATION', "Bhim's") || '').trim();
+    const pickupLocationName = (this.configService.get<string>('EKART_PICKUP_ALIAS', '') || '').trim();
 
     let pickupPostcode: string | null = null;
     if (pickupLocationName && typeof provider.getPickupLocationPincode === 'function') {
@@ -153,11 +106,7 @@ export class DeliveryEstimateService {
     }
 
     if (!pickupPostcode || !/^\d{6}$/.test(pickupPostcode)) {
-      pickupPostcode = provName === 'DELHIVERY'
-        ? (this.configService.get<string>('DELHIVERY_PICKUP_PINCODE', '') || '').trim()
-        : provName === 'EKART'
-          ? (this.configService.get<string>('EKART_PICKUP_PINCODE', '') || '').trim() || '721643'
-          : (this.configService.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() || '721643';
+      pickupPostcode = (this.configService.get<string>('EKART_PICKUP_PINCODE', '') || '').trim() || '721643';
     }
 
     // 4. Check in-memory cache
@@ -169,133 +118,7 @@ export class DeliveryEstimateService {
 
     // 5. Query active provider serviceability
     try {
-      if (provider.providerName === 'DELHIVERY') {
-        const check = await provider.checkServiceability({
-          pickupPostcode,
-          deliveryPostcode: rawPincode,
-          weight,
-          cod: isCod,
-          length,
-          breadth,
-          height,
-        });
-
-        if (!check || !check.isServiceable) {
-          let message = 'Delivery is currently unavailable for this pincode.';
-          if (isCod && !check?.codAvailable && check?.prepaidAvailable) {
-            message = 'Cash on Delivery is unavailable for this pincode.';
-          } else if (!isCod && !check?.prepaidAvailable) {
-            message = 'Prepaid delivery is unavailable for this pincode.';
-          }
-
-          const result: DeliveryEstimateResult = {
-            available: false,
-            pincode: rawPincode,
-            message,
-          };
-          this.cache.set(cacheKey, {
-            data: result,
-            expiresAt: Date.now() + this.CACHE_TTL_MS,
-          });
-          return result;
-        }
-
-        // Serviceable for requested payment method
-        const courier =
-          typeof provider.getRecommendedCourier === 'function'
-            ? await provider.getRecommendedCourier({
-                pickupPostcode,
-                deliveryPostcode: rawPincode,
-                weight,
-                cod: isCod,
-                length,
-                breadth,
-                height,
-              })
-            : null;
-
-        const result: DeliveryEstimateResult = {
-          available: true,
-          pincode: rawPincode,
-          courierName: courier?.courierName || 'Delhivery Surface',
-          message: 'Delivery is available for this pincode.',
-        };
-
-        this.cache.set(cacheKey, {
-          data: result,
-          expiresAt: Date.now() + this.CACHE_TTL_MS,
-        });
-        return result;
-      }
-
-      // Ekart V3 serviceability handling
-      if (provider.providerName === 'EKART') {
-        const check = await provider.checkServiceability({
-          pickupPostcode,
-          deliveryPostcode: rawPincode,
-          weight,
-          cod: isCod,
-          length,
-          breadth,
-          height,
-        });
-
-        if (!check || !check.isServiceable) {
-          const result: DeliveryEstimateResult = {
-            available: false,
-            pincode: rawPincode,
-            message: 'Delivery is currently unavailable for this pincode.',
-          };
-          this.cache.set(cacheKey, {
-            data: result,
-            expiresAt: Date.now() + this.CACHE_TTL_MS,
-          });
-          return result;
-        }
-
-        let estimatedDateStr = check.estimatedDeliveryDate;
-        let deliveryDays = check.estimatedDeliveryDays;
-        let formattedDateStr: string | undefined;
-
-        if (estimatedDateStr) {
-          const parsed = new Date(estimatedDateStr);
-          if (!isNaN(parsed.getTime())) {
-            const day = parsed.getDate();
-            const month = parsed.toLocaleDateString('en-US', { month: 'short' });
-            formattedDateStr = `${day} ${month}`;
-          }
-        }
-
-        if (!estimatedDateStr && deliveryDays) {
-          const d = new Date(Date.now() + deliveryDays * 24 * 60 * 60 * 1000);
-          const year = d.getFullYear();
-          const monthNum = String(d.getMonth() + 1).padStart(2, '0');
-          const dayNum = String(d.getDate()).padStart(2, '0');
-          estimatedDateStr = `${year}-${monthNum}-${dayNum}`;
-
-          const day = d.getDate();
-          const month = d.toLocaleDateString('en-US', { month: 'short' });
-          formattedDateStr = `${day} ${month}`;
-        }
-
-        const result: DeliveryEstimateResult = {
-          available: true,
-          pincode: rawPincode,
-          courierName: check.courierGroup || `Ekart ${(this.configService.get<string>('EKART_DEFAULT_SERVICE', 'SURFACE') || 'SURFACE').trim()}`,
-          estimatedDeliveryDate: estimatedDateStr,
-          estimatedDeliveryDays: deliveryDays,
-          formattedDate: formattedDateStr,
-        };
-
-        this.cache.set(cacheKey, {
-          data: result,
-          expiresAt: Date.now() + this.CACHE_TTL_MS,
-        });
-        return result;
-      }
-
-      // Default / Shiprocket serviceability handling
-      const response = (await provider.checkServiceability({
+      const check = await provider.checkServiceability({
         pickupPostcode,
         deliveryPostcode: rawPincode,
         weight,
@@ -303,10 +126,9 @@ export class DeliveryEstimateService {
         length,
         breadth,
         height,
-      })) as ShiprocketServiceabilityResponse;
+      });
 
-      const availableCouriers = response?.data?.available_courier_companies;
-      if (!Array.isArray(availableCouriers) || availableCouriers.length === 0) {
+      if (!check || !check.isServiceable) {
         const result: DeliveryEstimateResult = {
           available: false,
           pincode: rawPincode,
@@ -319,50 +141,20 @@ export class DeliveryEstimateService {
         return result;
       }
 
-      // Pick recommended courier consistent with fulfillment logic
-      const recId =
-        response?.data?.recommended_courier_company_id ??
-        response?.data?.shiprocket_recommended_courier_id ??
-        response?.data?.promise_recommended_courier_company_id;
-
-      const selectedCourier =
-        (recId != null
-          ? availableCouriers.find(
-              (c) => String(c.courier_company_id) === String(recId),
-            )
-          : null) || availableCouriers[0];
-
-      // Extract delivery days & ETD
-      let deliveryDays = selectedCourier.estimated_delivery_days
-        ? Number(selectedCourier.estimated_delivery_days)
-        : undefined;
-
-      let estimatedDateStr: string | undefined;
+      let estimatedDateStr = check.estimatedDeliveryDate;
+      let deliveryDays = check.estimatedDeliveryDays;
       let formattedDateStr: string | undefined;
 
-      if (selectedCourier.etd) {
-        const parsed = new Date(selectedCourier.etd);
+      if (estimatedDateStr) {
+        const parsed = new Date(estimatedDateStr);
         if (!isNaN(parsed.getTime())) {
-          const year = parsed.getFullYear();
-          const monthNum = String(parsed.getMonth() + 1).padStart(2, '0');
-          const dayNum = String(parsed.getDate()).padStart(2, '0');
-          estimatedDateStr = `${year}-${monthNum}-${dayNum}`;
-
           const day = parsed.getDate();
           const month = parsed.toLocaleDateString('en-US', { month: 'short' });
           formattedDateStr = `${day} ${month}`;
-
-          if (!deliveryDays || isNaN(deliveryDays)) {
-            const diffMs = parsed.getTime() - Date.now();
-            deliveryDays = Math.max(
-              1,
-              Math.ceil(diffMs / (1000 * 60 * 60 * 24)),
-            );
-          }
         }
       }
 
-      if (!estimatedDateStr && deliveryDays && !isNaN(deliveryDays)) {
+      if (!estimatedDateStr && deliveryDays) {
         const d = new Date(Date.now() + deliveryDays * 24 * 60 * 60 * 1000);
         const year = d.getFullYear();
         const monthNum = String(d.getMonth() + 1).padStart(2, '0');
@@ -374,19 +166,10 @@ export class DeliveryEstimateService {
         formattedDateStr = `${day} ${month}`;
       }
 
-      if (!estimatedDateStr) {
-        const result: DeliveryEstimateResult = {
-          available: false,
-          pincode: rawPincode,
-          message: 'Delivery is currently unavailable for this pincode.',
-        };
-        return result;
-      }
-
       const result: DeliveryEstimateResult = {
         available: true,
         pincode: rawPincode,
-        courierName: selectedCourier.courier_name,
+        courierName: check.courierGroup || `Ekart ${(this.configService.get<string>('EKART_DEFAULT_SERVICE', 'SURFACE') || 'SURFACE').trim()}`,
         estimatedDeliveryDate: estimatedDateStr,
         estimatedDeliveryDays: deliveryDays,
         formattedDate: formattedDateStr,
@@ -396,7 +179,6 @@ export class DeliveryEstimateService {
         data: result,
         expiresAt: Date.now() + this.CACHE_TTL_MS,
       });
-
       return result;
     } catch (err: any) {
       this.logger.error(

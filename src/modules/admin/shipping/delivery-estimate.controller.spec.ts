@@ -12,7 +12,7 @@ describe('DeliveryEstimateController', () => {
       getEstimate: jest.fn().mockResolvedValue({
         available: true,
         pincode: '400612',
-        courierName: 'Delhivery Surface 2 Kgs',
+        courierName: 'Ekart SURFACE',
         estimatedDeliveryDate: '2026-10-07',
         estimatedDeliveryDays: 7,
         formattedDate: '7 Oct',
@@ -59,7 +59,7 @@ describe('DeliveryEstimateController', () => {
     expect(res).toEqual({
       available: true,
       pincode: '400612',
-      courierName: 'Delhivery Surface 2 Kgs',
+      courierName: 'Ekart SURFACE',
       estimatedDeliveryDate: '2026-10-07',
       estimatedDeliveryDays: 7,
       formattedDate: '7 Oct',

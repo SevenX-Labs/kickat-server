@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { PaymentsService } from '../../payments/payments.service';
 import * as crypto from 'crypto';
 import { OrderTrackingEventsService } from './order-tracking-events.service';
 import { ParsedTrackingEvent, parseProviderTimestamp } from './tracking-events.util';
@@ -40,11 +41,11 @@ export const EKART_STATUS_MAP: Record<string, OrderStatusEnum> = {
   'CANCELLED': OrderStatusEnum.CANCELLED,
   'CANCELED': OrderStatusEnum.CANCELLED,
 
-  'RTO': OrderStatusEnum.RETURN_INITIATED,
-  'RTO INITIATED': OrderStatusEnum.RETURN_INITIATED,
-  'RTO IN TRANSIT': OrderStatusEnum.RETURN_INITIATED,
-  'RTO OUT FOR DELIVERY': OrderStatusEnum.RETURN_INITIATED,
-  'RTO DELIVERED': OrderStatusEnum.RETURNED,
+  'RTO': OrderStatusEnum.RTO_INITIATED,
+  'RTO INITIATED': OrderStatusEnum.RTO_INITIATED,
+  'RTO IN TRANSIT': OrderStatusEnum.RTO_IN_TRANSIT,
+  'RTO OUT FOR DELIVERY': OrderStatusEnum.RTO_IN_TRANSIT,
+  'RTO DELIVERED': OrderStatusEnum.RTO_DELIVERED,
   'RETURNED': OrderStatusEnum.RETURNED,
 };
 
@@ -57,6 +58,9 @@ const STATUS_PROGRESSION_RANK: Record<OrderStatusEnum, number> = {
   [OrderStatusEnum.OUT_FOR_DELIVERY]: 60,
   [OrderStatusEnum.DELIVERED]: 70,
   [OrderStatusEnum.RETURN_INITIATED]: 80,
+  [OrderStatusEnum.RTO_INITIATED]: 82,
+  [OrderStatusEnum.RTO_IN_TRANSIT]: 84,
+  [OrderStatusEnum.RTO_DELIVERED]: 86,
   [OrderStatusEnum.RETURNED]: 90,
   [OrderStatusEnum.CANCELLED]: 100,
 };
@@ -87,6 +91,8 @@ export class EkartWebhookService {
     private readonly notificationsService: NotificationsService,
     @Optional()
     private readonly trackingEventsService?: OrderTrackingEventsService,
+    @Optional()
+    private readonly paymentsService?: PaymentsService,
   ) {}
 
   verifyHmacSignature(
@@ -238,9 +244,9 @@ export class EkartWebhookService {
       return OrderStatusEnum.SHIPPED;
     }
     if (clean.includes('RTO') || clean.includes('RETURN TO ORIGIN')) {
-      return clean.includes('DELIVERED')
-        ? OrderStatusEnum.RETURNED
-        : OrderStatusEnum.RETURN_INITIATED;
+      if (clean.includes('DELIVERED')) return OrderStatusEnum.RTO_DELIVERED;
+      if (clean.includes('IN TRANSIT') || clean.includes('OUT FOR DELIVERY')) return OrderStatusEnum.RTO_IN_TRANSIT;
+      return OrderStatusEnum.RTO_INITIATED;
     }
     if (clean.includes('CANCEL')) {
       return OrderStatusEnum.CANCELLED;
@@ -258,7 +264,8 @@ export class EkartWebhookService {
     if (
       currentStatus === OrderStatusEnum.DELIVERED ||
       currentStatus === OrderStatusEnum.CANCELLED ||
-      currentStatus === OrderStatusEnum.RETURNED
+      currentStatus === OrderStatusEnum.RETURNED ||
+      currentStatus === OrderStatusEnum.RTO_DELIVERED
     ) {
       return false;
     }
@@ -612,6 +619,29 @@ export class EkartWebhookService {
       }
     }
 
+    // RTO_DELIVERED side-effects: restock inventory + initiate refund
+    if (
+      updatedOrder.orderStatus === OrderStatusEnum.RTO_DELIVERED &&
+      order.orderStatus !== OrderStatusEnum.RTO_DELIVERED
+    ) {
+      await this.handleRtoDelivered(updatedOrder);
+    }
+
+    // Record RTO initiation timestamp
+    if (
+      updatedOrder.orderStatus === OrderStatusEnum.RTO_INITIATED &&
+      !order.rtoInitiatedAt
+    ) {
+      await this.prisma.order
+        .update({
+          where: { id: updatedOrder.id },
+          data: { rtoInitiatedAt: new Date() },
+        })
+        .catch((e: any) =>
+          this.logger.warn(`Failed to set rtoInitiatedAt: ${e.message}`),
+        );
+    }
+
     return {
       success: true,
       message: 'Ekart webhook processed successfully',
@@ -619,5 +649,78 @@ export class EkartWebhookService {
       orderNumber: updatedOrder.orderNumber,
       matched: true,
     };
+  }
+
+  private async handleRtoDelivered(order: any): Promise<void> {
+    const now = new Date();
+
+    try {
+      const fullOrder = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        include: { items: true },
+      });
+      if (!fullOrder) return;
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: order.id },
+          data: { rtoDeliveredAt: now },
+        });
+
+        for (const item of fullOrder.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+
+          if (item.variantId) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: { stock: { increment: item.quantity } },
+            });
+          }
+        }
+
+        if (
+          fullOrder.paymentMethod !== PaymentMethodEnum.COD &&
+          fullOrder.paymentStatus === PaymentStatusEnum.COMPLETED
+        ) {
+          await tx.order.update({
+            where: { id: order.id },
+            data: { paymentStatus: PaymentStatusEnum.REFUND_INITIATED },
+          });
+        }
+      });
+
+      this.logger.log(
+        `RTO delivered for order ${fullOrder.orderNumber}: inventory restocked (${fullOrder.items.length} items).`,
+      );
+
+      if (
+        fullOrder.paymentMethod !== PaymentMethodEnum.COD &&
+        fullOrder.paymentStatus === PaymentStatusEnum.COMPLETED &&
+        this.paymentsService
+      ) {
+        try {
+          await this.paymentsService.initiateRefundForOrder({
+            orderId: fullOrder.id,
+            amount: fullOrder.grandTotal,
+            reason: 'RTO — parcel returned to origin',
+          });
+          this.logger.log(
+            `Razorpay refund initiated for RTO order ${fullOrder.orderNumber}.`,
+          );
+        } catch (refundErr: any) {
+          this.logger.error(
+            `Failed to initiate refund for RTO order ${fullOrder.orderNumber}: ${refundErr.message}`,
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(
+        `handleRtoDelivered failed for order ${order.id}: ${err.message}`,
+        err.stack,
+      );
+    }
   }
 }
