@@ -13,7 +13,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderStatusEnum, PaymentStatusEnum } from '@prisma/client';
+import { OrderStatusEnum, PaymentStatusEnum, QcStatusEnum } from '@prisma/client';
 
 export enum AdminOrderSortEnum {
   CREATED_AT_DESC = 'createdAt_desc',
@@ -131,6 +131,22 @@ export class AdminRefundOrderDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+}
+
+export class ProcessReturnQcDto {
+  @IsEnum(QcStatusEnum)
+  @IsNotEmpty()
+  qcStatus: QcStatusEnum;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  qcNotes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  restockItems?: boolean = true;
 }
 
 export class ConfirmCodRefundDto {

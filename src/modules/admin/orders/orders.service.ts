@@ -18,6 +18,7 @@ import {
   AdminOrdersQueryDto,
   AdminRefundOrderDto,
   ConfirmCodRefundDto,
+  ProcessReturnQcDto,
   UpdateOrderStatusDto,
 } from './dto/admin-order.dto';
 import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
@@ -847,33 +848,12 @@ export class OrdersService {
       };
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.orderReturn.update({
-        where: { id: returnId },
-        data: {
-          status: "RETURN_RECEIVED",
-          qcStatus: "PENDING",
-        },
-      });
-
-      for (const returnItem of returnRecord.items) {
-        const orderItem = returnItem.orderItem;
-        if (!orderItem) continue;
-
-        await tx.product.update({
-          where: { id: orderItem.productId },
-          data: { stock: { increment: orderItem.quantity } },
-        });
-
-        if (orderItem.variantId) {
-          await tx.productVariant.update({
-            where: { id: orderItem.variantId },
-            data: { stock: { increment: orderItem.quantity } },
-          });
-        }
-      }
-
-      return result;
+    const updated = await this.prisma.orderReturn.update({
+      where: { id: returnId },
+      data: {
+        status: "RETURN_RECEIVED",
+        qcStatus: "PENDING",
+      },
     });
 
     this.notificationsService.notifyReturnStatus({
@@ -884,32 +864,165 @@ export class OrdersService {
     });
 
     this.logger.log(
-      `Return ${returnId} received at warehouse. Inventory restocked for ${returnRecord.items.length} item(s).`,
+      `Return ${returnId} received at warehouse. QC pending.`,
     );
 
     return {
       success: true,
-      message: "Return physical receipt confirmed at warehouse. Inventory restocked.",
+      message: "Return received at warehouse. Quality check pending.",
       return: updated,
-      restockedItems: returnRecord.items.length,
     };
   }
 
-  
-  /**
-   * POST /api/v1/admin/orders/:id/confirm-cod-refund
-   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
-   */
-  
-  /**
-   * POST /api/v1/admin/orders/:id/confirm-cod-refund
-   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
-   */
-  
-  /**
-   * POST /api/v1/admin/orders/:id/confirm-cod-refund
-   * Manually confirm COD refund as completed after physical return receipt (RETURN_RECEIVED)
-   */
+  async processReturnQc(returnId: string, dto: ProcessReturnQcDto, adminId?: string) {
+    const returnRecord = await this.prisma.orderReturn.findUnique({
+      where: { id: returnId },
+      include: {
+        order: { include: { items: true } },
+        items: { include: { orderItem: true } },
+      },
+    });
+
+    if (!returnRecord) {
+      throw new NotFoundException("Return record not found");
+    }
+
+    if (returnRecord.qcStatus === "PASSED" || returnRecord.qcStatus === "FAILED") {
+      throw new ConflictException(
+        `QC has already been completed with status: ${returnRecord.qcStatus}`,
+      );
+    }
+
+    if (returnRecord.status !== "RETURN_RECEIVED") {
+      throw new BadRequestException(
+        "QC can only be processed after return is received at warehouse (RETURN_RECEIVED)",
+      );
+    }
+
+    const order = returnRecord.order;
+    const now = new Date();
+
+    if (dto.qcStatus === "PASSED") {
+      const isCod = (order.paymentMethod as string) === "COD";
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const newStatus = isCod ? "COD_REFUND_PENDING" : "REFUNDED";
+
+        const result = await tx.orderReturn.update({
+          where: { id: returnId },
+          data: {
+            qcStatus: "PASSED",
+            qcNotes: dto.qcNotes || null,
+            qcCompletedAt: now,
+            status: newStatus,
+          },
+        });
+
+        if (dto.restockItems !== false) {
+          for (const returnItem of returnRecord.items) {
+            const orderItem = returnItem.orderItem;
+            if (!orderItem) continue;
+
+            await tx.product.update({
+              where: { id: orderItem.productId },
+              data: { stock: { increment: orderItem.quantity } },
+            });
+
+            if (orderItem.variantId) {
+              await tx.productVariant.update({
+                where: { id: orderItem.variantId },
+                data: { stock: { increment: orderItem.quantity } },
+              });
+            }
+          }
+        }
+
+        if (!isCod) {
+          await tx.order.updateMany({
+            where: { id: order.id, orderStatus: { not: OrderStatusEnum.RETURNED } },
+            data: {
+              orderStatus: OrderStatusEnum.RETURNED,
+              paymentStatus: PaymentStatusEnum.REFUNDED,
+            },
+          });
+        }
+
+        return result;
+      });
+
+      if (!isCod && this.paymentsService) {
+        try {
+          await this.paymentsService.initiateRefundForOrder({
+            orderId: order.id,
+            reason: `QC Passed — return refund. ${dto.qcNotes || ""}`.trim(),
+            actorType: "ADMIN",
+            adminId,
+          });
+        } catch (err: any) {
+          this.logger.error(
+            `Refund initiation failed for return ${returnId}: ${err.message}`,
+          );
+        }
+      }
+
+      if (!isCod) {
+        this.notificationsService.notifyRefundStatus({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: order.userId,
+          status: "ONLINE_REFUND_INITIATED",
+          refundAmount: order.grandTotal,
+        });
+      }
+
+      this.logger.log(
+        `Return ${returnId} QC PASSED. ${dto.restockItems !== false ? `Inventory restocked for ${returnRecord.items.length} item(s). ` : ""}${isCod ? "COD refund pending admin confirmation." : "Online refund initiated."}`,
+      );
+
+      return {
+        success: true,
+        message: isCod
+          ? "QC passed. Inventory restocked. COD refund pending admin confirmation."
+          : "QC passed. Inventory restocked. Refund initiated.",
+        return: updated,
+        qcStatus: "PASSED",
+        restockedItems: dto.restockItems !== false ? returnRecord.items.length : 0,
+        refundStatus: isCod ? "COD_REFUND_PENDING" : "REFUND_INITIATED",
+      };
+    }
+
+    // Branch B: QC FAILED
+    const updated = await this.prisma.orderReturn.update({
+      where: { id: returnId },
+      data: {
+        qcStatus: "FAILED",
+        qcNotes: dto.qcNotes || null,
+        qcCompletedAt: now,
+        status: "RETURN_REJECTED",
+      },
+    });
+
+    this.notificationsService.notifyReturnStatus({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      userId: order.userId,
+      status: "RETURN_RECEIVED",
+    });
+
+    this.logger.log(
+      `Return ${returnId} QC FAILED. Return rejected. No restock, no refund.`,
+    );
+
+    return {
+      success: true,
+      message: "QC failed. Return rejected. No restock or refund.",
+      return: updated,
+      qcStatus: "FAILED",
+      restockedItems: 0,
+      refundStatus: "NONE",
+    };
+  }
+
   async confirmCodRefund(id: string, dto: ConfirmCodRefundDto, adminId?: string) {
     const order = await this.findOrderByIdOrNumber(id);
 
@@ -926,9 +1039,9 @@ export class OrdersService {
       orderBy: { createdAt: "desc" },
     });
 
-    if (!returnRecord || returnRecord.status !== "RETURN_RECEIVED") {
+    if (!returnRecord || !["RETURN_RECEIVED", "COD_REFUND_PENDING"].includes(returnRecord.status)) {
       throw new BadRequestException(
-        "COD refund can only be processed after physical return receipt (RETURN_RECEIVED)",
+        "COD refund can only be processed after return receipt and QC (RETURN_RECEIVED or COD_REFUND_PENDING)",
       );
     }
 

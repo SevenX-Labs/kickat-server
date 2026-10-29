@@ -4,7 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersService } from './orders.service';
 import { SettingsService } from '../settings/settings.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
 import { AdminOrderSortEnum, AdminOrdersQueryDto } from './dto/admin-order.dto';
 import { ShippingService } from '../shipping/shipping.service';
@@ -626,7 +626,7 @@ describe('Admin OrdersService', () => {
         service.confirmCodRefund("ord-cod-1", {
           transactionReference: "TXN123456",
         }),
-      ).rejects.toThrow("COD refund can only be processed after physical return receipt (RETURN_RECEIVED)");
+      ).rejects.toThrow("COD refund can only be processed after return receipt and QC (RETURN_RECEIVED or COD_REFUND_PENDING)");
     });
 
     it("should process COD refund successfully after RETURN_RECEIVED", async () => {
@@ -836,6 +836,177 @@ describe('Admin OrdersService', () => {
       expect(result.data.packageItems.length).toBe(2);
       expect(result.data.packageItems[0].productName).toBe('Pet Toy');
       expect(result.data.packageItems[0].picked).toBe(false);
+    });
+  });
+
+  describe('processReturnQc', () => {
+    const mockReturnRecord = {
+      id: 'ret-1',
+      status: 'RETURN_RECEIVED',
+      qcStatus: 'PENDING',
+      order: {
+        id: 'ord-1',
+        orderNumber: 'ORD-1001',
+        userId: 'usr-1',
+        grandTotal: 1500,
+        paymentMethod: 'UPI',
+        paymentStatus: 'COMPLETED',
+        items: [
+          { productId: 'prod-1', variantId: 'var-1', quantity: 2 },
+        ],
+      },
+      items: [
+        {
+          id: 'ri-1',
+          orderItem: { productId: 'prod-1', variantId: 'var-1', quantity: 2 },
+        },
+      ],
+    };
+
+    it('should restock and initiate online refund when QC PASSED (online payment)', async () => {
+      prisma.orderReturn.findUnique.mockResolvedValue(mockReturnRecord);
+      prisma.orderReturn.update.mockResolvedValue({
+        ...mockReturnRecord,
+        qcStatus: 'PASSED',
+        status: 'REFUNDED',
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      mockPaymentsService.initiateRefundForOrder.mockResolvedValue({
+        refundInitiated: true,
+        message: 'Refund initiated',
+        providerRefundId: 'rfnd_qc_1',
+        amount: 1500,
+      });
+
+      const result = await service.processReturnQc('ret-1', {
+        qcStatus: 'PASSED' as any,
+        qcNotes: 'All items in good condition',
+      }, 'admin-1');
+
+      expect(result.success).toBe(true);
+      expect(result.qcStatus).toBe('PASSED');
+      expect(result.restockedItems).toBe(1);
+      expect(result.refundStatus).toBe('REFUND_INITIATED');
+      expect(prisma.product.update).toHaveBeenCalledWith({
+        where: { id: 'prod-1' },
+        data: { stock: { increment: 2 } },
+      });
+      expect(prisma.productVariant.update).toHaveBeenCalledWith({
+        where: { id: 'var-1' },
+        data: { stock: { increment: 2 } },
+      });
+      expect(mockPaymentsService.initiateRefundForOrder).toHaveBeenCalledWith({
+        orderId: 'ord-1',
+        reason: 'QC Passed — return refund. All items in good condition',
+        actorType: 'ADMIN',
+        adminId: 'admin-1',
+      });
+    });
+
+    it('should restock and set COD_REFUND_PENDING when QC PASSED (COD payment)', async () => {
+      const codReturn = {
+        ...mockReturnRecord,
+        order: { ...mockReturnRecord.order, paymentMethod: 'COD' },
+      };
+      prisma.orderReturn.findUnique.mockResolvedValue(codReturn);
+      prisma.orderReturn.update.mockResolvedValue({
+        ...codReturn,
+        qcStatus: 'PASSED',
+        status: 'COD_REFUND_PENDING',
+      });
+
+      const result = await service.processReturnQc('ret-1', {
+        qcStatus: 'PASSED' as any,
+      }, 'admin-1');
+
+      expect(result.success).toBe(true);
+      expect(result.qcStatus).toBe('PASSED');
+      expect(result.refundStatus).toBe('COD_REFUND_PENDING');
+      expect(prisma.product.update).toHaveBeenCalledTimes(1);
+      expect(mockPaymentsService.initiateRefundForOrder).not.toHaveBeenCalled();
+      expect(prisma.order.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should reject return with no restock or refund when QC FAILED', async () => {
+      prisma.orderReturn.findUnique.mockResolvedValue(mockReturnRecord);
+      prisma.orderReturn.update.mockResolvedValue({
+        ...mockReturnRecord,
+        qcStatus: 'FAILED',
+        status: 'RETURN_REJECTED',
+      });
+
+      const result = await service.processReturnQc('ret-1', {
+        qcStatus: 'FAILED' as any,
+        qcNotes: 'Items damaged by customer',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.qcStatus).toBe('FAILED');
+      expect(result.restockedItems).toBe(0);
+      expect(result.refundStatus).toBe('NONE');
+      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(prisma.productVariant.update).not.toHaveBeenCalled();
+      expect(mockPaymentsService.initiateRefundForOrder).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException on duplicate QC (idempotency)', async () => {
+      prisma.orderReturn.findUnique.mockResolvedValue({
+        ...mockReturnRecord,
+        qcStatus: 'PASSED',
+      });
+
+      await expect(
+        service.processReturnQc('ret-1', { qcStatus: 'PASSED' as any }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw NotFoundException for non-existent return', async () => {
+      prisma.orderReturn.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.processReturnQc('ret-999', { qcStatus: 'PASSED' as any }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException if return is not yet received', async () => {
+      prisma.orderReturn.findUnique.mockResolvedValue({
+        ...mockReturnRecord,
+        status: 'IN_TRANSIT',
+        qcStatus: null,
+      });
+
+      await expect(
+        service.processReturnQc('ret-1', { qcStatus: 'PASSED' as any }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('confirmReturnReceived (no premature restock)', () => {
+    it('should mark as RETURN_RECEIVED with qcStatus PENDING without restocking', async () => {
+      prisma.orderReturn.findUnique.mockResolvedValue({
+        id: 'ret-1',
+        status: 'IN_TRANSIT',
+        order: { id: 'ord-1', orderNumber: 'ORD-1001', userId: 'usr-1' },
+        items: [
+          { orderItem: { productId: 'prod-1', variantId: 'var-1', quantity: 2 } },
+        ],
+      });
+      prisma.orderReturn.update.mockResolvedValue({
+        id: 'ret-1',
+        status: 'RETURN_RECEIVED',
+        qcStatus: 'PENDING',
+      });
+
+      const result = await service.confirmReturnReceived('ret-1');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('Quality check pending');
+      expect(prisma.orderReturn.update).toHaveBeenCalledWith({
+        where: { id: 'ret-1' },
+        data: { status: 'RETURN_RECEIVED', qcStatus: 'PENDING' },
+      });
+      expect(prisma.product.update).not.toHaveBeenCalled();
+      expect(prisma.productVariant.update).not.toHaveBeenCalled();
     });
   });
 });

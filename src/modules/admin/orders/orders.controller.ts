@@ -16,6 +16,7 @@ import {
   AdminOrdersQueryDto,
   AdminRefundOrderDto,
   ConfirmCodRefundDto,
+  ProcessReturnQcDto,
   UpdateOrderStatusDto,
 } from './dto/admin-order.dto';
 
@@ -120,6 +121,15 @@ export class OrdersController {
   @Post("returns/:returnId/confirm-received")
   async confirmReturnReceived(@Param("returnId") returnId: string) {
     return this.ordersService.confirmReturnReceived(returnId);
+  }
+
+  @Post("returns/:returnId/qc")
+  async processReturnQc(
+    @Param("returnId") returnId: string,
+    @Body() dto: ProcessReturnQcDto,
+    @CurrentUser('id') adminId: string,
+  ) {
+    return this.ordersService.processReturnQc(returnId, dto, adminId);
   }
 
   @Get(':id/refunds')
