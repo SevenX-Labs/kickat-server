@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional, IsString, Length, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -7,8 +8,9 @@ export class SendMobileVerificationDto {
     description: 'Indian mobile phone number starting with +91 followed by 10 digits. Optional if user already has a phone saved.',
   })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/[\s-]/g, '') : value))
   @IsString()
-  @Matches(/^(\+91)?[6-9]\d{9}$/, {
+  @Matches(/^(\+91\s?)?[6-9]\d{9}$/, {
     message: 'phone must be 10 digits starting with 6-9, optionally prefixed with +91',
   })
   phone?: string;
@@ -20,8 +22,9 @@ export class VerifyMobileVerificationDto {
     description: 'Indian mobile phone number being verified. Optional if user already has a phone saved.',
   })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/[\s-]/g, '') : value))
   @IsString()
-  @Matches(/^(\+91)?[6-9]\d{9}$/, {
+  @Matches(/^(\+91\s?)?[6-9]\d{9}$/, {
     message: 'phone must be 10 digits starting with 6-9, optionally prefixed with +91',
   })
   phone?: string;

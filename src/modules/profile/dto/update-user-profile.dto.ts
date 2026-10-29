@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsEnum,
@@ -20,6 +21,7 @@ export class UpdateUserProfileDto {
   email?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/[\s-]/g, '') : value))
   @IsString({ message: 'phone must be a string' })
   phone?: string;
 

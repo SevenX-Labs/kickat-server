@@ -147,10 +147,12 @@ export class ProfileService {
       }
     }
 
+    const cleanPhone = dto.phone ? dto.phone.replace(/[\s-]/g, '') : undefined;
+
     // Check phone uniqueness if phone is changing
-    if (dto.phone && dto.phone !== existingUser.phone) {
+    if (cleanPhone && cleanPhone !== existingUser.phone) {
       const phoneTaken = await this.prisma.user.findFirst({
-        where: { phone: dto.phone, NOT: { id: userId } },
+        where: { phone: cleanPhone, NOT: { id: userId } },
       });
       if (phoneTaken) {
         throw new BadRequestException('Phone number is already in use by another account');
@@ -164,7 +166,7 @@ export class ProfileService {
       data: {
         name: dto.name,
         ...(dto.email && { email: dto.email }),
-        ...(dto.phone && { phone: dto.phone }),
+        ...(cleanPhone && { phone: cleanPhone }),
         ...(dto.gender && { gender: dto.gender as any }),
         ...(dobValue && { dob: dobValue }),
       },

@@ -340,7 +340,13 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const phone = (dto.phone || user.phone)?.trim();
+    const rawPhone = (dto.phone || user.phone)?.trim();
+    if (!rawPhone) {
+      throw new BadRequestException(
+        'Phone number is required to send verification code',
+      );
+    }
+    const phone = rawPhone.replace(/[\s-]/g, '');
     if (!phone) {
       throw new BadRequestException(
         'Phone number is required to send verification code',
@@ -418,7 +424,11 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const targetPhone = (dto.phone || user.phone)?.trim();
+    const rawTargetPhone = (dto.phone || user.phone)?.trim();
+    if (!rawTargetPhone) {
+      throw new BadRequestException('Phone number is required for verification');
+    }
+    const targetPhone = rawTargetPhone.replace(/[\s-]/g, '');
     if (!targetPhone) {
       throw new BadRequestException('Phone number is required for verification');
     }
