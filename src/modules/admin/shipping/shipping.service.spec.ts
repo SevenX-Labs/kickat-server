@@ -916,11 +916,16 @@ describe('Admin ShippingService', () => {
 
       expect(createShipmentSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          packageDetails: {
-            weight: 2.0, // length, breadth, height omitted
-          },
+          packageDetails: expect.objectContaining({
+            weight: 2.0,
+          }),
         }),
       );
+      // Dimensions should not be present when not provided
+      const pd = createShipmentSpy.mock.calls[0][0].packageDetails;
+      expect(pd?.length).toBeUndefined();
+      expect(pd?.breadth).toBeUndefined();
+      expect(pd?.height).toBeUndefined();
     });
 
     it("19. Existing shipment on order prevents duplicate creation (idempotency)", async () => {
@@ -976,6 +981,243 @@ describe('Admin ShippingService', () => {
           paymentMethod: "PREPAID",
         }),
       );
+    });
+  });
+
+  describe("Volumetric & Chargeable Weight Calculation", () => {
+    const baseMockOrder = {
+      id: "ord-vol-1",
+      orderNumber: "ORD-VOL-1",
+      paymentMethod: "PREPAID",
+      subtotal: 1000,
+      deliveryFee: 50,
+      codFee: 0,
+      gstAmount: 50,
+      grandTotal: 1100,
+      orderStatus: OrderStatusEnum.PROCESSING,
+      shiprocketShipmentId: null,
+      user: {
+        id: "u-vol",
+        name: "Test User",
+        email: "test@example.com",
+        phone: "+919876543210",
+      },
+      address: {
+        houseFlat: "101",
+        buildingStreet: "Main St",
+        city: "Mumbai",
+        state: "Maharashtra",
+        pincode: "400001",
+        country: "India",
+      },
+      items: [] as any[],
+    };
+
+    beforeEach(() => {
+      configService.get.mockImplementation((key: string, defaultValue?: string) => {
+        if (key === "EKART_PICKUP_ALIAS") return "Main Warehouse";
+        return defaultValue || "";
+      });
+    });
+
+    it("High dead weight, low volume: chargeable weight equals dead weight (e.g. 10kg dumbbells in small box)", async () => {
+      const order = {
+        ...baseMockOrder,
+        items: [
+          {
+            productId: "p-dumbbell",
+            productName: "Dumbbells 10kg",
+            quantity: 1,
+            price: 500,
+            totalPrice: 500,
+          },
+        ],
+      };
+
+      // 10kg item in a 20x15x10 cm box → volumetric = (20*15*10)/5000 = 0.6 kg
+      prisma.product.findMany.mockResolvedValue([
+        {
+          id: "p-dumbbell",
+          shippingWeightKg: 10,
+          shippingLengthCm: 20,
+          shippingBreadthCm: 15,
+          shippingHeightCm: 10,
+          attributes: null,
+          variants: [],
+        },
+      ]);
+
+      prisma.order.findFirst.mockResolvedValue(order);
+      prisma.order.update.mockResolvedValue({
+        ...order,
+        shippingProvider: "EKART",
+        shiprocketOrderId: "SR-1",
+        shiprocketShipmentId: "SR-SHP-1",
+      });
+
+      const provider = service.getShippingProvider();
+      const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
+        isConfigured: true,
+        providerName: "EKART",
+        orderId: "SR-1",
+        shipmentId: "SR-SHP-1",
+        status: "NEW",
+        statusCode: 1,
+        awbCode: null,
+        courierName: null,
+        message: "Created",
+      });
+
+      await service.createShipmentForOrder("ORD-VOL-1");
+
+      const packageDetails = createShipmentSpy.mock.calls[0][0].packageDetails;
+      expect(packageDetails?.weight).toBe(10);
+      // Volumetric = (20*15*10)/5000 = 0.6
+      expect(packageDetails?.volumetricWeight).toBe(0.6);
+      // Chargeable = max(10, 0.6) = 10
+      expect(packageDetails?.chargeableWeight).toBe(10);
+    });
+
+    it("Low dead weight, high volume: chargeable weight equals volumetric weight (e.g. 1kg pet bed 60x50x30 cm)", async () => {
+      const order = {
+        ...baseMockOrder,
+        items: [
+          {
+            productId: "p-petbed",
+            productName: "Large Pet Bed",
+            quantity: 1,
+            price: 2000,
+            totalPrice: 2000,
+          },
+        ],
+      };
+
+      // 1kg item in 60x50x30 cm → volumetric = (60*50*30)/5000 = 18 kg
+      prisma.product.findMany.mockResolvedValue([
+        {
+          id: "p-petbed",
+          shippingWeightKg: 1,
+          shippingLengthCm: 60,
+          shippingBreadthCm: 50,
+          shippingHeightCm: 30,
+          attributes: null,
+          variants: [],
+        },
+      ]);
+
+      prisma.order.findFirst.mockResolvedValue(order);
+      prisma.order.update.mockResolvedValue({
+        ...order,
+        shippingProvider: "EKART",
+        shiprocketOrderId: "SR-2",
+        shiprocketShipmentId: "SR-SHP-2",
+      });
+
+      const provider = service.getShippingProvider();
+      const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
+        isConfigured: true,
+        providerName: "EKART",
+        orderId: "SR-2",
+        shipmentId: "SR-SHP-2",
+        status: "NEW",
+        statusCode: 1,
+        awbCode: null,
+        courierName: null,
+        message: "Created",
+      });
+
+      await service.createShipmentForOrder("ORD-VOL-1");
+
+      const packageDetails = createShipmentSpy.mock.calls[0][0].packageDetails;
+      expect(packageDetails?.weight).toBe(1);
+      // Volumetric = (60*50*30)/5000 = 18
+      expect(packageDetails?.volumetricWeight).toBe(18);
+      // Chargeable = max(1, 18) = 18
+      expect(packageDetails?.chargeableWeight).toBe(18);
+    });
+
+    it("Multi-item cart: aggregated dimensions and chargeable weight", async () => {
+      const order = {
+        ...baseMockOrder,
+        items: [
+          {
+            productId: "p-bowl",
+            productName: "Pet Bowl",
+            quantity: 2,
+            price: 300,
+            totalPrice: 600,
+          },
+          {
+            productId: "p-mat",
+            productName: "Pet Mat",
+            quantity: 1,
+            price: 800,
+            totalPrice: 800,
+          },
+        ],
+      };
+
+      // Bowl: 0.5kg each, 20x20x10 cm → volume per unit = 4000 cm³
+      // Mat:  0.3kg, 40x30x5 cm  → volume per unit = 6000 cm³
+      // Total dead weight: (0.5*2) + (0.3*1) = 1.3 kg
+      // Total volume: (4000*2) + (6000*1) = 14000 cm³
+      // Bounding box: length=max(20,40)=40, breadth=max(20,30)=30
+      // Height: ceil(14000/(40*30)) = ceil(11.67) = 12
+      // Volumetric: (40*30*12)/5000 = 2.88 kg
+      // Chargeable: max(1.3, 2.88) = 2.88
+      prisma.product.findMany.mockResolvedValue([
+        {
+          id: "p-bowl",
+          shippingWeightKg: 0.5,
+          shippingLengthCm: 20,
+          shippingBreadthCm: 20,
+          shippingHeightCm: 10,
+          attributes: null,
+          variants: [],
+        },
+        {
+          id: "p-mat",
+          shippingWeightKg: 0.3,
+          shippingLengthCm: 40,
+          shippingBreadthCm: 30,
+          shippingHeightCm: 5,
+          attributes: null,
+          variants: [],
+        },
+      ]);
+
+      prisma.order.findFirst.mockResolvedValue(order);
+      prisma.order.update.mockResolvedValue({
+        ...order,
+        shippingProvider: "EKART",
+        shiprocketOrderId: "SR-3",
+        shiprocketShipmentId: "SR-SHP-3",
+      });
+
+      const provider = service.getShippingProvider();
+      const createShipmentSpy = jest.spyOn(provider, "createShipment").mockResolvedValue({
+        isConfigured: true,
+        providerName: "EKART",
+        orderId: "SR-3",
+        shipmentId: "SR-SHP-3",
+        status: "NEW",
+        statusCode: 1,
+        awbCode: null,
+        courierName: null,
+        message: "Created",
+      });
+
+      await service.createShipmentForOrder("ORD-VOL-1");
+
+      const packageDetails = createShipmentSpy.mock.calls[0][0].packageDetails;
+      expect(packageDetails?.weight).toBe(1.3);
+      expect(packageDetails?.length).toBe(40);
+      expect(packageDetails?.breadth).toBe(30);
+      expect(packageDetails?.height).toBe(12);
+      // Volumetric = (40*30*12)/5000 = 2.88
+      expect(packageDetails?.volumetricWeight).toBe(2.88);
+      // Chargeable = max(1.3, 2.88) = 2.88
+      expect(packageDetails?.chargeableWeight).toBe(2.88);
     });
   });
 });

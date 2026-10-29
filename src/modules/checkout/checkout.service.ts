@@ -227,77 +227,35 @@ export class CheckoutService {
     }
 
     try {
-      if (provider.providerName === 'DELHIVERY') {
-        const check = await provider.checkServiceability({
-          pickupPostcode: '',
-          deliveryPostcode: pincode,
-          weight: weightKg,
-          cod: isCod,
-        });
+      const pickupPostcode =
+        (this.configService?.get<string>('EKART_PICKUP_PINCODE', '') || '').trim() || '721643';
 
-        if (!check) {
-          return {
-            serviceable: false,
-            codAvailable: false,
-            prepaidAvailable: false,
-            message: 'Delivery is currently unavailable for this pincode.',
-          };
-        }
-
-        const isServiceable = isCod ? Boolean(check.codAvailable) : Boolean(check.prepaidAvailable);
-        let message: string | undefined;
-        if (!isServiceable) {
-          if (isCod && !check.codAvailable && check.prepaidAvailable) {
-            message = 'Cash on Delivery is unavailable for this delivery pincode';
-          } else {
-            message = 'Pincode is currently not serviceable';
-          }
-        }
-
-        return {
-          serviceable: isServiceable,
-          codAvailable: Boolean(check.codAvailable),
-          prepaidAvailable: Boolean(check.prepaidAvailable),
-          message,
-        };
-      }
-
-      // Shiprocket serviceability query
-      const isDelhivery = provider.providerName === 'DELHIVERY';
-      const pickupLocation = isDelhivery
-        ? (this.configService?.get<string>('DELHIVERY_PICKUP_LOCATION', '') || '').trim()
-        : (this.configService?.get<string>('SHIPROCKET_PICKUP_LOCATION', "Bhim's") || '').trim();
-
-      let pickupPostcode: string | null = null;
-      if (pickupLocation && typeof provider.getPickupLocationPincode === 'function') {
-        try {
-          pickupPostcode = await provider.getPickupLocationPincode(pickupLocation);
-        } catch {
-          // ignore
-        }
-      }
-
-      if (!pickupPostcode || !/^\d{6}$/.test(pickupPostcode)) {
-        pickupPostcode = isDelhivery
-          ? (this.configService?.get<string>('DELHIVERY_PICKUP_PINCODE', '') || '').trim()
-          : (this.configService?.get<string>('SHIPROCKET_PICKUP_PINCODE', '') || '').trim() || '721643';
-      }
-
-      const res: any = await provider.checkServiceability({
+      const check = await provider.checkServiceability({
         pickupPostcode,
         deliveryPostcode: pincode,
-        weight: weightKg,
+        weight: weightKg || 0.5,
         cod: isCod,
       });
 
-      const availableCouriers = res?.data?.available_courier_companies;
-      const isServiceable = Array.isArray(availableCouriers) && availableCouriers.length > 0;
+      if (!check || !check.isServiceable) {
+        return {
+          serviceable: false,
+          codAvailable: false,
+          prepaidAvailable: false,
+          message: 'Delivery is currently unavailable for this pincode.',
+        };
+      }
+
+      let message: string | undefined;
+      if (isCod && !check.codAvailable) {
+        message = 'Cash on Delivery is unavailable for this delivery pincode';
+      }
 
       return {
-        serviceable: isServiceable,
-        codAvailable: isServiceable,
-        prepaidAvailable: isServiceable,
-        message: isServiceable ? undefined : 'Pincode is currently not serviceable',
+        serviceable: true,
+        codAvailable: Boolean(check.codAvailable),
+        prepaidAvailable: true,
+        message,
       };
     } catch (err: any) {
       this.logger.error(

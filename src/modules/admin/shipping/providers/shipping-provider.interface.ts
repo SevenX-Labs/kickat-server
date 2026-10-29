@@ -1,5 +1,7 @@
 export interface CreateShipmentPackageDetails {
-  weight?: number; // in kg
+  weight?: number; // dead weight in kg
+  volumetricWeight?: number; // (L*B*H)/5000 in kg
+  chargeableWeight?: number; // max(dead, volumetric) in kg
   length?: number; // in cm
   breadth?: number; // in cm
   height?: number; // in cm

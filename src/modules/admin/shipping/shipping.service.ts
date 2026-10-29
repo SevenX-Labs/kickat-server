@@ -635,6 +635,8 @@ export class ShippingService {
     }>,
   ): Promise<{
     weight: number;
+    volumetricWeight: number;
+    chargeableWeight: number;
     length: number;
     breadth: number;
     height: number;
@@ -673,10 +675,10 @@ export class ShippingService {
       productMap = new Map((products || []).map((p) => [p.id, p]));
     }
 
-    let totalKg = 0;
-    let maxLengthCm = 0;
-    let maxBreadthCm = 0;
-    let totalHeightCm = 0;
+    let totalDeadWeightKg = 0;
+    let totalVolumeCm3 = 0;
+    const itemLengths: number[] = [];
+    const itemBreadths: number[] = [];
 
     for (const item of items) {
       const quantity = item.quantity || 1;
@@ -694,7 +696,6 @@ export class ShippingService {
             (v: any) => v.id === item.variantId,
           );
           if (variant) {
-            // 1. Prefer structured variant shipping fields
             if (
               typeof variant.shippingWeightKg === 'number' &&
               variant.shippingWeightKg > 0
@@ -720,7 +721,6 @@ export class ShippingService {
               itemHeight = variant.shippingHeightCm;
             }
 
-            // Legacy weight fallback on variant attributes or variant name
             if (unitWeightKg === null) {
               unitWeightKg = this.parseWeightStringToKg(
                 (variant.attributes as any)?.weight,
@@ -736,7 +736,6 @@ export class ShippingService {
           unitWeightKg = this.parseWeightStringToKg(item.variantName);
         }
       } else if (product) {
-        // Simple product (no variant)
         if (
           typeof product.shippingWeightKg === 'number' &&
           product.shippingWeightKg > 0
@@ -779,18 +778,42 @@ export class ShippingService {
         return null;
       }
 
-      totalKg += unitWeightKg * quantity;
-      if (itemLength && itemLength > maxLengthCm) maxLengthCm = itemLength;
-      if (itemBreadth && itemBreadth > maxBreadthCm) maxBreadthCm = itemBreadth;
-      if (itemHeight) totalHeightCm += itemHeight * quantity;
+      totalDeadWeightKg += unitWeightKg * quantity;
+
+      if (itemLength && itemLength > 0) itemLengths.push(itemLength);
+      if (itemBreadth && itemBreadth > 0) itemBreadths.push(itemBreadth);
+      if (itemLength && itemBreadth && itemHeight) {
+        totalVolumeCm3 += itemLength * itemBreadth * itemHeight * quantity;
+      }
     }
 
-    const resolvedWeight = Math.round(totalKg * 1000) / 1000;
+    const deadWeight = Math.round(totalDeadWeightKg * 1000) / 1000;
+
+    // Compute bounding box dimensions for multi-item packing
+    const length = itemLengths.length > 0 ? Math.max(...itemLengths) : 0;
+    const breadth = itemBreadths.length > 0 ? Math.max(...itemBreadths) : 0;
+    let height = 0;
+
+    if (length > 0 && breadth > 0 && totalVolumeCm3 > 0) {
+      height = Math.max(1, Math.ceil(totalVolumeCm3 / (length * breadth)));
+    }
+
+    // Volumetric weight: (L × B × H) / 5000
+    let volumetricWeight = 0;
+    if (length > 0 && breadth > 0 && height > 0) {
+      volumetricWeight =
+        Math.round(((length * breadth * height) / 5000) * 1000) / 1000;
+    }
+
+    const chargeableWeight = Math.max(deadWeight, volumetricWeight);
+
     return {
-      weight: resolvedWeight,
-      length: maxLengthCm > 0 ? maxLengthCm : 0,
-      breadth: maxBreadthCm > 0 ? maxBreadthCm : 0,
-      height: totalHeightCm > 0 ? totalHeightCm : 0,
+      weight: deadWeight,
+      volumetricWeight,
+      chargeableWeight,
+      length: Math.max(length, length > 0 ? 1 : 0),
+      breadth: Math.max(breadth, breadth > 0 ? 1 : 0),
+      height: Math.max(height, height > 0 ? 1 : 0),
     };
   }
 
@@ -1016,6 +1039,34 @@ export class ShippingService {
           };
         }
 
+        // Compute volumetric and chargeable weight
+        let volumetricWeight =
+          options?.packageDetails?.volumetricWeight ??
+          resolvedPackage?.volumetricWeight ??
+          0;
+        let chargeableWeight =
+          options?.packageDetails?.chargeableWeight ?? 0;
+
+        if (
+          !chargeableWeight &&
+          dimensions.length &&
+          dimensions.breadth &&
+          dimensions.height
+        ) {
+          volumetricWeight =
+            Math.round(
+              ((dimensions.length * dimensions.breadth * dimensions.height) /
+                5000) *
+                1000,
+            ) / 1000;
+          chargeableWeight = Math.max(totalWeight, volumetricWeight);
+        }
+
+        if (!chargeableWeight) {
+          chargeableWeight =
+            resolvedPackage?.chargeableWeight || totalWeight;
+        }
+
         const shipmentParams: CreateShipmentParams = {
           orderId: order.id,
           orderNumber: order.orderNumber,
@@ -1028,6 +1079,8 @@ export class ShippingService {
           pickupLocation,
           packageDetails: {
             weight: totalWeight,
+            volumetricWeight,
+            chargeableWeight,
             ...dimensions,
           },
           customer: {

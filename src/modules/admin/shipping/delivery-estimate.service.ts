@@ -67,7 +67,7 @@ export class DeliveryEstimateService {
     }
 
     // 1. Resolve weight and dimensions from variant or product
-    const { weight, length, breadth, height } = await this.resolvePackageSpecs(
+    const { weight, chargeableWeight, length, breadth, height } = await this.resolvePackageSpecs(
       params.productId,
       params.variantId,
       params.weight,
@@ -109,8 +109,11 @@ export class DeliveryEstimateService {
       pickupPostcode = (this.configService.get<string>('EKART_PICKUP_PINCODE', '') || '').trim() || '721643';
     }
 
+    // Use chargeable weight for serviceability if available
+    const effectiveWeight = chargeableWeight ?? weight;
+
     // 4. Check in-memory cache
-    const cacheKey = `${provider.providerName}_${pickupPostcode}_${rawPincode}_${weight.toFixed(2)}_${isCod ? 1 : 0}`;
+    const cacheKey = `${provider.providerName}_${pickupPostcode}_${rawPincode}_${effectiveWeight.toFixed(2)}_${isCod ? 1 : 0}`;
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() < cached.expiresAt) {
       return cached.data;
@@ -121,7 +124,7 @@ export class DeliveryEstimateService {
       const check = await provider.checkServiceability({
         pickupPostcode,
         deliveryPostcode: rawPincode,
-        weight,
+        weight: effectiveWeight,
         cod: isCod,
         length,
         breadth,
@@ -198,6 +201,7 @@ export class DeliveryEstimateService {
     explicitWeight?: number,
   ): Promise<{
     weight: number;
+    chargeableWeight?: number;
     length?: number;
     breadth?: number;
     height?: number;
@@ -233,11 +237,24 @@ export class DeliveryEstimateService {
           }
 
           if (weight && weight > 0) {
+            const l = variant.shippingLengthCm || undefined;
+            const b = variant.shippingBreadthCm || undefined;
+            const h = variant.shippingHeightCm || undefined;
+            let chargeableWeight: number | undefined;
+
+            if (l && b && h) {
+              const volumetricWeight = (l * b * h) / 5000;
+              chargeableWeight = Math.max(weight, volumetricWeight);
+              chargeableWeight =
+                Math.round(chargeableWeight * 1000) / 1000;
+            }
+
             return {
               weight,
-              length: variant.shippingLengthCm || undefined,
-              breadth: variant.shippingBreadthCm || undefined,
-              height: variant.shippingHeightCm || undefined,
+              chargeableWeight,
+              length: l,
+              breadth: b,
+              height: h,
             };
           }
 
@@ -259,6 +276,7 @@ export class DeliveryEstimateService {
 
   private async resolveProductSpecs(productId: string): Promise<{
     weight: number;
+    chargeableWeight?: number;
     length?: number;
     breadth?: number;
     height?: number;
@@ -282,11 +300,23 @@ export class DeliveryEstimateService {
       });
 
       if (product && product.shippingWeightKg && product.shippingWeightKg > 0) {
+        const l = product.shippingLengthCm || undefined;
+        const b = product.shippingBreadthCm || undefined;
+        const h = product.shippingHeightCm || undefined;
+        let chargeableWeight: number | undefined;
+
+        if (l && b && h) {
+          const volumetricWeight = (l * b * h) / 5000;
+          chargeableWeight = Math.max(product.shippingWeightKg, volumetricWeight);
+          chargeableWeight = Math.round(chargeableWeight * 1000) / 1000;
+        }
+
         return {
           weight: product.shippingWeightKg,
-          length: product.shippingLengthCm || undefined,
-          breadth: product.shippingBreadthCm || undefined,
-          height: product.shippingHeightCm || undefined,
+          chargeableWeight,
+          length: l,
+          breadth: b,
+          height: h,
         };
       }
     } catch (err) {

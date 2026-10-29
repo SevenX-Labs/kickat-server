@@ -287,8 +287,18 @@ export class EkartProvider implements ShippingProvider {
       };
     }
 
-    const weightGrams = Math.max(1, Math.round((params.weight || 0.5) * 1000));
+    const billableWeightKg = Math.max(
+      0.5,
+      (params as any).chargeableWeight || params.weight || 0.5,
+    );
+    const weightGrams = Math.round(billableWeightKg * 1000);
     const isCod = params.cod !== false;
+
+    if (!params.length || !params.breadth || !params.height) {
+      this.logger.warn(
+        `Serviceability check for pincode ${dropPincode}: dimensions missing, using defaults`,
+      );
+    }
 
     const payload = {
       pickupPincode: pickupPincode || '721643',
@@ -430,7 +440,13 @@ export class EkartProvider implements ShippingProvider {
     const totalAmount = params.grandTotal;
     const taxValue = params.taxAmount || 0;
     const taxableAmount = totalAmount - taxValue;
-    const weightGrams = Math.max(1, Math.round((params.packageDetails?.weight || 0.5) * 1000));
+    const billableWeightKg = Math.max(
+      0.5,
+      params.packageDetails?.chargeableWeight ||
+        params.packageDetails?.weight ||
+        0.5,
+    );
+    const weightGrams = Math.round(billableWeightKg * 1000);
 
     const productDesc = (params.items || [])
       .map((i) => `${i.productName} (x${i.quantity})`)
@@ -484,6 +500,16 @@ export class EkartProvider implements ShippingProvider {
       return_location: { name: this.getPickupAlias() },
       service: this.getDefaultService(),
     };
+
+    if (
+      !params.packageDetails?.length ||
+      !params.packageDetails?.breadth ||
+      !params.packageDetails?.height
+    ) {
+      this.logger.warn(
+        `Creating Ekart shipment for order ${params.orderNumber}: package dimensions missing, using 10x10x10 cm defaults`,
+      );
+    }
 
     this.logger.log(
       `Creating Ekart shipment for order ${params.orderNumber} (weight=${weightGrams}g, cod=${isCod}).`,

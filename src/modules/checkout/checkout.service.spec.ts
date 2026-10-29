@@ -198,7 +198,7 @@ describe('CheckoutService - Phase 3 Safety Audit & Pre-Order Guard', () => {
 
       const res = await service.validateAddress(mockUserId, { addressId: mockAddressId });
       expect(res.serviceable).toBe(false);
-      expect(res.message).toBe('Pincode is currently not serviceable');
+      expect(res.message).toBe('Delivery is currently unavailable for this pincode.');
     });
 
     it('calculates 0 delivery charge when cart subtotal meets freeDeliveryThreshold', async () => {
