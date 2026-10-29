@@ -59,6 +59,11 @@ export class AdminCustomersQueryDto {
   isProfileComplete?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  isVip?: boolean;
+
+  @IsOptional()
   @IsDateString()
   dateFrom?: string;
 
@@ -80,6 +85,12 @@ export class UpdateCustomerStatusDto {
   @IsString()
   @MaxLength(300)
   reason?: string;
+}
+
+export class UpdateCustomerVipDto {
+  @IsBoolean()
+  @IsNotEmpty()
+  isVip: boolean;
 }
 
 export class CustomerOrdersQueryDto {

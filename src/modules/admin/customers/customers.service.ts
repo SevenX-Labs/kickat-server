@@ -9,6 +9,7 @@ import {
   AdminCustomersQueryDto,
   CustomerOrdersQueryDto,
   UpdateCustomerStatusDto,
+  UpdateCustomerVipDto,
 } from './dto/admin-customer.dto';
 import { OrderStatusEnum } from '@prisma/client';
 
@@ -54,6 +55,10 @@ export class CustomersService {
       where.isProfileComplete = query.isProfileComplete;
     }
 
+    if (query.isVip !== undefined) {
+      where.isVip = query.isVip;
+    }
+
     if (query.dateFrom || query.dateTo) {
       where.createdAt = {
         ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
@@ -84,6 +89,7 @@ export class CustomersService {
       activeCount,
       blockedCount,
       verifiedCount,
+      vipCount,
     ] = await Promise.all([
       this.prisma.user.findMany({
         where,
@@ -101,6 +107,8 @@ export class CustomersService {
           isEmailVerified: true,
           isPhoneVerified: true,
           isBlocked: true,
+          isVip: true,
+          vipSince: true,
           createdAt: true,
           updatedAt: true,
           _count: {
@@ -126,6 +134,7 @@ export class CustomersService {
           OR: [{ isEmailVerified: true }, { isPhoneVerified: true }],
         },
       }),
+      this.prisma.user.count({ where: { ...where, isVip: true } }),
     ]);
 
     const formattedCustomers = users.map((user) => {
@@ -143,6 +152,8 @@ export class CustomersService {
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         isBlocked: user.isBlocked,
+        isVip: user.isVip,
+        vipSince: user.vipSince,
         ordersCount: user._count.orders,
         petsCount: user._count.pets,
         addressesCount: user._count.addresses,
@@ -172,6 +183,7 @@ export class CustomersService {
           activeCustomersCount: activeCount,
           blockedCustomersCount: blockedCount,
           verifiedCustomersCount: verifiedCount,
+          vipCustomersCount: vipCount,
         },
       },
     };
@@ -231,6 +243,8 @@ export class CustomersService {
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         isBlocked: user.isBlocked,
+        isVip: user.isVip,
+        vipSince: user.vipSince,
         stats: {
           totalOrders: user._count.orders,
           validOrdersCount,
@@ -434,6 +448,39 @@ export class CustomersService {
       message: dto.isBlocked
         ? 'Customer blocked successfully and active sessions revoked'
         : 'Customer unblocked successfully',
+      data: updated,
+    };
+  }
+
+  async updateCustomerVip(id: string, dto: UpdateCustomerVipDto) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: {
+        isVip: dto.isVip,
+        vipSince: dto.isVip ? (user.vipSince ?? new Date()) : null,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        isVip: true,
+        vipSince: true,
+        updatedAt: true,
+      },
+    });
+
+    return {
+      success: true,
+      message: dto.isVip
+        ? 'Customer marked as VIP member'
+        : 'Customer VIP status removed',
       data: updated,
     };
   }

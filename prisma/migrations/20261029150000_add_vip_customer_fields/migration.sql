@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "users" ADD COLUMN "isVip" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "users" ADD COLUMN "vipSince" TIMESTAMP(3);

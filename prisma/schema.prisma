@@ -121,6 +121,8 @@ model User {
   isEmailVerified   Boolean            @default(false)
   isPhoneVerified   Boolean            @default(false)
   isBlocked         Boolean            @default(false)
+  isVip             Boolean            @default(false)
+  vipSince          DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   refreshTokens     RefreshToken[]

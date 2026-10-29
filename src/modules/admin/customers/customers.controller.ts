@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Put,
   Query,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
@@ -12,6 +13,7 @@ import {
   AdminCustomersQueryDto,
   CustomerOrdersQueryDto,
   UpdateCustomerStatusDto,
+  UpdateCustomerVipDto,
 } from './dto/admin-customer.dto';
 
 @AdminAuth()
@@ -77,5 +79,13 @@ export class CustomersController {
     @Body() dto: UpdateCustomerStatusDto,
   ) {
     return this.customersService.updateCustomerStatus(id, dto);
+  }
+
+  @Put(':id/vip')
+  async updateCustomerVip(
+    @Param('id') id: string,
+    @Body() dto: UpdateCustomerVipDto,
+  ) {
+    return this.customersService.updateCustomerVip(id, dto);
   }
 }

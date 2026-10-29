@@ -106,6 +106,8 @@ export class ProfileService {
         createdAt: user.createdAt,
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
+        isVip: user.isVip,
+        vipSince: user.vipSince,
         profile: {
           name: user.name,
           email: user.email,
