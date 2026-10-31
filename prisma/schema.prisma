@@ -257,6 +257,7 @@ model Product {
   id                String             @id @default(uuid())
   name              String
   slug              String             @unique
+  sku               String?            @unique
   descriptionTitle  String?
   description       String?
   materials         String?

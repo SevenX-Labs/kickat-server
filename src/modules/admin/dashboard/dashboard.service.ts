@@ -850,7 +850,7 @@ export class DashboardService {
         variantId: null,
         name: p.name,
         slug: p.slug,
-        sku: null,
+        sku: p.sku || null,
         imageUrl: p.imageUrl,
         category: p.category?.name || 'Uncategorized',
         price: p.price,

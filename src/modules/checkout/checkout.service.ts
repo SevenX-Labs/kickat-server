@@ -201,7 +201,7 @@ export class CheckoutService {
           variantId: variant?.id,
           title: product.name,
           variantName: variant?.name || null,
-          sku: variant?.sku || null,
+          sku: variant?.sku || product.sku || null,
           image: (variant?.images && variant.images[0]) || (product.images && product.images[0]) || null,
           price: unitPrice,
           quantity: qty,

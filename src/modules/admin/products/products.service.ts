@@ -49,6 +49,27 @@ function getCanonicalAttributeKey(attributes?: Record<string, any>): string {
   return JSON.stringify(sortedObj);
 }
 
+function generateDefaultProductSku(name: string): string {
+  const clean = (name || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w && !['A', 'AN', 'THE', 'AND', 'FOR', 'WITH', 'OF', 'IN', 'TO'].includes(w));
+
+  let prefix = 'KKT';
+  if (clean.length > 0) {
+    const effective = clean[0] === 'KICKAT' ? clean.slice(1) : clean;
+    if (effective.length >= 2) {
+      prefix = `KKT-${effective[0].slice(0, 4)}-${effective[1].slice(0, 4)}`;
+    } else if (effective.length === 1) {
+      prefix = `KKT-${effective[0].slice(0, 5)}`;
+    }
+  }
+  const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${prefix}-${randomSuffix}`;
+}
+
 function normalizeVariants(variants?: any[]): any[] | undefined {
   if (!variants || variants.length === 0) return variants;
 
@@ -322,6 +343,7 @@ export class ProductsService {
         { descriptionTitle: { contains: s, mode: 'insensitive' } },
         { description: { contains: s, mode: 'insensitive' } },
         { materials: { contains: s, mode: 'insensitive' } },
+        { sku: { contains: s, mode: 'insensitive' } },
         {
           variants: {
             some: {
@@ -704,6 +726,34 @@ export class ProductsService {
       }
     }
 
+    // Validate / resolve Product-level SKU
+    let productSku: string | null = dto.sku && dto.sku.trim().length > 0 ? dto.sku.trim() : null;
+    if (finalType === ProductType.SIMPLE && !productSku) {
+      productSku = generateDefaultProductSku(dto.name);
+    }
+
+    if (productSku) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { sku: { equals: productSku, mode: 'insensitive' } },
+        select: { sku: true },
+      });
+      if (existingProduct) {
+        throw new BadRequestException(
+          `Product SKU "${existingProduct.sku}" already exists on another product`,
+        );
+      }
+
+      const existingVariantWithSku = await this.prisma.productVariant.findFirst({
+        where: { sku: { equals: productSku, mode: 'insensitive' } },
+        select: { sku: true },
+      });
+      if (existingVariantWithSku) {
+        throw new BadRequestException(
+          `SKU "${productSku}" already exists on a product variant`,
+        );
+      }
+    }
+
     if (dto.variants && dto.variants.length > 0) {
       await this.validateVariantImagesOwnership(dto.variants, undefined);
       validateVariantAttributes(dto.variants);
@@ -765,6 +815,7 @@ export class ProductsService {
         data: {
           name: dto.name,
           slug,
+          sku: productSku,
           descriptionTitle:
             dto.descriptionTitle && dto.descriptionTitle.trim().length > 0
               ? dto.descriptionTitle.trim()
@@ -996,6 +1047,33 @@ export class ProductsService {
       }
     }
 
+    let updatedProductSku: string | null | undefined = undefined;
+    if (dto.sku !== undefined) {
+      const cleanSku = dto.sku && dto.sku.trim().length > 0 ? dto.sku.trim() : null;
+      if (cleanSku) {
+        const existingProduct = await this.prisma.product.findFirst({
+          where: { sku: { equals: cleanSku, mode: 'insensitive' }, id: { not: id } },
+          select: { sku: true },
+        });
+        if (existingProduct) {
+          throw new BadRequestException(
+            `Product SKU "${existingProduct.sku}" already exists on another product`,
+          );
+        }
+
+        const existingVariant = await this.prisma.productVariant.findFirst({
+          where: { sku: { equals: cleanSku, mode: 'insensitive' }, productId: { not: id } },
+          select: { sku: true },
+        });
+        if (existingVariant) {
+          throw new BadRequestException(
+            `SKU "${cleanSku}" already exists on a product variant`,
+          );
+        }
+      }
+      updatedProductSku = cleanSku;
+    }
+
     if (dto.variants && dto.variants.length > 0) {
       await this.validateVariantImagesOwnership(dto.variants, id);
       validateVariantAttributes(dto.variants);
@@ -1104,6 +1182,7 @@ export class ProductsService {
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(slug !== existing.slug && { slug }),
+          ...(updatedProductSku !== undefined && { sku: updatedProductSku }),
           ...(dto.descriptionTitle !== undefined && {
             descriptionTitle:
               dto.descriptionTitle && dto.descriptionTitle.trim().length > 0

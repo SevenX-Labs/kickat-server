@@ -413,6 +413,10 @@ export class CreateProductDto {
   slug?: string;
 
   @IsOptional()
+  @IsString()
+  sku?: string;
+
+  @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MaxLength(150, { message: 'Description title cannot exceed 150 characters' })
@@ -593,6 +597,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   slug?: string;
+
+  @IsOptional()
+  @IsString()
+  sku?: string;
 
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
