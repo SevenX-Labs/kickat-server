@@ -2,6 +2,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
 import { RazorpayService } from './razorpay.service';
 import {
   BadRequestException,
@@ -90,6 +91,7 @@ describe('PaymentsService', () => {
         { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
         PaymentsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
         { provide: RazorpayService, useValue: razorpayService },
       ],
     }).compile();

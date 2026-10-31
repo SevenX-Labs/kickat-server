@@ -4,6 +4,7 @@ import { DeliveryEstimateService } from './delivery-estimate.service';
 import { EkartProvider } from './providers/ekart.provider';
 import { ShippingService } from './shipping.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
 
 describe('DeliveryEstimateService', () => {
   let service: DeliveryEstimateService;
@@ -48,6 +49,22 @@ describe('DeliveryEstimateService', () => {
         { provide: EkartProvider, useValue: ekartProvider },
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
+        { provide: RedisService, useFactory: () => {
+          const store = new Map<string, any>();
+          return {
+            get: jest.fn(async (key: string) => store.has(key) ? store.get(key) : null),
+            set: jest.fn(async (key: string, value: any) => { store.set(key, value); }),
+            del: jest.fn(async (key: string | string[]) => { const keys = Array.isArray(key) ? key : [key]; keys.forEach(k => store.delete(k)); }),
+            delByPattern: jest.fn(),
+            setNX: jest.fn().mockResolvedValue(true),
+            releaseLock: jest.fn().mockResolvedValue(true),
+            incr: jest.fn().mockResolvedValue(1),
+            expire: jest.fn(),
+            zincrby: jest.fn().mockResolvedValue('1'),
+            zrevrange: jest.fn().mockResolvedValue([]),
+            ping: jest.fn().mockResolvedValue(true),
+          };
+        } },
       ],
     }).compile();
 
@@ -219,6 +236,22 @@ describe('DeliveryEstimateService', () => {
           { provide: ShippingService, useValue: mockShippingService },
           { provide: PrismaService, useValue: prismaService },
           { provide: ConfigService, useValue: configService },
+          { provide: RedisService, useFactory: () => {
+            const store = new Map<string, any>();
+            return {
+              get: jest.fn(async (key: string) => store.has(key) ? store.get(key) : null),
+              set: jest.fn(async (key: string, value: any) => { store.set(key, value); }),
+              del: jest.fn(async (key: string | string[]) => { const keys = Array.isArray(key) ? key : [key]; keys.forEach(k => store.delete(k)); }),
+              delByPattern: jest.fn(),
+              setNX: jest.fn().mockResolvedValue(true),
+              releaseLock: jest.fn().mockResolvedValue(true),
+              incr: jest.fn().mockResolvedValue(1),
+              expire: jest.fn(),
+              zincrby: jest.fn().mockResolvedValue('1'),
+              zrevrange: jest.fn().mockResolvedValue([]),
+              ping: jest.fn().mockResolvedValue(true),
+            };
+          } },
         ],
       }).compile();
 

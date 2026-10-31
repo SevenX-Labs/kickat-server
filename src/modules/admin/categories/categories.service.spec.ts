@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CategoriesService } from './categories.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
 import { UploadService } from '../upload/upload.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/admin-category.dto';
@@ -44,6 +45,10 @@ describe('Admin CategoriesService', () => {
         {
           provide: UploadService,
           useValue: mockUploadService,
+        },
+        {
+          provide: RedisService,
+          useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn() },
         },
       ],
     }).compile();

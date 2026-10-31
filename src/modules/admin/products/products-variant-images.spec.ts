@@ -65,10 +65,12 @@ describe("Product Variant Image Isolation & Normalization", () => {
     prisma = createMockPrismaService();
     uploadService = createMockUploadService();
 
+    const mockRedisService = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined), del: jest.fn().mockResolvedValue(undefined), delByPattern: jest.fn().mockResolvedValue(undefined) };
     service = new ProductsService(
       prisma as any,
       uploadService as any,
       mockStockAlertService as any,
+      mockRedisService as any,
     );
 
     prisma.category.findUnique.mockResolvedValue({ id: "cat-1", name: "Cat Category" });

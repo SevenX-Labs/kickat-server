@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
+import { CacheKeys } from '../../../common/redis/cache-keys';
 import { UploadService } from '../upload/upload.service';
 import {
   AdminCategoriesQueryDto,
@@ -54,7 +56,18 @@ export class CategoriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
+    private readonly redis: RedisService,
   ) {}
+
+  private async invalidateCategoryCache(categoryId?: string) {
+    const keys = [
+      CacheKeys.categoriesFlat(),
+      CacheKeys.categoriesTree(),
+    ];
+    if (categoryId) keys.push(CacheKeys.categoryById(categoryId));
+    await this.redis.del(keys);
+    await this.redis.delByPattern('cache:catalog:home:feed*');
+  }
 
   /**
    * Helper to generate a URL-safe kebab-case slug
@@ -430,6 +443,8 @@ export class CategoriesService {
       },
     });
 
+    await this.invalidateCategoryCache();
+
     return {
       success: true,
       message: dto.parentId
@@ -532,6 +547,8 @@ export class CategoriesService {
       }
     }
 
+    await this.invalidateCategoryCache(id);
+
     return {
       success: true,
       message: 'Category updated successfully',
@@ -617,6 +634,8 @@ export class CategoriesService {
       }
     }
 
+    await this.invalidateCategoryCache(id);
+
     return {
       success: true,
       message: permanent
@@ -650,6 +669,8 @@ export class CategoriesService {
       },
     });
 
+    await this.invalidateCategoryCache(id);
+
     return {
       success: true,
       message: `Category ${dto.isActive ? 'activated' : 'deactivated'} successfully`,
@@ -674,6 +695,8 @@ export class CategoriesService {
         });
       }
     });
+
+    await this.invalidateCategoryCache();
 
     return {
       success: true,

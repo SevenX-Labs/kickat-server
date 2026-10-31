@@ -17,6 +17,7 @@ import { SettingsService } from '../admin/settings/settings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StockAlertService } from '../notifications/stock-alert.service';
 import { InvoicePdfService } from '../orders/invoice-pdf.service';
+import { RedisService } from '../../common/redis/redis.service';
 import { CheckoutPaymentMethodEnum } from './dto/place-order.dto';
 
 /**
@@ -204,6 +205,7 @@ describe('Abandoned online payment (Issue 2)', () => {
           provide: InvoicePdfService,
           useValue: { generateInvoicePdf: jest.fn() },
         },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 

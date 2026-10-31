@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 
 import { EmailService, OtpCacheService } from '../../common';
+import { RedisService } from '../../common/redis/redis.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -71,6 +72,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: jwtMock },
         { provide: ConfigService, useValue: configMock },
         { provide: EmailService, useValue: emailMock },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 

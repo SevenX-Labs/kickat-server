@@ -4,11 +4,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { CacheKeys } from '../../common/redis/cache-keys';
 import { SearchQueryDto, SearchSortEnum } from './dto/search-query.dto';
 
 @Injectable()
 export class SearchService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * GET /search (Full-text product search with filters)
@@ -28,6 +33,11 @@ export class SearchService {
           },
         })
         .catch(() => {});
+    }
+
+    // Increment trending score in Redis sorted set
+    if (dto.q.trim()) {
+      this.redis.zincrby(CacheKeys.trendingSearches(), 1, dto.q.trim()).catch(() => {});
     }
 
     const searchKeyword = dto.q.trim();
@@ -98,6 +108,10 @@ export class SearchService {
   async getSuggestions(q: string) {
     const keyword = q.trim();
 
+    const cacheKey = CacheKeys.searchSuggestions(keyword);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     const products = await this.prisma.product.findMany({
       where: {
         OR: [
@@ -119,11 +133,14 @@ export class SearchService {
       }
     }
 
-    return {
+    const result = {
       success: true,
       query: keyword,
       suggestions: Array.from(suggestionsSet).slice(0, 8),
     };
+
+    await this.redis.set(cacheKey, result, 600);
+    return result;
   }
 
   /**
@@ -173,6 +190,12 @@ export class SearchService {
    * GET /search/trending
    */
   async getTrendingSearches() {
+    // Try Redis sorted set first
+    const trending = await this.redis.zrevrange(CacheKeys.trendingSearches(), 0, 7);
+    if (trending.length > 0) {
+      return { success: true, trending };
+    }
+
     const trendingQueries = [
       'Dog Food',
       'Cat Toys',
@@ -194,6 +217,10 @@ export class SearchService {
    * GET /search/filters
    */
   async getFilters(categoryId?: string) {
+    const cacheKey = CacheKeys.searchFilters(categoryId);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     if (categoryId) {
       const category = await this.prisma.category.findUnique({
         where: { id: categoryId },
@@ -228,7 +255,7 @@ export class SearchService {
       new Set(products.map((p) => p.dietaryPreference).filter(Boolean)),
     );
 
-    return {
+    const result = {
       success: true,
       filters: {
         brands,
@@ -247,12 +274,19 @@ export class SearchService {
         ],
       },
     };
+
+    await this.redis.set(cacheKey, result, 600);
+    return result;
   }
 
   /**
    * GET /search/popular
    */
   async getPopularSearches() {
+    const cacheKey = CacheKeys.popularSearches();
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     const popular = await this.prisma.recentSearch.groupBy({
       by: ['query'],
       _count: { query: true },
@@ -260,12 +294,15 @@ export class SearchService {
       take: 10,
     });
 
-    return {
+    const result = {
       success: true,
       popularSearches: popular.map((p) => ({
         query: p.query,
         searchCount: p._count.query,
       })),
     };
+
+    await this.redis.set(cacheKey, result, 600);
+    return result;
   }
 }

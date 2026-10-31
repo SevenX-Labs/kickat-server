@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
+import { CacheKeys } from '../../../common/redis/cache-keys';
 import { UploadService } from '../upload/upload.service';
 import {
   AdminProductSortEnum,
@@ -249,7 +251,16 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly uploadService: UploadService,
     private readonly stockAlertService: StockAlertService,
+    private readonly redis: RedisService,
   ) {}
+
+  private async invalidateProductCache(productId?: string, slug?: string) {
+    const keys: string[] = [];
+    if (productId) keys.push(CacheKeys.productDetails(productId));
+    if (slug) keys.push(CacheKeys.productDetails(slug));
+    if (keys.length) await this.redis.del(keys);
+    await this.redis.delByPattern('cache:catalog:home:feed*');
+  }
 
   /**
    * Helper to generate a URL-safe kebab-case slug
@@ -846,6 +857,8 @@ export class ProductsService {
       return product;
     });
 
+    await this.invalidateProductCache(createdProduct.id, createdProduct.slug);
+
     return {
       success: true,
       message: 'Product created successfully',
@@ -1375,10 +1388,12 @@ export class ProductsService {
       }
     }
 
+    await this.invalidateProductCache(updatedProduct?.id, updatedProduct?.slug);
+
     return {
       success: true,
       message: 'Product updated successfully',
-      data: enrichProductWithShipping(updatedProduct),
+      data: enrichProductWithShipping(updatedProduct!),
     };
   }
 
@@ -1434,6 +1449,8 @@ export class ProductsService {
       await this.uploadService.deleteFilesByUrls(imageUrls);
     }
 
+    await this.invalidateProductCache(id);
+
     return {
       success: true,
       message: permanent
@@ -1466,6 +1483,8 @@ export class ProductsService {
         updatedAt: true,
       },
     });
+
+    await this.invalidateProductCache(id, updated.slug);
 
     return {
       success: true,
@@ -1561,6 +1580,10 @@ export class ProductsService {
       await this.uploadService.deleteFilesByUrls(imageUrls);
     }
 
+    for (const prod of productsToDelete) {
+      await this.invalidateProductCache(prod.id, prod.slug);
+    }
+
     return {
       success: true,
       message: `Successfully deleted ${deletedCount} products`,
@@ -1649,6 +1672,8 @@ export class ProductsService {
       where: { id },
       include: { variants: true },
     });
+
+    await this.invalidateProductCache(id, existing.slug);
 
     return {
       success: true,

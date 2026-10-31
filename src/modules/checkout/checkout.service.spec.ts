@@ -1,6 +1,7 @@
 import { StockAlertService } from '../notifications/stock-alert.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { InvoicePdfService } from '../orders/invoice-pdf.service';
+import { RedisService } from '../../common/redis/redis.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CheckoutService } from './checkout.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -167,6 +168,7 @@ describe('CheckoutService - Phase 3 Safety Audit & Pre-Order Guard', () => {
         { provide: StockAlertService, useValue: { evaluateStockChange: jest.fn().mockResolvedValue(undefined) } },
         { provide: NotificationsService, useValue: { notifyOrderPlaced: jest.fn(), notifyPaymentSuccess: jest.fn(), notifyPaymentFailed: jest.fn(), notifyOrderStatusChange: jest.fn(), notifyReturnStatus: jest.fn(), notifyRefundStatus: jest.fn(), sendEventNotification: jest.fn() } },
         { provide: InvoicePdfService, useValue: { generateInvoicePdf: jest.fn().mockResolvedValue(Buffer.from('pdf-data')) } },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 

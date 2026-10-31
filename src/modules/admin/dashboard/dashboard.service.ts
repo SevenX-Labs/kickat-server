@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
+import { CacheKeys } from '../../../common/redis/cache-keys';
 import { OrderStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '@prisma/client';
+import { createHash } from 'crypto';
 import {
   ChartGroupByEnum,
   DashboardPeriodEnum,
@@ -23,7 +26,10 @@ export interface DateRange {
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * Helper to compute start/end dates for current and previous comparison periods.
@@ -121,6 +127,11 @@ export class DashboardService {
    * Main Unified Dashboard Summary (GET /api/v1/admin/dashboard)
    */
   async getDashboardSummary(query: DashboardQueryDto = {}) {
+    const queryHash = createHash('md5').update(JSON.stringify(query)).digest('hex').slice(0, 12);
+    const cacheKey = CacheKeys.adminDashboard(queryHash);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     const period = query.period || DashboardPeriodEnum.SEVEN_DAYS;
     const lowStockThreshold = query.lowStockThreshold ?? 10;
     const recentOrdersLimit = query.recentOrdersLimit ?? 10;
@@ -155,7 +166,7 @@ export class DashboardService {
       this.getSalesTargets(),
     ]);
 
-    return {
+    const result = {
       success: true,
       data: {
         summary: stats,
@@ -168,6 +179,9 @@ export class DashboardService {
         salesTargets,
       },
     };
+
+    await this.redis.set(cacheKey, result, 60);
+    return result;
   }
 
   /**

@@ -39,6 +39,7 @@ import { ReviewsService } from '../reviews/reviews.service';
 import { InAppService } from '../notifications/in-app.service';
 import { SearchService } from '../search/search.service';
 import { EmailService, OtpCacheService } from '../../common';
+import { RedisService } from '../../common/redis/redis.service';
 
 describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Suite', () => {
   const userAId = '11111111-1111-4111-8111-111111111111';
@@ -272,6 +273,7 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
         { provide: RazorpayService, useValue: mockRazorpayService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 

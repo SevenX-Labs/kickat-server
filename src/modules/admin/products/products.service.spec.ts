@@ -69,10 +69,12 @@ describe('Admin ProductsService', () => {
     jest.clearAllMocks();
     prisma = createMockPrismaService();
     uploadService = createMockUploadService();
+    const mockRedisService = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined), del: jest.fn().mockResolvedValue(undefined), delByPattern: jest.fn().mockResolvedValue(undefined) };
     service = new ProductsService(
       prisma as any,
       uploadService as any,
       mockStockAlertService as any,
+      mockRedisService as any,
     );
   });
 

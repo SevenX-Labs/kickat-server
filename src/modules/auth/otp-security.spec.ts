@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { EmailService, OtpCacheService } from '../../common';
+import { RedisService } from '../../common/redis/redis.service';
 import { OtpType } from '@prisma/client';
 import { HttpException, HttpStatus, UnauthorizedException, INestApplication } from '@nestjs/common';
 import { ThrottlerModule, ThrottlerGuard, minutes, hours } from '@nestjs/throttler';
@@ -89,6 +90,22 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
         { provide: EmailService, useValue: emailServiceMock },
         { provide: JwtService, useValue: jwtMock },
         { provide: ConfigService, useValue: configMock },
+        { provide: RedisService, useFactory: () => {
+          const store = new Map<string, any>();
+          return {
+            get: jest.fn(async (key: string) => store.has(key) ? store.get(key) : null),
+            set: jest.fn(async (key: string, value: any) => { store.set(key, value); }),
+            del: jest.fn(async (key: string | string[]) => { const keys = Array.isArray(key) ? key : [key]; keys.forEach(k => store.delete(k)); }),
+            delByPattern: jest.fn(),
+            setNX: jest.fn().mockResolvedValue(true),
+            releaseLock: jest.fn().mockResolvedValue(true),
+            incr: jest.fn().mockResolvedValue(1),
+            expire: jest.fn(),
+            zincrby: jest.fn().mockResolvedValue('1'),
+            zrevrange: jest.fn().mockResolvedValue([]),
+            ping: jest.fn().mockResolvedValue(true),
+          };
+        } },
       ],
     }).compile();
 
@@ -114,7 +131,7 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
       // First request -> succeeds
       const res1 = await authService.sendOtp({ phone });
       expect(res1.success).toBe(true);
-      expect(otpCacheService.isCooldownActive(phone, 'phone')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(phone, 'phone')).toBe(true);
 
       // Second request immediately -> rejected with 429 cooldown active
       await expect(authService.sendOtp({ phone })).rejects.toThrow(
@@ -125,8 +142,8 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
       );
 
       // Clear cooldown manually to simulate 60s passing -> third request succeeds
-      otpCacheService.clearCooldown(phone, 'phone');
-      expect(otpCacheService.isCooldownActive(phone, 'phone')).toBe(false);
+      await otpCacheService.clearCooldown(phone, 'phone');
+      expect(await otpCacheService.isCooldownActive(phone, 'phone')).toBe(false);
 
       const res3 = await authService.sendOtp({ phone });
       expect(res3.success).toBe(true);
@@ -140,7 +157,7 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
       // First request -> succeeds
       const res1 = await authService.sendEmailOtp({ email });
       expect(res1.success).toBe(true);
-      expect(otpCacheService.isCooldownActive(email, 'email')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(email, 'email')).toBe(true);
 
       // Second request immediately -> rejected with 429
       await expect(authService.sendEmailOtp({ email })).rejects.toThrow(
@@ -155,7 +172,7 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
   describe('2. Preserved Hourly Rate Limits (5 requests / hour / phone or email)', () => {
     it('should reject mobile OTP send when hourly request count reaches 5', async () => {
       const phone = '+919876543211';
-      otpCacheService.clearCooldown(phone, 'phone');
+      await otpCacheService.clearCooldown(phone, 'phone');
       prismaMock.otpLog.count.mockResolvedValue(5);
 
       await expect(authService.sendOtp({ phone })).rejects.toThrow(
@@ -168,7 +185,7 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
 
     it('should reject email OTP send when hourly request count reaches 5', async () => {
       const email = 'limit@example.com';
-      otpCacheService.clearCooldown(email, 'email');
+      await otpCacheService.clearCooldown(email, 'email');
       prismaMock.otpLog.count.mockResolvedValue(5);
 
       await expect(authService.sendEmailOtp({ email })).rejects.toThrow(
@@ -183,7 +200,7 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
   describe('3. OTP Expiry (5-Minute Window)', () => {
     it('should create OTP with 5-minute expiry timestamp', async () => {
       const phone = '+919876543212';
-      otpCacheService.clearCooldown(phone, 'phone');
+      await otpCacheService.clearCooldown(phone, 'phone');
       prismaMock.otpLog.count.mockResolvedValue(0);
 
       const before = Date.now();
@@ -258,7 +275,7 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
         await expect(
           authService.verifyOtp({ phone, otp: '000000' }, mockRes),
         ).rejects.toThrow(UnauthorizedException);
-        expect(otpCacheService.getOtpAttempts(otpId)).toBe(i);
+        expect(await otpCacheService.getOtpAttempts(otpId)).toBe(i);
       }
 
       // Attempt 5: 5th failed attempt -> reaches attempt limit -> throws 429
@@ -383,27 +400,27 @@ describe('OTP Security & Rate Limiting Integration Suite', () => {
   });
 
   describe('7. Cache Service Isolation & Future Redis Migration', () => {
-    it('should isolate keys between phone and email cooldowns and per-OTP attempts', () => {
+    it('should isolate keys between phone and email cooldowns and per-OTP attempts', async () => {
       const id1 = '+919876543210';
       const id2 = 'user@example.com';
       const otpId = 'uuid-otp-123';
 
-      otpCacheService.setCooldown(id1, 'phone', 60000);
-      otpCacheService.setCooldown(id2, 'email', 60000);
-      otpCacheService.incrementOtpAttempts(otpId);
+      await otpCacheService.setCooldown(id1, 'phone', 60000);
+      await otpCacheService.setCooldown(id2, 'email', 60000);
+      await otpCacheService.incrementOtpAttempts(otpId);
 
-      expect(otpCacheService.isCooldownActive(id1, 'phone')).toBe(true);
-      expect(otpCacheService.isCooldownActive(id1, 'email')).toBe(false);
-      expect(otpCacheService.isCooldownActive(id2, 'email')).toBe(true);
-      expect(otpCacheService.isCooldownActive(id2, 'phone')).toBe(false);
-      expect(otpCacheService.getOtpAttempts(otpId)).toBe(1);
+      expect(await otpCacheService.isCooldownActive(id1, 'phone')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(id1, 'email')).toBe(false);
+      expect(await otpCacheService.isCooldownActive(id2, 'email')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(id2, 'phone')).toBe(false);
+      expect(await otpCacheService.getOtpAttempts(otpId)).toBe(1);
 
-      otpCacheService.clearCooldown(id1, 'phone');
-      expect(otpCacheService.isCooldownActive(id1, 'phone')).toBe(false);
-      expect(otpCacheService.isCooldownActive(id2, 'email')).toBe(true);
+      await otpCacheService.clearCooldown(id1, 'phone');
+      expect(await otpCacheService.isCooldownActive(id1, 'phone')).toBe(false);
+      expect(await otpCacheService.isCooldownActive(id2, 'email')).toBe(true);
 
-      otpCacheService.clearOtpAttempts(otpId);
-      expect(otpCacheService.getOtpAttempts(otpId)).toBe(0);
+      await otpCacheService.clearOtpAttempts(otpId);
+      expect(await otpCacheService.getOtpAttempts(otpId)).toBe(0);
     });
   });
 });

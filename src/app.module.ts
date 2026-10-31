@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
+import { RedisService } from './common/redis/redis.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -25,7 +26,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuditService } from './common/services/audit.service';
 import { OtpCacheService } from './common/services/otp-cache.service';
 import { ThrottlerModule, ThrottlerGuard, minutes, hours } from '@nestjs/throttler';
-import { LruThrottlerStorage, AppThrottlerGuard } from './common';
+import { RedisThrottlerStorage, AppThrottlerGuard } from './common';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { AuthModule as AdminAuthModule } from './modules/admin/auth/auth.module';
 import { DashboardModule } from './modules/admin/dashboard/dashboard.module';
@@ -49,100 +50,31 @@ import { VaultModule as AdminVaultModule } from './modules/admin/vault/vault.mod
     ConfigModule.forRoot({ isGlobal: true }),
     RedisModule,
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot({
-      throttlers: [
-        {
-          name: 'default',
-          ttl: minutes(1),
-          limit: 120, // 120 req / min default
-        },
-        {
-          name: 'otp-send-short',
-          ttl: minutes(10), // 10 minutes
-          limit: 3, // 3 requests / 10 minutes
-        },
-        {
-          name: 'otp-send-long',
-          ttl: hours(1), // 1 hour
-          limit: 20, // 20 requests / hour
-        },
-        {
-          name: 'otp-verify',
-          ttl: hours(1), // 1 hour
-          limit: 20, // 20 attempts / hour
-        },
-        {
-          name: 'search',
-          ttl: minutes(1), // 1 minute
-          limit: 30, // 30 req / min default (guest), adapts to 60 for auth users
-        },
-        {
-          name: 'search-suggestions',
-          ttl: minutes(1),
-          limit: 30, // 30 req / min default (guest), adapts to 120 for auth users
-        },
-        {
-          name: 'products',
-          ttl: minutes(1), // 1 minute
-          limit: 60, // 60 req / min default (guest), adapts to 120 for auth users
-        },
-        {
-          name: 'delivery-estimate',
-          ttl: minutes(1),
-          limit: 30, // 30 req / min default (guest), adapts to 60 for auth users
-        },
-        {
-          name: 'cart',
-          ttl: minutes(1),
-          limit: 120, // 120 req / min / user
-        },
-        {
-          name: 'guest-cart',
-          ttl: minutes(1),
-          limit: 20, // 20 requests / min / guest
-        },
-        {
-          name: 'wishlist',
-          ttl: minutes(1),
-          limit: 120, // 120 mutations / min / user; GETs adapt to 240
-        },
-        {
-          name: 'orders',
-          ttl: minutes(1),
-          limit: 60, // 60 mutations / min / user; GETs adapt to 240
-        },
-        {
-          name: 'address-read',
-          ttl: minutes(1),
-          limit: 60, // 60 req / min / user
-        },
-        {
-          name: 'address-mutation',
-          ttl: minutes(1),
-          limit: 30, // 30 req / min / user
-        },
-        {
-          name: 'checkout',
-          ttl: minutes(1),
-          limit: 20, // 20 req / min / user
-        },
-        {
-          name: 'payment-create',
-          ttl: minutes(1),
-          limit: 20, // 20 req / min / user
-        },
-        {
-          name: 'payment-verify',
-          ttl: minutes(1),
-          limit: 30, // 30 req / min / user
-        },
-        {
-          name: 'reviews-helpful',
-          ttl: minutes(1),
-          limit: 20, // 20 requests / min
-        },
-      ],
-      storage: new LruThrottlerStorage({ max: 50000 }),
+    ThrottlerModule.forRootAsync({
+      useFactory: (redis: RedisService) => ({
+        throttlers: [
+          { name: 'default', ttl: minutes(1), limit: 120 },
+          { name: 'otp-send-short', ttl: minutes(10), limit: 3 },
+          { name: 'otp-send-long', ttl: hours(1), limit: 20 },
+          { name: 'otp-verify', ttl: hours(1), limit: 20 },
+          { name: 'search', ttl: minutes(1), limit: 30 },
+          { name: 'search-suggestions', ttl: minutes(1), limit: 30 },
+          { name: 'products', ttl: minutes(1), limit: 60 },
+          { name: 'delivery-estimate', ttl: minutes(1), limit: 30 },
+          { name: 'cart', ttl: minutes(1), limit: 120 },
+          { name: 'guest-cart', ttl: minutes(1), limit: 20 },
+          { name: 'wishlist', ttl: minutes(1), limit: 120 },
+          { name: 'orders', ttl: minutes(1), limit: 60 },
+          { name: 'address-read', ttl: minutes(1), limit: 60 },
+          { name: 'address-mutation', ttl: minutes(1), limit: 30 },
+          { name: 'checkout', ttl: minutes(1), limit: 20 },
+          { name: 'payment-create', ttl: minutes(1), limit: 20 },
+          { name: 'payment-verify', ttl: minutes(1), limit: 30 },
+          { name: 'reviews-helpful', ttl: minutes(1), limit: 20 },
+        ],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+      inject: [RedisService],
     }),
     PrismaModule,
     AuthModule,

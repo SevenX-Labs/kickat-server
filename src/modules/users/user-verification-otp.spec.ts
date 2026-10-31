@@ -4,6 +4,7 @@ import { UsersController } from './users.controller';
 import { ProfileService } from '../profile/profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService, OtpCacheService } from '../../common';
+import { RedisService } from '../../common/redis/redis.service';
 import { OtpType } from '@prisma/client';
 import { HttpException, HttpStatus, UnauthorizedException, INestApplication } from '@nestjs/common';
 import { ThrottlerModule, minutes, hours } from '@nestjs/throttler';
@@ -68,6 +69,22 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: EmailService, useValue: mockEmailService },
         { provide: ProfileService, useValue: mockProfileService },
+        { provide: RedisService, useFactory: () => {
+          const store = new Map<string, any>();
+          return {
+            get: jest.fn(async (key: string) => store.has(key) ? store.get(key) : null),
+            set: jest.fn(async (key: string, value: any) => { store.set(key, value); }),
+            del: jest.fn(async (key: string | string[]) => { const keys = Array.isArray(key) ? key : [key]; keys.forEach(k => store.delete(k)); }),
+            delByPattern: jest.fn(),
+            setNX: jest.fn().mockResolvedValue(true),
+            releaseLock: jest.fn().mockResolvedValue(true),
+            incr: jest.fn().mockResolvedValue(1),
+            expire: jest.fn(),
+            zincrby: jest.fn().mockResolvedValue('1'),
+            zrevrange: jest.fn().mockResolvedValue([]),
+            ping: jest.fn().mockResolvedValue(true),
+          };
+        } },
       ],
     }).compile();
 
@@ -95,7 +112,7 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
       // First request -> success
       const res1 = await usersService.sendEmailVerification(userId, { email });
       expect(res1.success).toBe(true);
-      expect(otpCacheService.isCooldownActive(email, 'user-email')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(email, 'user-email')).toBe(true);
 
       // Second request immediately -> 429
       await expect(usersService.sendEmailVerification(userId, { email })).rejects.toThrow(
@@ -106,8 +123,8 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
       );
 
       // After cooldown expires -> request succeeds
-      otpCacheService.clearCooldown(email, 'user-email');
-      expect(otpCacheService.isCooldownActive(email, 'user-email')).toBe(false);
+      await otpCacheService.clearCooldown(email, 'user-email');
+      expect(await otpCacheService.isCooldownActive(email, 'user-email')).toBe(false);
       const res3 = await usersService.sendEmailVerification(userId, { email });
       expect(res3.success).toBe(true);
     });
@@ -222,7 +239,7 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
         await expect(
           usersService.verifyEmail(userId, { email, otp: '000000' }),
         ).rejects.toThrow(UnauthorizedException);
-        expect(otpCacheService.getOtpAttempts(otpId)).toBe(i);
+        expect(await otpCacheService.getOtpAttempts(otpId)).toBe(i);
       }
 
       // Attempt 5 -> reaches 5 attempts, invalidates OTP and throws 429
@@ -271,7 +288,7 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
       // First request -> success
       const res1 = await usersService.sendMobileVerification(userId, { phone });
       expect(res1.success).toBe(true);
-      expect(otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(true);
 
       // Second request immediately -> 429
       await expect(usersService.sendMobileVerification(userId, { phone })).rejects.toThrow(
@@ -282,8 +299,8 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
       );
 
       // After cooldown expires -> request succeeds
-      otpCacheService.clearCooldown(phone, 'user-phone');
-      expect(otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(false);
+      await otpCacheService.clearCooldown(phone, 'user-phone');
+      expect(await otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(false);
       const res3 = await usersService.sendMobileVerification(userId, { phone });
       expect(res3.success).toBe(true);
     });
@@ -379,7 +396,7 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
         await expect(
           usersService.verifyMobile(userId, { phone, otp: '000000' }),
         ).rejects.toThrow(UnauthorizedException);
-        expect(otpCacheService.getOtpAttempts(otpId)).toBe(i);
+        expect(await otpCacheService.getOtpAttempts(otpId)).toBe(i);
       }
 
       // Attempt 5 -> reaches 5 attempts, invalidates OTP and throws 429
@@ -418,37 +435,37 @@ describe('User Verification OTP Security & Rate Limiting Suite', () => {
   });
 
   describe('5. Namespace Cache Isolation (Auth vs Users Verification)', () => {
-    it('should ensure auth cooldown and user verification cooldown do not conflict for the same identifier', () => {
+    it('should ensure auth cooldown and user verification cooldown do not conflict for the same identifier', async () => {
       const phone = '+919999999999';
       const email = 'shared@example.com';
 
       // Set cooldown for Auth OTP
-      otpCacheService.setCooldown(phone, 'phone', 60000);
-      otpCacheService.setCooldown(email, 'email', 60000);
+      await otpCacheService.setCooldown(phone, 'phone', 60000);
+      await otpCacheService.setCooldown(email, 'email', 60000);
 
       // Auth cooldown is active
-      expect(otpCacheService.isCooldownActive(phone, 'phone')).toBe(true);
-      expect(otpCacheService.isCooldownActive(email, 'email')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(phone, 'phone')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(email, 'email')).toBe(true);
 
       // User verification cooldown is NOT active
-      expect(otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(false);
-      expect(otpCacheService.isCooldownActive(email, 'user-email')).toBe(false);
+      expect(await otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(false);
+      expect(await otpCacheService.isCooldownActive(email, 'user-email')).toBe(false);
 
       // Now set User verification cooldown
-      otpCacheService.setCooldown(phone, 'user-phone', 60000);
-      otpCacheService.setCooldown(email, 'user-email', 60000);
+      await otpCacheService.setCooldown(phone, 'user-phone', 60000);
+      await otpCacheService.setCooldown(email, 'user-email', 60000);
 
-      expect(otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(true);
-      expect(otpCacheService.isCooldownActive(email, 'user-email')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(email, 'user-email')).toBe(true);
 
       // Clear Auth cooldown -> User cooldown remains intact
-      otpCacheService.clearCooldown(phone, 'phone');
-      otpCacheService.clearCooldown(email, 'email');
+      await otpCacheService.clearCooldown(phone, 'phone');
+      await otpCacheService.clearCooldown(email, 'email');
 
-      expect(otpCacheService.isCooldownActive(phone, 'phone')).toBe(false);
-      expect(otpCacheService.isCooldownActive(email, 'email')).toBe(false);
-      expect(otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(true);
-      expect(otpCacheService.isCooldownActive(email, 'user-email')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(phone, 'phone')).toBe(false);
+      expect(await otpCacheService.isCooldownActive(email, 'email')).toBe(false);
+      expect(await otpCacheService.isCooldownActive(phone, 'user-phone')).toBe(true);
+      expect(await otpCacheService.isCooldownActive(email, 'user-email')).toBe(true);
     });
   });
 });

@@ -7,6 +7,7 @@ import { CheckoutService } from './checkout.service';
 import { PaymentsService } from '../payments/payments.service';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
 import { RazorpayService } from '../payments/razorpay.service';
 import {
   BadRequestException,
@@ -121,6 +122,7 @@ describe('Checkout, Payments & Orders Concurrency & Idempotency Audit', () => {
         OrdersService,
         { provide: SettingsService, useValue: mockSettingsServiceForConcurrency },
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
         { provide: RazorpayService, useValue: razorpayService },
       ],
     }).compile();
