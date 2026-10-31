@@ -10,18 +10,29 @@ export class RedisService implements OnModuleDestroy {
   private suppressedErrorCount = 0;
 
   constructor(private readonly configService: ConfigService) {
-    this.client = new Redis({
-      host: this.configService.get<string>('REDIS_HOST', 'localhost'),
-      port: this.configService.get<number>('REDIS_PORT', 6379),
-      password: this.configService.get<string>('REDIS_PASSWORD', '') || undefined,
-      db: this.configService.get<number>('REDIS_DB', 0),
+    const rawUrl = (this.configService.get<string>('REDIS_URL', '') || '').trim();
+    const redisUrl = rawUrl.replace(/^redis-cli\s+-u\s+/i, '');
+
+    const commonOptions = {
       maxRetriesPerRequest: 3,
-      retryStrategy(times) {
+      retryStrategy(times: number) {
         if (times > 20) return null;
         return Math.min(times * 500, 30_000);
       },
       lazyConnect: true,
-    });
+    };
+
+    if (redisUrl) {
+      this.client = new Redis(redisUrl, commonOptions);
+    } else {
+      this.client = new Redis({
+        host: this.configService.get<string>('REDIS_HOST', 'localhost'),
+        port: this.configService.get<number>('REDIS_PORT', 6379),
+        password: this.configService.get<string>('REDIS_PASSWORD', '') || undefined,
+        db: this.configService.get<number>('REDIS_DB', 0),
+        ...commonOptions,
+      });
+    }
 
     this.client.connect().catch((err) => {
       this.logger.warn(`Redis connection failed: ${err.message}. App will fall through to DB.`);
