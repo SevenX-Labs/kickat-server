@@ -59,7 +59,7 @@ export class AuthService {
     }
 
     // 1. Cooldown check: 60-second cooldown per phone
-    if (this.otpCacheService.isCooldownActive(phone, 'phone')) {
+    if (await this.otpCacheService.isCooldownActive(phone, 'phone')) {
       throw new HttpException(
         'Please wait 60 seconds before requesting another OTP',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -96,8 +96,8 @@ export class AuthService {
       },
     });
 
-    // 4. Activate 60-second cooldown in LRU cache
-    this.otpCacheService.setCooldown(phone, 'phone', 60 * 1000);
+    // 4. Activate 60-second cooldown
+    await this.otpCacheService.setCooldown(phone, 'phone', 60 * 1000);
 
     // 5. Dispatch mobile SMS OTP via Nexus OTP / Fast2SMS Gateway
     this.logger.log(`[MOBILE OTP SENT] To: ${phone} | OTP: ${otp}`);
@@ -152,7 +152,7 @@ export class AuthService {
     }
 
     // 3. Check per-OTP attempt limit (max 5 attempts per individual OTP)
-    const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
+    const cachedAttempts = await this.otpCacheService.getOtpAttempts(latestOtp.id);
     if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
@@ -168,7 +168,7 @@ export class AuthService {
     const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
 
     if (!isMatch) {
-      const updatedAttempts = this.otpCacheService.incrementOtpAttempts(latestOtp.id);
+      const updatedAttempts = await this.otpCacheService.incrementOtpAttempts(latestOtp.id);
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
         data: { attempts: { increment: 1 } },
@@ -193,7 +193,7 @@ export class AuthService {
       where: { id: latestOtp.id },
       data: { isUsed: true },
     });
-    this.otpCacheService.clearOtpAttempts(latestOtp.id);
+    await this.otpCacheService.clearOtpAttempts(latestOtp.id);
 
     // 6. Check if user already exists
     let user = await this.prisma.user.findFirst({
@@ -224,7 +224,7 @@ export class AuthService {
     const email = dto.email.trim().toLowerCase();
 
     // 1. Cooldown check: 60-second cooldown per email
-    if (this.otpCacheService.isCooldownActive(email, 'email')) {
+    if (await this.otpCacheService.isCooldownActive(email, 'email')) {
       throw new HttpException(
         'Please wait 60 seconds before requesting another OTP',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -262,8 +262,8 @@ export class AuthService {
       },
     });
 
-    // 4. Activate 60-second cooldown in LRU cache
-    this.otpCacheService.setCooldown(email, 'email', 60 * 1000);
+    // 4. Activate 60-second cooldown
+    await this.otpCacheService.setCooldown(email, 'email', 60 * 1000);
 
     // 5. Send email using EmailService
     await this.emailService.sendOtpEmail(email, otp);
@@ -314,7 +314,7 @@ export class AuthService {
     }
 
     // 3. Check per-OTP attempt limit (max 5 attempts per individual OTP)
-    const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
+    const cachedAttempts = await this.otpCacheService.getOtpAttempts(latestOtp.id);
     if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
@@ -330,7 +330,7 @@ export class AuthService {
     const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
 
     if (!isMatch) {
-      const updatedAttempts = this.otpCacheService.incrementOtpAttempts(latestOtp.id);
+      const updatedAttempts = await this.otpCacheService.incrementOtpAttempts(latestOtp.id);
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
         data: { attempts: { increment: 1 } },
@@ -355,7 +355,7 @@ export class AuthService {
       where: { id: latestOtp.id },
       data: { isUsed: true },
     });
-    this.otpCacheService.clearOtpAttempts(latestOtp.id);
+    await this.otpCacheService.clearOtpAttempts(latestOtp.id);
 
     // Case 1: Logged-in user linking/verifying their email
     if (currentUser?.id) {

@@ -1,149 +1,102 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { LRUCache } from 'lru-cache';
+import { RedisService } from '../redis/redis.service';
+import { CacheKeys } from '../redis/cache-keys';
 
 export type OtpCooldownType = 'phone' | 'email' | 'user-phone' | 'user-email';
 
 export interface IOtpCacheService {
-  isCooldownActive(identifier: string, type: OtpCooldownType): boolean;
-  setCooldown(identifier: string, type: OtpCooldownType, ttlMs?: number): void;
-  clearCooldown(identifier: string, type: OtpCooldownType): void;
-  getOtpAttempts(otpId: string): number;
-  incrementOtpAttempts(otpId: string, ttlMs?: number): number;
-  clearOtpAttempts(otpId: string): void;
-  get<T = any>(key: string): T | undefined;
-  set<T = any>(key: string, value: T, ttlMs?: number): void;
-  del(key: string): void;
-  has(key: string): boolean;
+  isCooldownActive(identifier: string, type: OtpCooldownType): Promise<boolean>;
+  setCooldown(identifier: string, type: OtpCooldownType, ttlMs?: number): Promise<void>;
+  clearCooldown(identifier: string, type: OtpCooldownType): Promise<void>;
+  getOtpAttempts(otpId: string): Promise<number>;
+  incrementOtpAttempts(otpId: string, ttlMs?: number): Promise<number>;
+  clearOtpAttempts(otpId: string): Promise<void>;
+  get<T = any>(key: string): Promise<T | null>;
+  set<T = any>(key: string, value: T, ttlMs?: number): Promise<void>;
+  del(key: string): Promise<void>;
+  has(key: string): Promise<boolean>;
 }
 
 @Injectable()
 export class OtpCacheService implements IOtpCacheService {
   private readonly logger = new Logger(OtpCacheService.name);
-  private readonly cache: LRUCache<string, any>;
 
-  // Default TTLs in milliseconds
-  private readonly DEFAULT_COOLDOWN_TTL_MS = 60 * 1000; // 60 seconds
-  private readonly DEFAULT_OTP_ATTEMPTS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private readonly DEFAULT_COOLDOWN_TTL_S = 60;
+  private readonly DEFAULT_OTP_ATTEMPTS_TTL_S = 300; // 5 minutes
 
-  constructor() {
-    this.cache = new LRUCache<string, any>({
-      max: 10000, // Maximum 10,000 active keys
-      ttl: 60 * 60 * 1000, // Default 1 hour fallback TTL
-    });
-  }
+  constructor(private readonly redis: RedisService) {}
 
-  /**
-   * Builds an isolated cache key for phone or email send cooldown.
-   * Examples:
-   * - Auth Phone: otp:cooldown:phone:+919876543210
-   * - Auth Email: otp:cooldown:email:user@example.com
-   * - User Verification Phone: otp:cooldown:user-phone:+919876543210
-   * - User Verification Email: otp:cooldown:user-email:user@example.com
-   */
   private buildCooldownKey(identifier: string, type: OtpCooldownType): string {
     const isEmail = type === 'email' || type === 'user-email';
     const sanitizedIdentifier = isEmail
       ? identifier.trim().toLowerCase()
       : identifier.trim();
-    return `otp:cooldown:${type}:${sanitizedIdentifier}`;
+    return CacheKeys.otpCooldown(type, sanitizedIdentifier);
   }
 
-  /**
-   * Builds an isolated cache key for per-OTP verification attempt counter.
-   * Example: otp:attempts:uuid-of-otp-log
-   */
   private buildAttemptsKey(otpId: string): string {
-    return `otp:attempts:${otpId.trim()}`;
+    return CacheKeys.otpAttempts(otpId.trim());
   }
 
-  /**
-   * Checks if an OTP send cooldown is currently active.
-   */
-  isCooldownActive(identifier: string, type: OtpCooldownType): boolean {
+  async isCooldownActive(identifier: string, type: OtpCooldownType): Promise<boolean> {
     const key = this.buildCooldownKey(identifier, type);
-    return this.cache.has(key);
+    const val = await this.redis.get<boolean>(key);
+    return val === true;
   }
 
-  /**
-   * Sets an OTP send cooldown for 60 seconds (or custom TTL).
-   */
-  setCooldown(
+  async setCooldown(
     identifier: string,
     type: OtpCooldownType,
-    ttlMs: number = this.DEFAULT_COOLDOWN_TTL_MS,
-  ): void {
+    ttlMs: number = this.DEFAULT_COOLDOWN_TTL_S * 1000,
+  ): Promise<void> {
     const key = this.buildCooldownKey(identifier, type);
-    this.cache.set(key, true, { ttl: ttlMs });
+    const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+    await this.redis.set(key, true, ttlSeconds);
   }
 
-  /**
-   * Clears an active OTP send cooldown.
-   */
-  clearCooldown(identifier: string, type: OtpCooldownType): void {
+  async clearCooldown(identifier: string, type: OtpCooldownType): Promise<void> {
     const key = this.buildCooldownKey(identifier, type);
-    this.cache.delete(key);
+    await this.redis.del(key);
   }
 
-  /**
-   * Gets the number of failed verification attempts for a specific OTP ID.
-   */
-  getOtpAttempts(otpId: string): number {
+  async getOtpAttempts(otpId: string): Promise<number> {
     const key = this.buildAttemptsKey(otpId);
-    const count = this.cache.get(key);
+    const count = await this.redis.get<number>(key);
     return typeof count === 'number' ? count : 0;
   }
 
-  /**
-   * Atomically increments and returns the failed attempt counter for a specific OTP ID.
-   */
-  incrementOtpAttempts(
+  async incrementOtpAttempts(
     otpId: string,
-    ttlMs: number = this.DEFAULT_OTP_ATTEMPTS_TTL_MS,
-  ): number {
+    ttlMs: number = this.DEFAULT_OTP_ATTEMPTS_TTL_S * 1000,
+  ): Promise<number> {
     const key = this.buildAttemptsKey(otpId);
-    const current = this.getOtpAttempts(otpId);
+    const current = await this.getOtpAttempts(otpId);
     const next = current + 1;
-    this.cache.set(key, next, { ttl: ttlMs });
+    const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+    await this.redis.set(key, next, ttlSeconds);
     return next;
   }
 
-  /**
-   * Clears the failed attempt counter for a specific OTP ID.
-   */
-  clearOtpAttempts(otpId: string): void {
+  async clearOtpAttempts(otpId: string): Promise<void> {
     const key = this.buildAttemptsKey(otpId);
-    this.cache.delete(key);
+    await this.redis.del(key);
   }
 
-  /**
-   * Generic get method.
-   */
-  get<T = any>(key: string): T | undefined {
-    return this.cache.get(key);
+  async get<T = any>(key: string): Promise<T | null> {
+    return this.redis.get<T>(key);
   }
 
-  /**
-   * Generic set method with TTL in milliseconds.
-   */
-  set<T = any>(key: string, value: T, ttlMs?: number): void {
-    if (ttlMs !== undefined) {
-      this.cache.set(key, value, { ttl: ttlMs });
-    } else {
-      this.cache.set(key, value);
-    }
+  async set<T = any>(key: string, value: T, ttlMs?: number): Promise<void> {
+    const ttlSeconds = ttlMs ? Math.max(1, Math.ceil(ttlMs / 1000)) : 3600;
+    await this.redis.set(key, value, ttlSeconds);
   }
 
-  /**
-   * Generic delete method.
-   */
-  del(key: string): void {
-    this.cache.delete(key);
+  async del(key: string): Promise<void> {
+    await this.redis.del(key);
   }
 
-  /**
-   * Generic has method.
-   */
-  has(key: string): boolean {
-    return this.cache.has(key);
+  async has(key: string): Promise<boolean> {
+    const val = await this.redis.get(key);
+    return val !== null;
   }
 }

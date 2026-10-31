@@ -1,6 +1,8 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../common/redis/redis.service';
+import { CacheKeys } from '../../../common/redis/cache-keys';
 import { ShippingService } from './shipping.service';
 import { EkartProvider } from './providers/ekart.provider';
 import { ShippingProvider } from './providers/shipping-provider.interface';
@@ -9,26 +11,21 @@ export interface DeliveryEstimateResult {
   available: boolean;
   pincode: string;
   courierName?: string;
-  estimatedDeliveryDate?: string; // YYYY-MM-DD
-  estimatedDeliveryDays?: number; // e.g. 7
-  formattedDate?: string; // e.g. "7 Oct"
+  estimatedDeliveryDate?: string;
+  estimatedDeliveryDays?: number;
+  formattedDate?: string;
   message?: string;
-}
-
-interface CacheEntry {
-  data: DeliveryEstimateResult;
-  expiresAt: number;
 }
 
 @Injectable()
 export class DeliveryEstimateService {
   private readonly logger = new Logger(DeliveryEstimateService.name);
-  private readonly cache = new Map<string, CacheEntry>();
-  private readonly CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes cache
+  private readonly CACHE_TTL_S = 900; // 15 minutes
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly redis: RedisService,
     @Optional() private readonly shippingService?: ShippingService,
     @Optional() private readonly ekartProvider?: EkartProvider,
   ) {}
@@ -112,12 +109,11 @@ export class DeliveryEstimateService {
     // Use chargeable weight for serviceability if available
     const effectiveWeight = chargeableWeight ?? weight;
 
-    // 4. Check in-memory cache
-    const cacheKey = `${provider.providerName}_${pickupPostcode}_${rawPincode}_${effectiveWeight.toFixed(2)}_${isCod ? 1 : 0}`;
-    const cached = this.cache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.data;
-    }
+    // 4. Check Redis cache
+    const rawCacheKey = `${provider.providerName}_${pickupPostcode}_${rawPincode}_${effectiveWeight.toFixed(2)}_${isCod ? 1 : 0}`;
+    const cacheKey = CacheKeys.shippingServiceability(rawCacheKey);
+    const cached = await this.redis.get<DeliveryEstimateResult>(cacheKey);
+    if (cached) return cached;
 
     // 5. Query active provider serviceability
     try {
@@ -137,10 +133,7 @@ export class DeliveryEstimateService {
           pincode: rawPincode,
           message: 'Delivery is currently unavailable for this pincode.',
         };
-        this.cache.set(cacheKey, {
-          data: result,
-          expiresAt: Date.now() + this.CACHE_TTL_MS,
-        });
+        await this.redis.set(cacheKey, result, this.CACHE_TTL_S);
         return result;
       }
 
@@ -178,10 +171,7 @@ export class DeliveryEstimateService {
         formattedDate: formattedDateStr,
       };
 
-      this.cache.set(cacheKey, {
-        data: result,
-        expiresAt: Date.now() + this.CACHE_TTL_MS,
-      });
+      await this.redis.set(cacheKey, result, this.CACHE_TTL_S);
       return result;
     } catch (err: any) {
       this.logger.error(

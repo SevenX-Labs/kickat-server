@@ -8,6 +8,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { CacheKeys } from '../../common/redis/cache-keys';
 import { ShippingService } from '../admin/shipping/shipping.service';
 import { RazorpayService } from './razorpay.service';
 import {
@@ -47,6 +49,7 @@ export class PaymentsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly razorpayService: RazorpayService,
     private readonly notificationsService: NotificationsService,
     @Optional() private readonly shippingService?: ShippingService,
@@ -1334,7 +1337,14 @@ export class PaymentsService {
           ? `${eventType}_${orderEntity.id}`
           : `evt_${Date.now()}`);
 
-    // Duplicate check for webhook idempotency
+    // Fast Redis idempotency check before hitting DB
+    const idempotencyKey = CacheKeys.webhookIdempotency(eventId);
+    const isNew = await this.redis.setNX(idempotencyKey, '1', 86400000);
+    if (!isNew) {
+      return { success: true, message: 'Webhook event already processed' };
+    }
+
+    // DB idempotency check as fallback
     const existingLog = await this.prisma.webhookLog.findUnique({
       where: { eventId },
     });

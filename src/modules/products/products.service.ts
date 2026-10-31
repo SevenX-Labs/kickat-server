@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { CacheKeys } from '../../common/redis/cache-keys';
 import {
   ProductCatalogSortEnum,
   ProductsQueryDto,
@@ -11,7 +13,10 @@ import {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * GET /products
@@ -85,6 +90,10 @@ export class ProductsService {
   }
 
   async getProductByIdOrSlug(idOrSlug: string) {
+    const cacheKey = CacheKeys.productDetails(idOrSlug);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         idOrSlug,
@@ -105,10 +114,16 @@ export class ProductsService {
       throw new NotFoundException(`Product not found`);
     }
 
-    return {
-      success: true,
-      product,
-    };
+    const result = { success: true, product };
+    await this.redis.set(cacheKey, result, 1800);
+    // Also cache by the other identifier (id vs slug) for cross-lookup hits
+    if (product.slug && product.slug !== idOrSlug) {
+      await this.redis.set(CacheKeys.productDetails(product.slug), result, 1800);
+    }
+    if (product.id !== idOrSlug) {
+      await this.redis.set(CacheKeys.productDetails(product.id), result, 1800);
+    }
+    return result;
   }
 
   /**

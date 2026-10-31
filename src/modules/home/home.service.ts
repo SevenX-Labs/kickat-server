@@ -6,6 +6,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { CacheKeys } from '../../common/redis/cache-keys';
 import {
   CategoryProductsQueryDto,
   ProductSortEnum,
@@ -18,7 +20,10 @@ import { OrderStatusEnum } from '@prisma/client';
 
 @Injectable()
 export class HomeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * GET /home (Home feed aggregator)
@@ -34,6 +39,10 @@ export class HomeService {
         petSpeciesFilter = pet.species;
       }
     }
+
+    const cacheKey = CacheKeys.homeFeed(petSpeciesFilter);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
 
     const [banners, categories, trendingProducts, bestSellers, testimonials] =
       await Promise.all([
@@ -70,7 +79,7 @@ export class HomeService {
         }),
       ]);
 
-    return {
+    const result = {
       success: true,
       data: {
         banners,
@@ -80,6 +89,9 @@ export class HomeService {
         testimonials,
       },
     };
+
+    await this.redis.set(cacheKey, result, 300);
+    return result;
   }
 
   /**
@@ -87,52 +99,61 @@ export class HomeService {
    * Public feed of active testimonials for homepage carousel
    */
   async getTestimonials(limit = 10) {
+    const cached = await this.redis.get<any>(CacheKeys.testimonials());
+    if (cached) return cached;
+
     const testimonials = await this.prisma.testimonial.findMany({
       where: { isActive: true, deletedAt: null },
       orderBy: [{ order: "asc" }, { createdAt: "desc" }],
       take: limit,
     });
 
-    return {
-      success: true,
-      data: testimonials,
-    };
+    const result = { success: true, data: testimonials };
+    await this.redis.set(CacheKeys.testimonials(), result, 600);
+    return result;
   }
 
   /**
    * GET /home/banners
    */
   async getBanners() {
+    const cached = await this.redis.get<any>(CacheKeys.banners());
+    if (cached) return cached;
+
     const banners = await this.prisma.banner.findMany({
       where: { isActive: true },
       orderBy: { order: 'asc' },
     });
 
-    return {
-      success: true,
-      banners,
-    };
+    const result = { success: true, banners };
+    await this.redis.set(CacheKeys.banners(), result, 600);
+    return result;
   }
 
   /**
    * GET /categories (Flat list)
    */
   async getCategories() {
+    const cached = await this.redis.get<any>(CacheKeys.categoriesFlat());
+    if (cached) return cached;
+
     const categories = await this.prisma.category.findMany({
       where: { isActive: true },
       orderBy: { order: 'asc' },
     });
 
-    return {
-      success: true,
-      categories,
-    };
+    const result = { success: true, categories };
+    await this.redis.set(CacheKeys.categoriesFlat(), result, 600);
+    return result;
   }
 
   /**
    * GET /categories/tree (Hierarchical tree)
    */
   async getCategoryTree() {
+    const cached = await this.redis.get<any>(CacheKeys.categoriesTree());
+    if (cached) return cached;
+
     const categories = await this.prisma.category.findMany({
       where: { isActive: true, parentId: null },
       include: {
@@ -144,16 +165,19 @@ export class HomeService {
       orderBy: { order: 'asc' },
     });
 
-    return {
-      success: true,
-      categories,
-    };
+    const result = { success: true, categories };
+    await this.redis.set(CacheKeys.categoriesTree(), result, 600);
+    return result;
   }
 
   /**
    * GET /categories/:id
    */
   async getCategoryById(id: string) {
+    const cacheKey = CacheKeys.categoryById(id);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     const category = await this.prisma.category.findUnique({
       where: { id },
       include: {
@@ -165,10 +189,9 @@ export class HomeService {
       throw new NotFoundException(`Category not found`);
     }
 
-    return {
-      success: true,
-      category,
-    };
+    const result = { success: true, category };
+    await this.redis.set(cacheKey, result, 600);
+    return result;
   }
 
   /**

@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { CacheKeys } from '../../common/redis/cache-keys';
 import { SettingsService } from '../admin/settings/settings.service';
 import { ConfigService } from '@nestjs/config';
 import { PaymentsService } from '../payments/payments.service';
@@ -28,6 +30,7 @@ export class CheckoutService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
     private readonly stockAlertService: StockAlertService,
@@ -156,7 +159,7 @@ export class CheckoutService {
         throw new NotFoundException("Product not found or inactive");
       }
 
-      let variant = null;
+      let variant: any = null;
       if (buyNowParams.buyNowVariantId) {
         variant = await this.prisma.productVariant.findUnique({
           where: { id: buyNowParams.buyNowVariantId },
@@ -195,8 +198,8 @@ export class CheckoutService {
           productId: product.id,
           variantId: variant?.id,
           title: product.name,
-          variantName: variant?.title || null,
-          sku: variant?.sku || product.sku || null,
+          variantName: variant?.name || null,
+          sku: variant?.sku || null,
           image: (variant?.images && variant.images[0]) || (product.images && product.images[0]) || null,
           price: unitPrice,
           quantity: qty,
@@ -566,7 +569,7 @@ export class CheckoutService {
       if (!product || product.deletedAt !== null || product.status !== "ACTIVE") {
         throw new ConflictException(`Product ${product?.name || "selected"} is no longer available`);
       }
-      let variant = null;
+      let variant: any = null;
       if (dto.buyNowItem.variantId) {
         variant = await this.prisma.productVariant.findUnique({
           where: { id: dto.buyNowItem.variantId },
@@ -699,6 +702,18 @@ export class CheckoutService {
       );
     }
     const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    // Acquire distributed locks for each product/variant in the cart
+    const lockToken = randomUUID();
+    const acquiredLocks: string[] = [];
+    for (const item of cartItems) {
+      const lockKey = CacheKeys.stockLock(item.variantId || item.productId);
+      const acquired = await this.redis.setNX(lockKey, lockToken, 3000);
+      if (acquired) {
+        acquiredLocks.push(lockKey);
+      }
+      // If lock fails, proceed anyway — the DB transaction is the real guard
+    }
 
     try {
       // Execute atomic stock deduction, order creation, cart clearing, and reservation fulfillment in one transaction
@@ -925,6 +940,11 @@ export class CheckoutService {
         }
       }
       throw error;
+    } finally {
+      // Release all acquired stock locks
+      for (const lockKey of acquiredLocks) {
+        await this.redis.releaseLock(lockKey, lockToken);
+      }
     }
   }
 }

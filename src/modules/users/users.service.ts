@@ -152,7 +152,7 @@ export class UsersService {
     }
 
     // 1. 60-second cooldown check (isolated user-email namespace)
-    if (this.otpCacheService.isCooldownActive(email, 'user-email')) {
+    if (await this.otpCacheService.isCooldownActive(email, 'user-email')) {
       throw new HttpException(
         'Please wait 60 seconds before requesting another OTP',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -190,8 +190,8 @@ export class UsersService {
       },
     });
 
-    // 4. Activate 60s cooldown in LRU cache
-    this.otpCacheService.setCooldown(email, 'user-email', 60 * 1000);
+    // 4. Activate 60s cooldown
+    await this.otpCacheService.setCooldown(email, 'user-email', 60 * 1000);
 
     await this.emailService.sendOtpEmail(email, otp);
     this.logger.log(`[EMAIL VERIFICATION OTP SENT] Dispatched to ${this.maskEmail(email)}`);
@@ -262,7 +262,7 @@ export class UsersService {
     }
 
     // 3. Check per-OTP attempt limit (5 attempts per individual OTP)
-    const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
+    const cachedAttempts = await this.otpCacheService.getOtpAttempts(latestOtp.id);
     if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
@@ -277,7 +277,7 @@ export class UsersService {
     // 4. Verify OTP
     const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
     if (!isMatch) {
-      const updatedAttempts = this.otpCacheService.incrementOtpAttempts(latestOtp.id);
+      const updatedAttempts = await this.otpCacheService.incrementOtpAttempts(latestOtp.id);
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
         data: { attempts: { increment: 1 } },
@@ -302,7 +302,7 @@ export class UsersService {
       where: { id: latestOtp.id },
       data: { isUsed: true },
     });
-    this.otpCacheService.clearOtpAttempts(latestOtp.id);
+    await this.otpCacheService.clearOtpAttempts(latestOtp.id);
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
@@ -365,7 +365,7 @@ export class UsersService {
     }
 
     // 1. 60-second cooldown check (isolated user-phone namespace)
-    if (this.otpCacheService.isCooldownActive(phone, 'user-phone')) {
+    if (await this.otpCacheService.isCooldownActive(phone, 'user-phone')) {
       throw new HttpException(
         'Please wait 60 seconds before requesting another OTP',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -403,8 +403,8 @@ export class UsersService {
       },
     });
 
-    // 4. Activate 60s cooldown in LRU cache
-    this.otpCacheService.setCooldown(phone, 'user-phone', 60 * 1000);
+    // 4. Activate 60s cooldown
+    await this.otpCacheService.setCooldown(phone, 'user-phone', 60 * 1000);
 
     this.logger.log(`[MOBILE VERIFICATION OTP SENT] Dispatched to ${this.maskPhone(phone)}`);
     await this.otpSmsService?.sendOtpSms(phone, otp);
@@ -477,7 +477,7 @@ export class UsersService {
     }
 
     // 3. Check per-OTP attempt limit (5 attempts per OTP)
-    const cachedAttempts = this.otpCacheService.getOtpAttempts(latestOtp.id);
+    const cachedAttempts = await this.otpCacheService.getOtpAttempts(latestOtp.id);
     if (latestOtp.attempts >= 5 || cachedAttempts >= 5) {
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
@@ -492,7 +492,7 @@ export class UsersService {
     // 4. Verify OTP
     const isMatch = await bcrypt.compare(dto.otp, latestOtp.otpHash);
     if (!isMatch) {
-      const updatedAttempts = this.otpCacheService.incrementOtpAttempts(latestOtp.id);
+      const updatedAttempts = await this.otpCacheService.incrementOtpAttempts(latestOtp.id);
       await this.prisma.otpLog.update({
         where: { id: latestOtp.id },
         data: { attempts: { increment: 1 } },
@@ -517,7 +517,7 @@ export class UsersService {
       where: { id: latestOtp.id },
       data: { isUsed: true },
     });
-    this.otpCacheService.clearOtpAttempts(latestOtp.id);
+    await this.otpCacheService.clearOtpAttempts(latestOtp.id);
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
