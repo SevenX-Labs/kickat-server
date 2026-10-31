@@ -290,6 +290,11 @@ export class ProductAttributesDto {
 
   @IsOptional()
   @IsArray()
+  @IsString({ each: true })
+  safetyBadges?: string[];
+
+  @IsOptional()
+  @IsArray()
   @ArrayMaxSize(50, { message: 'Maximum 50 custom attributes allowed' })
   @ValidateNested({ each: true })
   @Type(() => CustomProductAttributeDto)
