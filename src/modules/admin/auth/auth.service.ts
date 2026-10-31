@@ -51,6 +51,31 @@ export class AuthService {
   }
 
   /**
+   * Fast, constant-time HMAC-SHA256 OTP hashing with pepper.
+   */
+  private hashOtp(otp: string): string {
+    const pepper =
+      this.configService?.get<string>('JWT_ACCESS_SECRET') ||
+      process.env.JWT_ACCESS_SECRET ||
+      'kickat_otp_secure_pepper_2026';
+    return crypto.createHmac('sha256', pepper).update(otp).digest('hex');
+  }
+
+  /**
+   * Verifies an OTP against a stored hash with constant-time HMAC and bcrypt fallback.
+   */
+  private async verifyOtpHash(inputOtp: string, storedHash: string): Promise<boolean> {
+    if (!storedHash || !inputOtp) return false;
+
+    if (storedHash.length === 64 && !storedHash.startsWith('$2')) {
+      const computed = this.hashOtp(inputOtp);
+      return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(storedHash));
+    }
+
+    return bcrypt.compare(inputOtp, storedHash);
+  }
+
+  /**
    * POST /api/v1/admin/auth/login
    */
   async login(dto: AdminLoginDto, req: Request) {
@@ -284,7 +309,7 @@ export class AuthService {
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpHash = await bcrypt.hash(otp, 10);
+    const otpHash = this.hashOtp(otp);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await this.prisma.adminResetToken.create({
@@ -299,7 +324,9 @@ export class AuthService {
       `[ADMIN OTP SENT] Admin: ${admin.adminId} (${admin.email}) | OTP: ${otp}`,
     );
 
-    await this.emailService.sendOtpEmail(admin.email, otp);
+    void Promise.resolve(this.emailService.sendOtpEmail(admin.email, otp)).catch((err) => {
+      this.logger.error(`[ADMIN OTP BG ERROR] Failed sending OTP email: ${err?.message || err}`);
+    });
 
     return {
       success: true,
@@ -353,7 +380,7 @@ export class AuthService {
       throw new UnauthorizedException('Wrong or expired OTP');
     }
 
-    const isOtpValid = await bcrypt.compare(dto.otp, latestTokenRecord.otpHash);
+    const isOtpValid = await this.verifyOtpHash(dto.otp, latestTokenRecord.otpHash);
 
     if (!isOtpValid) {
       await this.prisma.adminResetToken.update({

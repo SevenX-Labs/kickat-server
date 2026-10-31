@@ -59,6 +59,7 @@ export class EmailService {
           text: `Your Kickat verification code is ${otp}. It expires in 10 minutes.`,
           html: htmlContent,
         }),
+        signal: AbortSignal.timeout(5000),
       });
 
       const resData: any = await response.json();

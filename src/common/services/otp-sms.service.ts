@@ -70,6 +70,7 @@ export class OtpSmsService {
           phone: cleanPhone,
           otp: String(otp),
         }),
+        signal: AbortSignal.timeout(5000),
       });
 
       const resData: any = await response.json().catch(() => ({}));
