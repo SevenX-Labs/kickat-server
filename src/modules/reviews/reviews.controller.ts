@@ -54,6 +54,19 @@ export class ReviewsController {
   }
 
   /**
+   * GET /reviews/eligibility (Auth required)
+   */
+  @SkipThrottle()
+  @Auth()
+  @Get("eligibility")
+  async checkEligibility(
+    @CurrentUser("id") userId: string,
+    @Query("productId") productId: string,
+  ) {
+    return this.reviewsService.checkReviewEligibility(userId, productId);
+  }
+
+  /**
    * GET /reviews/:id (Public)
    */
   @SkipThrottle()

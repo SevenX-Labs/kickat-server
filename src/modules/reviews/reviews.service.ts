@@ -34,7 +34,9 @@ export class ReviewsService {
    */
   async createReview(userId: string, dto: CreateReviewDto) {
     this.validateUuid(dto.productId, "productId");
-    this.validateUuid(dto.orderId, "orderId");
+    if (dto.orderId) {
+      this.validateUuid(dto.orderId, "orderId");
+    }
 
     // 1. Verify product exists
     const product = await this.prisma.product.findUnique({
@@ -45,10 +47,10 @@ export class ReviewsService {
       throw new NotFoundException("Product not found");
     }
 
-    // Verify user is a verified purchaser who received the item in a DELIVERED order
+    // 2. Verify user is a verified purchaser who received the item in a DELIVERED order
     const order = await this.prisma.order.findFirst({
       where: {
-        id: dto.orderId,
+        ...(dto.orderId ? { id: dto.orderId } : {}),
         userId,
         orderStatus: OrderStatusEnum.DELIVERED,
         items: {
@@ -57,18 +59,19 @@ export class ReviewsService {
           },
         },
       },
+      orderBy: { createdAt: "desc" },
     });
 
     if (!order) {
       throw new ForbiddenException(
-        "Not a verified purchaser — must have ordered and received the product",
+        "Not a verified purchaser — must have ordered and received the product in a delivered order",
       );
     }
 
-    // 6. Check duplicate review for this product-order pair
+    // 3. Check duplicate review for this product-order pair
     const existingReview = await this.prisma.productReview.findFirst({
       where: {
-        orderId: dto.orderId,
+        orderId: order.id,
         productId: dto.productId,
       },
     });
@@ -101,7 +104,7 @@ export class ReviewsService {
           data: {
             productId: dto.productId,
             userId,
-            orderId: dto.orderId,
+            orderId: order.id,
             userName,
             rating: dto.rating,
             title: titleTrimmed,
@@ -152,6 +155,90 @@ export class ReviewsService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Check if user is eligible to review a product
+   */
+  async checkReviewEligibility(userId: string, productId: string) {
+    this.validateUuid(productId, "productId");
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException("Product not found");
+    }
+
+    const deliveredOrder = await this.prisma.order.findFirst({
+      where: {
+        userId,
+        orderStatus: OrderStatusEnum.DELIVERED,
+        items: {
+          some: {
+            productId,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        orderNumber: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!deliveredOrder) {
+      const pendingOrder = await this.prisma.order.findFirst({
+        where: {
+          userId,
+          orderStatus: { not: OrderStatusEnum.CANCELLED },
+          items: {
+            some: {
+              productId,
+            },
+          },
+        },
+        select: { id: true, orderStatus: true },
+      });
+
+      return {
+        success: true,
+        canReview: false,
+        reason: pendingOrder ? "NOT_DELIVERED" : "NOT_PURCHASED",
+        message: pendingOrder
+          ? "Your order has not been delivered yet. Reviews can be submitted once your package arrives!"
+          : "Only verified buyers who have ordered and received this product can write a review.",
+      };
+    }
+
+    const existingReview = await this.prisma.productReview.findFirst({
+      where: {
+        orderId: deliveredOrder.id,
+        productId,
+        deletedAt: null,
+      },
+      select: { id: true, rating: true, title: true, comment: true },
+    });
+
+    if (existingReview) {
+      return {
+        success: true,
+        canReview: false,
+        reason: "ALREADY_REVIEWED",
+        message: "You have already reviewed this purchase. Thank you for your feedback!",
+        existingReview,
+      };
+    }
+
+    return {
+      success: true,
+      canReview: true,
+      orderId: deliveredOrder.id,
+      orderNumber: deliveredOrder.orderNumber,
+    };
   }
 
   /**

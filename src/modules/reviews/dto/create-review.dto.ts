@@ -18,9 +18,9 @@ export class CreateReviewDto {
   @IsUUID("4", { message: "productId must be a valid UUID v4" })
   productId: string;
 
-  @IsNotEmpty({ message: "orderId is required" })
+  @IsOptional()
   @IsUUID("4", { message: "orderId must be a valid UUID v4" })
-  orderId: string;
+  orderId?: string;
 
   @IsInt({ message: "rating must be an integer" })
   @Min(1, { message: "rating must be between 1 and 5" })
