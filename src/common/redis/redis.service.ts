@@ -6,6 +6,8 @@ import { ConfigService } from '@nestjs/config';
 export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;
+  private lastErrorLogAt = 0;
+  private suppressedErrorCount = 0;
 
   constructor(private readonly configService: ConfigService) {
     this.client = new Redis({
@@ -15,7 +17,8 @@ export class RedisService implements OnModuleDestroy {
       db: this.configService.get<number>('REDIS_DB', 0),
       maxRetriesPerRequest: 3,
       retryStrategy(times) {
-        return Math.min(times * 200, 2000);
+        if (times > 20) return null;
+        return Math.min(times * 500, 30_000);
       },
       lazyConnect: true,
     });
@@ -25,7 +28,22 @@ export class RedisService implements OnModuleDestroy {
     });
 
     this.client.on('error', (err) => {
-      this.logger.warn(`Redis error: ${err.message}`);
+      const now = Date.now();
+      if (now - this.lastErrorLogAt >= 60_000) {
+        const suffix = this.suppressedErrorCount > 0
+          ? ` (suppressed ${this.suppressedErrorCount} repeated errors)`
+          : '';
+        this.logger.warn(`Redis error: ${err.message}${suffix}`);
+        this.lastErrorLogAt = now;
+        this.suppressedErrorCount = 0;
+      } else {
+        this.suppressedErrorCount++;
+      }
+    });
+
+    this.client.on('connect', () => {
+      this.logger.log('Redis connected');
+      this.suppressedErrorCount = 0;
     });
   }
 
