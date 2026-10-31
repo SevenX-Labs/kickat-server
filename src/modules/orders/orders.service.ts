@@ -12,6 +12,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { CacheKeys } from '../../common/redis/cache-keys';
 import {
   GetOrdersQueryDto,
   OrderStatusQueryEnum,
@@ -79,6 +81,7 @@ export class OrdersService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
     private readonly stockAlertService: StockAlertService,
@@ -626,23 +629,7 @@ export class OrdersService {
     awb: string | null,
   ): string {
     if (!awb) return '';
-    const c = (courier || '').toLowerCase();
-    if (c.includes('ekart')) {
-      return `https://app.elite.ekartlogistics.in/track/${awb}`;
-    }
-    if (c.includes('delhivery')) {
-      return `https://www.delhivery.com/track/package/${awb}`;
-    }
-    if (c.includes('shiprocket')) {
-      return `https://shiprocket.co/tracking/${awb}`;
-    }
-    if (c.includes('bluedart') || c.includes('blue dart')) {
-      return 'https://www.bluedart.com/tracking';
-    }
-    if (c.includes('dtdc')) {
-      return 'https://www.dtdc.in/tracking.asp';
-    }
-    return `https://app.elite.ekartlogistics.in/track/${awb}`;
+    return `https://app.elite.ekartlogistics.in/track/${encodeURIComponent(awb)}`;
   }
 
   /**
@@ -654,6 +641,10 @@ export class OrdersService {
    * invented locations or timestamps.
    */
   async getOrderTracking(userId: string, id: string) {
+    const cacheKey = CacheKeys.orderTracking(id);
+    const cached = await this.redis.get<any>(cacheKey);
+    if (cached) return cached;
+
     const order = await this.findOrderAndVerifyOwnership(userId, id);
 
     const awb = order.trackingNumber || null;
@@ -697,7 +688,7 @@ export class OrdersService {
     const lastEvent = storedEvents[storedEvents.length - 1];
     const checkpoints = timeline.filter((t) => t.isCompleted);
 
-    return {
+    const result = {
       success: true,
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -709,11 +700,8 @@ export class OrdersService {
       currentStatus: order.orderStatus,
       isRTO,
       isCancelled,
-      // Additive: lets the tracking screen show/hide a Cancel Order action.
       cancellable: this.isCancellable(order),
       cancellationBlockedReason: this.getCancellationBlockedReason(order),
-      // Additive: the tracking screen also offers Cancel Order, so it gets the
-      // same backend-owned reason catalog as the detail view.
       cancellationReasons: CANCELLATION_REASON_OPTIONS,
       origin: 'Kickat Central Warehouse, Mumbai, Maharashtra',
       destination: order.address
@@ -722,7 +710,6 @@ export class OrdersService {
       location: currentLocation,
       lastUpdated: lastEvent?.eventAt || order.updatedAt || order.createdAt,
       estimatedDelivery: order.estimatedDelivery || order.deliveryDate || null,
-      // Additive: real provider scan events, chronological.
       events,
       hasTrackingEvents: events.length > 0,
       trackingMessage: getTrackingPlaceholderMessage(order, storedEvents),
@@ -734,6 +721,9 @@ export class OrdersService {
         timestamp: cp.timestamp,
       })),
     };
+
+    await this.redis.set(cacheKey, result, 60);
+    return result;
   }
 
   /**
@@ -1295,7 +1285,7 @@ export class OrdersService {
             where: { id: returnRecord.id },
             data: {
               returnAwb: pickupResult.awbNumber,
-              courierPartner: pickupResult.courierPartner || 'Delhivery',
+              courierPartner: pickupResult.courierPartner || 'Ekart',
               pickupScheduledDate: new Date(),
               status: 'PICKUP_SCHEDULED',
             },

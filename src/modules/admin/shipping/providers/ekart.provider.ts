@@ -541,7 +541,7 @@ export class EkartProvider implements ShippingProvider {
       orderId: params.orderNumber,
       shipmentId: res.tracking_id,
       awbCode: res.tracking_id,
-      courierName: res.vendor || 'Ekart',
+      courierName: 'Ekart',
       status: 'Success',
       message: 'Ekart forward shipment created successfully',
     };
@@ -797,7 +797,7 @@ export class EkartProvider implements ShippingProvider {
       providerName: this.providerName,
       pickupId: res.tracking_id,
       awbNumber: res.tracking_id,
-      courierPartner: res.vendor || 'Ekart',
+      courierPartner: 'Ekart',
       trackingUrl: `${this.getBaseUrl()}/track/${res.tracking_id}`,
       status: 'PICKUP_SCHEDULED',
       message: 'Ekart reverse return pickup scheduled successfully',

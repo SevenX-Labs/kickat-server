@@ -554,7 +554,7 @@ export class ShippingService {
     const order = await this.findOrderByAnyIdentifier(id);
 
     const awb = order.trackingNumber || `TRK-${order.orderNumber}`;
-    const courier = order.courierPartner || 'Kickat Express';
+    const courier = order.courierPartner || 'Ekart';
     const isRTO =
       order.orderStatus === OrderStatusEnum.RETURN_INITIATED ||
       order.orderStatus === OrderStatusEnum.RETURNED;
@@ -1169,11 +1169,10 @@ export class ShippingService {
         const saved = await this.prisma.order.update({
           where: { id: order.id },
           data: {
-            shippingProvider: result.providerName,
+            shippingProvider: 'EKART',
             shiprocketOrderId: remoteOrderId,
             shiprocketShipmentId: shipmentId,
-            courierPartner:
-              result.courierName || order.courierPartner || 'Ekart',
+            courierPartner: 'Ekart',
             trackingNumber: result.awbCode || order.trackingNumber || null,
             orderStatus: targetStatus,
           },
