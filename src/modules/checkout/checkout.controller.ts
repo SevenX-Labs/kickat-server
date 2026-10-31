@@ -27,8 +27,18 @@ export class CheckoutController {
    * GET /checkout (20 req / min / user)
    */
   @Get()
-  async getCheckout(@CurrentUser('id') userId: string) {
-    return this.checkoutService.getCheckout(userId);
+  async getCheckout(
+    @CurrentUser('id') userId: string,
+    @Query('buyNowProductId') buyNowProductId?: string,
+    @Query('buyNowVariantId') buyNowVariantId?: string,
+    @Query('buyNowQuantity') buyNowQuantity?: string,
+  ) {
+    const qty = buyNowQuantity ? parseInt(buyNowQuantity, 10) : undefined;
+    return this.checkoutService.getCheckout(userId, {
+      buyNowProductId,
+      buyNowVariantId,
+      buyNowQuantity: qty && !isNaN(qty) && qty > 0 ? qty : 1,
+    });
   }
 
   /**

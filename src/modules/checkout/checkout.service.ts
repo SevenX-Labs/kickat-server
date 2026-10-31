@@ -140,7 +140,70 @@ export class CheckoutService {
   /**
    * GET /checkout
    */
-  async getCheckout(userId: string) {
+  async getCheckout(
+    userId: string,
+    buyNowParams?: {
+      buyNowProductId?: string;
+      buyNowVariantId?: string;
+      buyNowQuantity?: number;
+    },
+  ) {
+    if (buyNowParams?.buyNowProductId) {
+      const product = await this.prisma.product.findUnique({
+        where: { id: buyNowParams.buyNowProductId },
+      });
+      if (!product || product.deletedAt !== null || product.status !== "ACTIVE") {
+        throw new NotFoundException("Product not found or inactive");
+      }
+
+      let variant = null;
+      if (buyNowParams.buyNowVariantId) {
+        variant = await this.prisma.productVariant.findUnique({
+          where: { id: buyNowParams.buyNowVariantId },
+        });
+        if (!variant || variant.productId !== product.id) {
+          throw new NotFoundException("Product variant not found");
+        }
+      }
+
+      const availableStock = variant ? variant.stock : product.stock;
+      const qty = buyNowParams.buyNowQuantity || 1;
+      if (qty > availableStock) {
+        throw new ConflictException("Insufficient stock available");
+      }
+
+      const unitPrice = variant
+        ? variant.discountPrice ?? variant.price
+        : product.discountPrice ?? product.price;
+      const subtotal = unitPrice * qty;
+      const fees = await this.computeFees(subtotal);
+
+      const addresses = await this.prisma.address.findMany({
+        where: { userId },
+        orderBy: { isDefault: "desc" },
+      });
+
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      const stockReservation = await this.prisma.stockReservation.create({
+        data: { userId, expiresAt },
+      });
+
+      return {
+        success: true,
+        isBuyNow: true,
+        summary: {
+          itemCount: qty,
+          ...fees,
+        },
+        addresses,
+        paymentMethods: ["UPI", "CARD", "WALLET", "NETBANKING", "COD"],
+        stockReservation: {
+          reservationId: stockReservation.id,
+          expiresAt: stockReservation.expiresAt,
+        },
+      };
+    }
+
     const cartItems = await this.prisma.cartItem.findMany({
       where: { userId },
       include: {
@@ -476,14 +539,49 @@ export class CheckoutService {
       });
     }
 
-    // Fetch user cart
-    const cartItems = await this.prisma.cartItem.findMany({
-      where: { userId },
-      include: { product: true, variant: true },
-    });
+    const isDirectBuyNow = !!dto.buyNowItem;
+    let cartItems: Array<{
+      productId: string;
+      variantId?: string | null;
+      quantity: number;
+      product: any;
+      variant: any;
+    }> = [];
 
-    if (cartItems.length === 0) {
-      throw new ConflictException('Cart is empty or changed');
+    if (isDirectBuyNow && dto.buyNowItem) {
+      const product = await this.prisma.product.findUnique({
+        where: { id: dto.buyNowItem.productId },
+      });
+      if (!product || product.deletedAt !== null || product.status !== "ACTIVE") {
+        throw new ConflictException(`Product ${product?.name || "selected"} is no longer available`);
+      }
+      let variant = null;
+      if (dto.buyNowItem.variantId) {
+        variant = await this.prisma.productVariant.findUnique({
+          where: { id: dto.buyNowItem.variantId },
+        });
+        if (!variant || variant.productId !== product.id) {
+          throw new ConflictException(`Selected variant does not belong to product ${product.name}`);
+        }
+      }
+      cartItems = [
+        {
+          productId: product.id,
+          variantId: dto.buyNowItem.variantId || null,
+          quantity: dto.buyNowItem.quantity,
+          product,
+          variant,
+        },
+      ];
+    } else {
+      const fetchedItems = await this.prisma.cartItem.findMany({
+        where: { userId },
+        include: { product: true, variant: true },
+      });
+      if (fetchedItems.length === 0) {
+        throw new ConflictException('Cart is empty or changed');
+      }
+      cartItems = fetchedItems;
     }
 
     // Address check
@@ -729,7 +827,7 @@ export class CheckoutService {
         // 3. Clear user cart — only for COD. For an online payment the cart is
         // kept until the payment is confirmed, so a cancelled/abandoned
         // Razorpay screen leaves the customer's cart intact to retry with.
-        if (!isOnlinePayment) {
+        if (!isOnlinePayment && !isDirectBuyNow) {
           await tx.cartItem.deleteMany({ where: { userId } });
 
           // 4. Mark stock reservation fulfilled
