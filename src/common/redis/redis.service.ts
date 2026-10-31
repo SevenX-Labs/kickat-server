@@ -122,12 +122,13 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
-  async hset(key: string, field: string, value: string): Promise<void> {
+  async hset(key: string, field: string, value: string): Promise<boolean> {
     try {
-      if (!this.isReady()) return;
+      if (!this.isReady()) return false;
       await this.client.hset(key, field, value);
+      return true;
     } catch {
-      // fall through
+      return false;
     }
   }
 
@@ -146,6 +147,15 @@ export class RedisService implements OnModuleDestroy {
       return await this.client.hgetall(key);
     } catch {
       return {};
+    }
+  }
+
+  async hlen(key: string): Promise<number> {
+    try {
+      if (!this.isReady()) return 0;
+      return await this.client.hlen(key);
+    } catch {
+      return 0;
     }
   }
 

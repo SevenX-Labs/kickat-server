@@ -1,7 +1,9 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { CartService, calculateFeesHelper } from "./cart.service";
+import { CartCacheService } from "./cart-cache.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../admin/settings/settings.service";
+import { RedisService } from "../../common/redis/redis.service";
 
 describe("CartService & Fee Calculation Engine", () => {
   let service: CartService;
@@ -13,12 +15,16 @@ describe("CartService & Fee Calculation Engine", () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
     },
     product: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     productVariant: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
     guestCartItem: {
       findMany: jest.fn(),
@@ -27,6 +33,7 @@ describe("CartService & Fee Calculation Engine", () => {
       update: jest.fn(),
       deleteMany: jest.fn(),
     },
+    $transaction: jest.fn((fn: any) => fn(mockPrismaService)),
   };
 
   const mockSettingsService = {
@@ -48,13 +55,34 @@ describe("CartService & Fee Calculation Engine", () => {
     }),
   };
 
+  const mockRedisService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(undefined),
+    del: jest.fn().mockResolvedValue(undefined),
+    delByPattern: jest.fn(),
+    setNX: jest.fn().mockResolvedValue(true),
+    releaseLock: jest.fn().mockResolvedValue(true),
+    incr: jest.fn().mockResolvedValue(1),
+    expire: jest.fn(),
+    hset: jest.fn().mockResolvedValue(true),
+    hget: jest.fn().mockResolvedValue(null),
+    hgetall: jest.fn().mockResolvedValue({}),
+    hdel: jest.fn(),
+    hlen: jest.fn().mockResolvedValue(0),
+    zincrby: jest.fn().mockResolvedValue('1'),
+    zrevrange: jest.fn().mockResolvedValue([]),
+    ping: jest.fn().mockResolvedValue(true),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CartService,
+        CartCacheService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: SettingsService, useValue: mockSettingsService },
+        { provide: RedisService, useValue: mockRedisService },
       ],
     }).compile();
 
@@ -115,7 +143,7 @@ describe("CartService & Fee Calculation Engine", () => {
         extraFeeEnabled: false,
       };
       const tax = { gstEnabled: true, gstPercentage: 18 };
-      
+
       // 333.33 * 18 / 100 = 59.9994 -> rounded to 60.00
       const fees = calculateFeesHelper(333.33, delivery, tax);
       expect(fees.gstAmount).toBe(60);
@@ -163,18 +191,24 @@ describe("CartService & Fee Calculation Engine", () => {
       const mockProduct = {
         id: "prod-1",
         name: "Test Item",
+        slug: "test-item",
         price: 400,
         discountPrice: 350,
         stock: 10,
         imageUrl: "http://example.com/img.jpg",
+        images: [],
+        category: null,
       };
 
+      // Redis returns empty (cache miss) → falls through to DB
+      mockRedisService.hgetall.mockResolvedValue({});
+
       mockPrismaService.cartItem.findMany.mockResolvedValue([
-        { id: "c1", productId: "prod-1", variantId: null, quantity: 1, product: mockProduct, variant: null },
+        { id: "c1", productId: "prod-1", variantId: null, quantity: 1, createdAt: new Date(), product: mockProduct, variant: null },
       ]);
 
       mockPrismaService.guestCartItem.findMany.mockResolvedValue([
-        { id: "gc1", productId: "prod-1", variantId: null, quantity: 1, product: mockProduct, variant: null },
+        { id: "gc1", productId: "prod-1", variantId: null, quantity: 1, createdAt: new Date(), product: mockProduct, variant: null },
       ]);
 
       const userCart = await service.getCart("user-1");
@@ -185,6 +219,84 @@ describe("CartService & Fee Calculation Engine", () => {
       expect(userCart.summary.gstAmount).toBe(guestCart.summary.gstAmount);
       expect(userCart.summary.extraFeeAmount).toBe(guestCart.summary.extraFeeAmount);
       expect(userCart.summary.grandTotal).toBe(guestCart.summary.grandTotal);
+    });
+  });
+
+  describe("Redis-first cart caching", () => {
+    it("should read from Redis cache on getCart when cache is populated", async () => {
+      const cachedEntry = JSON.stringify({
+        id: "cache-item-1",
+        productId: "prod-1",
+        variantId: null,
+        quantity: 2,
+        addedAt: new Date().toISOString(),
+      });
+
+      mockRedisService.hgetall.mockResolvedValue({ "prod-1": cachedEntry });
+
+      mockPrismaService.product.findMany.mockResolvedValue([
+        {
+          id: "prod-1", name: "Cached Product", slug: "cached-product",
+          price: 500, discountPrice: 400, imageUrl: null, images: [],
+          stock: 10, status: "ACTIVE", deletedAt: null,
+          category: { id: "cat-1", name: "Cat", slug: "cat" },
+        },
+      ]);
+      mockPrismaService.productVariant.findMany.mockResolvedValue([]);
+
+      const result = await service.getCart("user-1");
+
+      expect(result.success).toBe(true);
+      expect(result.items).toHaveLength(1);
+      expect((result.items[0] as any).id).toBe("cache-item-1");
+      expect((result.items[0] as any).quantity).toBe(2);
+      // Should NOT have called cartItem.findMany (DB fallback)
+      expect(mockPrismaService.cartItem.findMany).not.toHaveBeenCalled();
+    });
+
+    it("should fall through to DB when Redis returns empty hash", async () => {
+      mockRedisService.hgetall.mockResolvedValue({});
+
+      const mockProduct = {
+        id: "prod-1", name: "DB Product", slug: "db-product",
+        price: 300, discountPrice: null, imageUrl: null, images: [],
+        stock: 5, category: null,
+      };
+
+      mockPrismaService.cartItem.findMany.mockResolvedValue([
+        { id: "db-item-1", productId: "prod-1", variantId: null, quantity: 1, createdAt: new Date(), product: mockProduct, variant: null },
+      ]);
+
+      const result = await service.getCart("user-1");
+
+      expect(result.success).toBe(true);
+      expect(result.items).toHaveLength(1);
+      expect((result.items[0] as any).id).toBe("db-item-1");
+      expect(mockPrismaService.cartItem.findMany).toHaveBeenCalled();
+      // Should warm the cache
+      expect(mockRedisService.hset).toHaveBeenCalled();
+    });
+
+    it("should write to Redis on addCartItem and fall through to DB when Redis fails", async () => {
+      mockPrismaService.product.findUnique.mockResolvedValue({
+        id: "prod-1", status: "ACTIVE", deletedAt: null, type: "SIMPLE", stock: 10,
+      });
+      mockPrismaService.productVariant.count.mockResolvedValue(0);
+
+      // Redis hget returns null (item doesn't exist)
+      mockRedisService.hget.mockResolvedValue(null);
+      // Redis hset fails
+      mockRedisService.hset.mockResolvedValue(false);
+
+      // DB fallback should be used
+      mockPrismaService.cartItem.findFirst.mockResolvedValue(null);
+      mockPrismaService.cartItem.create.mockResolvedValue({ id: "new-item" });
+      mockRedisService.hgetall.mockResolvedValue({});
+      mockPrismaService.cartItem.findMany.mockResolvedValue([]);
+
+      await service.addCartItem("user-1", { productId: "prod-1", quantity: 1 });
+
+      expect(mockPrismaService.cartItem.create).toHaveBeenCalled();
     });
   });
 });

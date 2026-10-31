@@ -30,6 +30,7 @@ export class CategoriesService {
     includeSoftDeleted: boolean = false,
   ): Promise<string[]> {
     const categoryIds: string[] = [rootCategoryId];
+    const visited = new Set<string>([rootCategoryId]);
 
     const getChildren = async (parentIds: string[]) => {
       if (parentIds.length === 0) return;
@@ -40,9 +41,13 @@ export class CategoriesService {
         },
         select: { id: true },
       });
-      if (children.length > 0) {
-        const childIds = children.map((c) => c.id);
-        categoryIds.push(...childIds);
+      const unvisitedChildren = children.filter((c) => !visited.has(c.id));
+      if (unvisitedChildren.length > 0) {
+        const childIds = unvisitedChildren.map((c) => c.id);
+        for (const cid of childIds) {
+          visited.add(cid);
+          categoryIds.push(cid);
+        }
         await getChildren(childIds);
       }
     };
@@ -212,7 +217,7 @@ export class CategoriesService {
           parent: cat.parent,
           isActive: cat.isActive,
           order: cat.order,
-          productsCount: aggregatedCount,
+          productsCount: aggregatedCount ?? (cat._count as any)?.products ?? 0,
           subcategoriesCount: cat._count.children,
           createdAt: cat.createdAt,
           updatedAt: cat.updatedAt,
@@ -270,16 +275,16 @@ export class CategoriesService {
     const formattedTree = await Promise.all(
       categories.map(async (cat) => {
         const rootDescendantIds = await this.getDescendantCategoryIds(cat.id);
-        const rootCount = await this.prisma.product.count({
+        const rootCount = (await this.prisma.product.count({
           where: { categoryId: { in: rootDescendantIds }, deletedAt: null },
-        });
+        })) ?? (cat._count as any)?.products ?? 0;
 
         const children = await Promise.all(
           cat.children.map(async (child) => {
             const childDescendantIds = await this.getDescendantCategoryIds(child.id);
-            const childCount = await this.prisma.product.count({
+            const childCount = (await this.prisma.product.count({
               where: { categoryId: { in: childDescendantIds }, deletedAt: null },
-            });
+            })) ?? (child._count as any)?.products ?? 0;
             return {
               id: child.id,
               name: child.name,
@@ -359,16 +364,16 @@ export class CategoriesService {
     }
 
     const descendantIds = await this.getDescendantCategoryIds(category.id);
-    const aggregatedProductsCount = await this.prisma.product.count({
+    const aggregatedProductsCount = (await this.prisma.product.count({
       where: { categoryId: { in: descendantIds }, deletedAt: null },
-    });
+    })) ?? (category._count as any)?.products ?? 0;
 
     const childrenFormatted = await Promise.all(
       category.children.map(async (c) => {
         const childDescendantIds = await this.getDescendantCategoryIds(c.id);
-        const childCount = await this.prisma.product.count({
+        const childCount = (await this.prisma.product.count({
           where: { categoryId: { in: childDescendantIds }, deletedAt: null },
-        });
+        })) ?? (c._count as any)?.products ?? 0;
         return {
           id: c.id,
           name: c.name,

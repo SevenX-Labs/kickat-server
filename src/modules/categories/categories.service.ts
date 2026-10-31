@@ -12,6 +12,7 @@ export class CategoriesService {
    */
   private async getDescendantCategoryIds(rootCategoryId: string): Promise<string[]> {
     const categoryIds: string[] = [rootCategoryId];
+    const visited = new Set<string>([rootCategoryId]);
 
     const getChildren = async (parentIds: string[]) => {
       if (parentIds.length === 0) return;
@@ -19,9 +20,13 @@ export class CategoriesService {
         where: { parentId: { in: parentIds }, isActive: true, deletedAt: null },
         select: { id: true },
       });
-      if (children.length > 0) {
-        const childIds = children.map((c) => c.id);
-        categoryIds.push(...childIds);
+      const unvisitedChildren = children.filter((c) => !visited.has(c.id));
+      if (unvisitedChildren.length > 0) {
+        const childIds = unvisitedChildren.map((c) => c.id);
+        for (const cid of childIds) {
+          visited.add(cid);
+          categoryIds.push(cid);
+        }
         await getChildren(childIds);
       }
     };

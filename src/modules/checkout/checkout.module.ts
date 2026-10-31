@@ -6,12 +6,13 @@ import { CheckoutController } from "./checkout.controller";
 import { SettingsModule } from "../admin/settings/settings.module";
 import { ShippingModule } from "../admin/shipping/shipping.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { CartModule } from "../cart/cart.module";
 
 @Module({
   // PaymentsModule: place-order creates the Razorpay order for online
   // payments so the client can open the gateway in one round-trip.
   // PaymentsModule does not import CheckoutModule - no circular dependency.
-  imports: [SettingsModule, NotificationsModule, ShippingModule, PaymentsModule],
+  imports: [SettingsModule, NotificationsModule, ShippingModule, PaymentsModule, CartModule],
   controllers: [CheckoutController],
   providers: [CheckoutService, StockReservationCleanupService],
   exports: [CheckoutService, StockReservationCleanupService],

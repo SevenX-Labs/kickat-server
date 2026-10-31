@@ -1,6 +1,7 @@
 import { StockAlertService } from "../notifications/stock-alert.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { calculateFeesHelper, roundCurrency } from "../cart/cart.service";
+import { CartService } from "../cart/cart.service";
 import {
   BadRequestException,
   ConflictException,
@@ -34,6 +35,7 @@ export class CheckoutService {
     private readonly settingsService: SettingsService,
     private readonly notificationsService: NotificationsService,
     private readonly stockAlertService: StockAlertService,
+    private readonly cartService: CartService,
     @Optional() private readonly shippingService?: ShippingService,
     @Optional() private readonly paymentsService?: PaymentsService,
     @Optional() private readonly configService?: ConfigService,
@@ -588,6 +590,9 @@ export class CheckoutService {
         },
       ];
     } else {
+      // Sync Redis cart → DB before reading, so DB has the latest state
+      await this.cartService.syncCartToDb(userId);
+
       const fetchedItems = await this.prisma.cartItem.findMany({
         where: { userId },
         include: { product: true, variant: true },
@@ -855,6 +860,8 @@ export class CheckoutService {
         // Razorpay screen leaves the customer's cart intact to retry with.
         if (!isOnlinePayment && !isDirectBuyNow) {
           await tx.cartItem.deleteMany({ where: { userId } });
+          // Clear Redis cart outside the transaction (fire-and-forget)
+          this.cartService.clearCachedCart(userId).catch(() => {});
 
           // 4. Mark stock reservation fulfilled
           await tx.stockReservation.update({

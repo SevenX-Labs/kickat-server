@@ -18,6 +18,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { StockAlertService } from '../notifications/stock-alert.service';
 import { InvoicePdfService } from '../orders/invoice-pdf.service';
 import { RedisService } from '../../common/redis/redis.service';
+import { CartService } from '../cart/cart.service';
 import { CheckoutPaymentMethodEnum } from './dto/place-order.dto';
 
 /**
@@ -205,7 +206,8 @@ describe('Abandoned online payment (Issue 2)', () => {
           provide: InvoicePdfService,
           useValue: { generateInvoicePdf: jest.fn() },
         },
-        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined), del: jest.fn().mockResolvedValue(undefined), delByPattern: jest.fn().mockResolvedValue(undefined), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn().mockResolvedValue(undefined), hset: jest.fn().mockResolvedValue(true), hget: jest.fn().mockResolvedValue(null), hgetall: jest.fn().mockResolvedValue({}), hdel: jest.fn().mockResolvedValue(undefined), hlen: jest.fn().mockResolvedValue(0), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
+        { provide: CartService, useValue: { syncCartToDb: jest.fn().mockResolvedValue(undefined), clearCachedCart: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

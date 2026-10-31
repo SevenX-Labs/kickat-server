@@ -30,6 +30,7 @@ import { AuthService } from '../auth/auth.service';
 import { UsersService } from './users.service';
 import { ProfileService } from '../profile/profile.service';
 import { CartService } from '../cart/cart.service';
+import { CartCacheService } from '../cart/cart-cache.service';
 import { WishlistService } from '../wishlist/wishlist.service';
 import { OrdersService } from '../orders/orders.service';
 import { CheckoutService } from '../checkout/checkout.service';
@@ -257,6 +258,7 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
         JwtStrategy,
         ProfileService,
         CartService,
+        CartCacheService,
         WishlistService,
         OrdersService,
         CheckoutService,
@@ -273,7 +275,7 @@ describe('Customer Authorization, IDOR, BOLA & Privilege Escalation Security Sui
         { provide: RazorpayService, useValue: mockRazorpayService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: JwtService, useValue: mockJwtService },
-        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn(), delByPattern: jest.fn(), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn(), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
+        { provide: RedisService, useValue: { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined), del: jest.fn().mockResolvedValue(undefined), delByPattern: jest.fn().mockResolvedValue(undefined), setNX: jest.fn().mockResolvedValue(true), releaseLock: jest.fn().mockResolvedValue(true), incr: jest.fn().mockResolvedValue(1), expire: jest.fn().mockResolvedValue(undefined), hset: jest.fn().mockResolvedValue(true), hget: jest.fn().mockResolvedValue(null), hgetall: jest.fn().mockResolvedValue({}), hdel: jest.fn().mockResolvedValue(undefined), hlen: jest.fn().mockResolvedValue(0), zincrby: jest.fn().mockResolvedValue('1'), zrevrange: jest.fn().mockResolvedValue([]), ping: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 

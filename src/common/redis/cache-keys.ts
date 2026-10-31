@@ -28,4 +28,7 @@ export const CacheKeys = {
   adminDashboard: (queryHash: string) => `cache:admin:dashboard:${queryHash}`,
 
   settingsGroup: (group: string) => `cache:settings:${group}`,
+
+  cart: (userId: string) => `cart:${userId}`,
+  guestCart: (sessionId: string) => `cart:guest:${sessionId}`,
 } as const;

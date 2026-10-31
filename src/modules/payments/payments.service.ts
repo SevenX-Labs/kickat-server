@@ -177,6 +177,8 @@ export class PaymentsService {
       // 3. The cart is kept until payment succeeds so a cancelled attempt
       // leaves the customer's cart intact. Clear it now.
       await tx.cartItem.deleteMany({ where: { userId: order.userId } });
+      // Clear Redis cart (fire-and-forget, outside tx)
+      this.redis.del(CacheKeys.cart(order.userId)).catch(() => {});
 
       await tx.stockReservation.updateMany({
         where: { userId: order.userId, isFulfilled: false },

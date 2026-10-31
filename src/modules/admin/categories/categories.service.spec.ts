@@ -25,11 +25,15 @@ describe('Admin CategoriesService', () => {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
       count: jest.fn(),
     },
     product: {
       count: jest.fn(),
+      updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
