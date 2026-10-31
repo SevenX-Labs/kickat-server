@@ -191,6 +191,17 @@ export class CheckoutService {
       return {
         success: true,
         isBuyNow: true,
+        buyNowItem: {
+          productId: product.id,
+          variantId: variant?.id,
+          title: product.name,
+          variantName: variant?.title || null,
+          sku: variant?.sku || product.sku || null,
+          image: (variant?.images && variant.images[0]) || (product.images && product.images[0]) || null,
+          price: unitPrice,
+          quantity: qty,
+          itemTotal: subtotal,
+        },
         summary: {
           itemCount: qty,
           ...fees,
