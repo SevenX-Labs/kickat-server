@@ -627,6 +627,9 @@ export class OrdersService {
   ): string {
     if (!awb) return '';
     const c = (courier || '').toLowerCase();
+    if (c.includes('ekart')) {
+      return `https://app.elite.ekartlogistics.in/track/${awb}`;
+    }
     if (c.includes('delhivery')) {
       return `https://www.delhivery.com/track/package/${awb}`;
     }
@@ -639,7 +642,7 @@ export class OrdersService {
     if (c.includes('dtdc')) {
       return 'https://www.dtdc.in/tracking.asp';
     }
-    return `https://track.kickat.in/shipment/${awb}`;
+    return `https://app.elite.ekartlogistics.in/track/${awb}`;
   }
 
   /**

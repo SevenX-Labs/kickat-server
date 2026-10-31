@@ -34,7 +34,7 @@ export const TRACKING_STAGE_TITLES: Record<TrackingStage, string> = {
   UPDATE: 'Shipment Update',
 };
 
-export type TrackingEventSource = 'WEBHOOK' | 'POLL';
+export type TrackingEventSource = 'WEBHOOK' | 'POLL' | 'ADMIN' | 'MANUAL';
 
 export interface ParsedTrackingEvent {
   rawStatus: string;
@@ -344,6 +344,7 @@ export function serializeTrackingEvents(events: StoredTrackingEvent[]) {
         description: step.description,
         location: step.location,
         timestamp: event.eventAt,
+        eventAt: event.eventAt,
         source: event.source,
       };
     });

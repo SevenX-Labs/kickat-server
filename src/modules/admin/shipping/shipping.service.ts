@@ -1,3 +1,4 @@
+import { OrderTrackingEventsService } from "./order-tracking-events.service";
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ConfigService } from '@nestjs/config';
 import { NullShippingProvider } from './providers/null-shipping.provider';
@@ -46,6 +47,7 @@ export class ShippingService {
     private readonly nullShippingProvider: NullShippingProvider,
     private readonly notificationsService: NotificationsService,
     @Optional() private readonly ekartProvider?: EkartProvider,
+    @Optional() private readonly trackingEventsService?: OrderTrackingEventsService,
   ) {
     if (this.ekartProvider?.isConfigured()) {
       this.shippingProvider = this.ekartProvider;
@@ -431,6 +433,26 @@ export class ShippingService {
       estimatedDelivery: updated.estimatedDelivery,
     });
 
+    if (this.trackingEventsService) {
+      await this.trackingEventsService.recordEvents(
+        updated.id,
+        [
+          {
+            rawStatus: "AWB_ASSIGNED",
+            stage: "SHIPPED",
+            description: `Assigned to ${dto.courierPartner} (AWB: ${finalAwb})`,
+            location: dto.pickupLocation || "Kickat Central Warehouse, Mumbai",
+            eventAt: new Date(),
+          },
+        ],
+        {
+          source: "ADMIN",
+          awb: finalAwb,
+          shipmentId: updated.shiprocketShipmentId,
+        },
+      ).catch(() => {});
+    }
+
     return {
       success: true,
       message: `Courier ${dto.courierPartner} and AWB ${finalAwb} assigned successfully`,
@@ -485,6 +507,26 @@ export class ShippingService {
       courierPartner: updated.courierPartner,
       estimatedDelivery: updated.estimatedDelivery,
     });
+
+    if (this.trackingEventsService) {
+      await this.trackingEventsService.recordEvents(
+        updated.id,
+        [
+          {
+            rawStatus: dto.status,
+            stage: dto.status as any,
+            description: dto.notes || `Shipment marked as ${dto.status} by merchant`,
+            location: dto.location || null,
+            eventAt: new Date(),
+          },
+        ],
+        {
+          source: "ADMIN",
+          awb: updated.trackingNumber,
+          shipmentId: updated.shiprocketShipmentId,
+        },
+      ).catch(() => {});
+    }
 
     return {
       success: true,
